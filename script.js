@@ -5,6 +5,7 @@
 const fileInput = document.getElementById("fileInput");
 const analyzeBtn = document.getElementById("analyzeBtn");
 const summaryContainer = document.getElementById("summaryContainer");
+const summaryList = document.getElementById("summaryContainer");
 const chartsContainer = document.getElementById("chartsContainer");
 const fastestContainer = document.getElementById("fastestContainer");
 const fastestTableBody = document.querySelector("#fastestTable tbody");
@@ -17,6 +18,7 @@ const sortOrderSelect = document.getElementById("sortOrder");
 
 let elevationChart = null;
 let speedChart = null;
+
 
 /* ========== persistent state for current analysis ========== */
 let currentFileBlob = null;
@@ -184,6 +186,7 @@ async function analyzeText(text, fileBlob = null, fileName = "upload") {
     clearAllHighlights();
     summaryContainer.classList.add("hidden");
     fastestContainer && fastestContainer.classList.add("hidden");
+    if (summaryList) summaryList.innerHTML = ""; // ✅ Nu bestaat summaryList
     if (fastestTableBody) fastestTableBody.innerHTML = "";
     if (debugText) debugText.textContent = "";
 
@@ -295,16 +298,16 @@ async function analyzeText(text, fileBlob = null, fileName = "upload") {
 
     const rideDate = (trackpoints[0] && trackpoints[0].time && !isNaN(trackpoints[0].time)) ? trackpoints[0].time.toISOString() : null;
 
-    currentAnalysis = {
-    fileName,
-    totalDistance,
-    totalSeconds: totalMovingSeconds, // ✅ Gebruik bewegingstijd i.p.v. totale tijd
-    totalElapsedSeconds, // Bewaar ook totale tijd voor referentie
-    elevationGain,
-    trackpoints,
-    cumDist,
-    hasTimes,
-    rideDate
+        currentAnalysis = {
+        fileName,
+        totalDistance,
+        totalSeconds: totalMovingSeconds,
+        totalElapsedSeconds,
+        elevationGain,
+        trackpoints,
+        cumDist,
+        hasTimes,
+        rideDate
     };
 
     if (summaryList) {
@@ -330,6 +333,14 @@ async function analyzeText(text, fileBlob = null, fileName = "upload") {
     }
 
     debug(`Finished analysis for ${fileName}`);
+    
+        showAnalysis();
+    
+    // En zorg dat de summary tab actief is
+    const summaryTab = document.querySelector('[data-tab="summary"]');
+    if (summaryTab) {
+        summaryTab.click();
+    }
 }
 
 
@@ -389,6 +400,8 @@ function calculateMovingTimeAlternative(trackpoints, cumDist) {
         if (speedKmh >= SPEED_THRESHOLD && timeDiff > 0) {
             movingTime += timeDiff;
         }
+
+        
     }
     
     return movingTime;
@@ -1330,128 +1343,150 @@ function showTemporaryMessage(message) {
 
 /* ========== Saved list rendering ========== */
 async function renderSavedList() {
-  if (!savedListContainer) return;
-  savedListContainer.innerHTML = "<h3>Mijn opgeslagen ritten</h3>";
+    if (!savedListContainer) return;
+    savedListContainer.innerHTML = "<h3>Mijn opgeslagen ritten</h3>";
 
-  const sortField = sortFieldSelect ? sortFieldSelect.value : "rideDate";
-  const sortOrder = sortOrderSelect ? sortOrderSelect.value : "desc";
+    const sortField = sortFieldSelect ? sortFieldSelect.value : "rideDate";
+    const sortOrder = sortOrderSelect ? sortOrderSelect.value : "desc";
 
-  let items = [];
-  try {
-    items = await listActivitiesFromDB();
-  } catch (err) {
-    console.error("lijst ophalen mislukt:", err);
-    savedListContainer.innerHTML += "<p>Fout bij ophalen ritten</p>";
-    return;
-  }
-  
-  if (!items.length) { 
-    savedListContainer.innerHTML += "<p>Geen ritten opgeslagen</p>"; 
-    return; 
-  }
+    let items = [];
+    try {
+        items = await listActivitiesFromDB();
+    } catch (err) {
+        console.error("lijst ophalen mislukt:", err);
+        savedListContainer.innerHTML += "<p>Fout bij ophalen ritten</p>";
+        return;
+    }
+    
+    if (!items.length) { 
+        savedListContainer.innerHTML += "<p>Geen ritten opgeslagen</p>"; 
+        return; 
+    }
 
-  await Promise.all(items.map(async (it) => {
-    if (!it.summary) it.summary = {};
-    if (!it.summary.rideDate) {
-      try {
-        const rd = await extractRideDateFromBlob(it.fileBlob);
-        if (rd) {
-          it.summary.rideDate = rd;
-          try { await updateActivityInDB(it); } catch (e) { console.warn("updateActivityInDB failed", e); }
+    await Promise.all(items.map(async (it) => {
+        if (!it.summary) it.summary = {};
+        if (!it.summary.rideDate) {
+            try {
+                const rd = await extractRideDateFromBlob(it.fileBlob);
+                if (rd) {
+                    it.summary.rideDate = rd;
+                    try { await updateActivityInDB(it); } catch (e) { console.warn("updateActivityInDB failed", e); }
+                }
+            } catch (e) {
+                console.warn("couldn't extract rideDate for", it.fileName, e);
+            }
         }
-      } catch (e) {
-        console.warn("couldn't extract rideDate for", it.fileName, e);
-      }
+    }));
+
+    items.sort((a, b) => {
+        let va, vb;
+        if (sortField === "rideDate") {
+            va = a.summary?.rideDate ? new Date(a.summary.rideDate).getTime() : (a.createdAt ? new Date(a.createdAt).getTime() : 0);
+            vb = b.summary?.rideDate ? new Date(b.summary.rideDate).getTime() : (b.createdAt ? new Date(b.createdAt).getTime() : 0);
+        } else if (sortField === "createdAt") {
+            va = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+            vb = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+        } else if (sortField === "distance") {
+            va = a.summary?.distanceKm ? Number(a.summary.distanceKm) : -1;
+            vb = b.summary?.distanceKm ? Number(b.summary.distanceKm) : -1;
+        } else if (sortField === "elevation") {
+            va = a.summary?.elevationGain ? Number(a.summary.elevationGain) : -1;
+            vb = b.summary?.elevationGain ? Number(b.summary.elevationGain) : -1;
+        } else {
+            va = 0; vb = 0;
+        }
+        if (va === vb) return 0;
+        const dir = (sortOrder === "asc") ? 1 : -1;
+        return (va < vb) ? -1 * dir : 1 * dir;
+    });
+
+    const ul = document.createElement("ul");
+    ul.style.paddingLeft = "0";
+    for (const it of items) {
+        const li = document.createElement("li");
+        li.style.marginBottom = "8px";
+        const distanceTxt = it.summary?.distanceKm ? `${it.summary.distanceKm} km` : "? km";
+        const elevTxt = (it.summary && it.summary.elevationGain !== undefined) ? `${it.summary.elevationGain} m` : "—";
+        const rideDateTxt = it.summary?.rideDate ? new Date(it.summary.rideDate).toLocaleString() : "????";
+        li.innerHTML = `<strong>${it.fileName}</strong> — ${distanceTxt} — ${elevTxt} — rit: ${rideDateTxt}`;
+        
+        const loadBtn = document.createElement("button"); 
+        loadBtn.textContent = "📂 Open";
+        loadBtn.className = "load-btn";
+        
+        loadBtn.onclick = async () => {
+            try {
+                console.log('📂 Open rit:', it.fileName);
+                const rec = await getActivityFromDB(it.id);
+                if (!rec || !rec.fileBlob) {
+                    alert("Kon rit niet laden: bestand niet gevonden");
+                    return;
+                }
+                const blob = rec.fileBlob;
+                const text = await blob.text();
+                console.log('📊 Analyseer rit:', rec.fileName);
+                await analyzeText(text, blob, rec.fileName);
+            } catch (error) {
+                console.error('❌ Fout bij openen rit:', error);
+                alert("Fout bij openen rit: " + error.message);
+            }
+        };
+        
+        const dlBtn = document.createElement("button"); 
+        dlBtn.textContent = "💾 Download";
+        dlBtn.className = "download-btn";
+
+        dlBtn.onclick = () => {
+            try {
+                const url = URL.createObjectURL(it.fileBlob);
+                const a = document.createElement("a"); 
+                a.href = url; 
+                a.download = it.fileName; 
+                a.click();
+                URL.revokeObjectURL(url);
+            } catch (error) {
+                console.error('❌ Fout bij downloaden:', error);
+                alert("Fout bij downloaden: " + error.message);
+            }
+        };
+        
+        const delBtn = document.createElement("button"); 
+        delBtn.textContent = "🗑️ Verwijder";
+        delBtn.className = "delete-btn"; 
+        
+        delBtn.onclick = async () => { 
+            if (confirm(`Weet je zeker dat je "${it.fileName}" wilt verwijderen?`)) {
+                try {
+                    await deleteActivityFromDB(it.id);
+                    await renderSavedList();
+                } catch (error) {
+                    console.error('❌ Fout bij verwijderen:', error);
+                    alert("Fout bij verwijderen: " + error.message);
+                }
+            }
+        };
+        
+        li.appendChild(loadBtn); 
+        li.appendChild(dlBtn); 
+        li.appendChild(delBtn);
+        ul.appendChild(li);
     }
-  }));
+    savedListContainer.appendChild(ul);
 
-  items.sort((a, b) => {
-    let va, vb;
-    if (sortField === "rideDate") {
-      va = a.summary?.rideDate ? new Date(a.summary.rideDate).getTime() : (a.createdAt ? new Date(a.createdAt).getTime() : 0);
-      vb = b.summary?.rideDate ? new Date(b.summary.rideDate).getTime() : (b.createdAt ? new Date(b.createdAt).getTime() : 0);
-    } else if (sortField === "createdAt") {
-      va = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-      vb = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-    } else if (sortField === "distance") {
-      va = a.summary?.distanceKm ? Number(a.summary.distanceKm) : -1;
-      vb = b.summary?.distanceKm ? Number(b.summary.distanceKm) : -1;
-    } else if (sortField === "elevation") {
-      va = a.summary?.elevationGain ? Number(a.summary.elevationGain) : -1;
-      vb = b.summary?.elevationGain ? Number(b.summary.elevationGain) : -1;
-    } else {
-      va = 0; vb = 0;
+    // VERGELIJKING CODE TOEVOEGEN
+    await populateComparisonSelects();
+    
+    const comparisonContainer = document.getElementById('comparisonContainer');
+    const activities = await listActivitiesFromDB();
+    
+    if (comparisonContainer) {
+        if (activities.length >= 2) {
+            comparisonContainer.classList.remove('hidden');
+        } else {
+            comparisonContainer.classList.add('hidden');
+        }
     }
-    if (va === vb) return 0;
-    const dir = (sortOrder === "asc") ? 1 : -1;
-    return (va < vb) ? -1 * dir : 1 * dir;
-  });
-
-  const ul = document.createElement("ul");
-  ul.style.paddingLeft = "0";
-  for (const it of items) {
-    const li = document.createElement("li");
-    li.style.marginBottom = "8px";
-    const distanceTxt = it.summary?.distanceKm ? `${it.summary.distanceKm} km` : "? km";
-    const elevTxt = (it.summary && it.summary.elevationGain !== undefined) ? `${it.summary.elevationGain} m` : "—";
-    const rideDateTxt = it.summary?.rideDate ? new Date(it.summary.rideDate).toLocaleString() : "????";
-    li.innerHTML = `<strong>${it.fileName}</strong> — ${distanceTxt} — ${elevTxt} — rit: ${rideDateTxt}`;
-    
-    const loadBtn = document.createElement("button"); 
-    loadBtn.textContent = "📂 Open";
-    loadBtn.className = "load-btn"; // Nieuwe class
-    
-    loadBtn.onclick = async () => {
-      const rec = await getActivityFromDB(it.id);
-      const blob = rec.fileBlob;
-      const text = await blob.text();
-      await analyzeText(text, blob, rec.fileName);
-    };
-    
-    const dlBtn = document.createElement("button"); 
-    dlBtn.textContent = "💾 Download";
-    dlBtn.className = "download-btn"; // Nieuwe class
-
-    dlBtn.onclick = () => {
-      const url = URL.createObjectURL(it.fileBlob);
-      const a = document.createElement("a"); 
-      a.href = url; 
-      a.download = it.fileName; 
-      a.click();
-      URL.revokeObjectURL(url);
-    };
-    
-    const delBtn = document.createElement("button"); 
-    delBtn.textContent = "🗑️ Verwijder";
-    delBtn.className = "delete-btn"; 
-    
-    delBtn.onclick = async () => { 
-      await deleteActivityFromDB(it.id); 
-      await renderSavedList(); 
-    };
-    
-    li.appendChild(loadBtn); 
-    li.appendChild(dlBtn); 
-    li.appendChild(delBtn);
-    ul.appendChild(li);
-  }
-  savedListContainer.appendChild(ul);
-
-  // VERGELIJKING CODE TOEVOEGEN
-  await populateComparisonSelects();
-  
-  const comparisonContainer = document.getElementById('comparisonContainer');
-  const activities = await listActivitiesFromDB();
-  
-  if (comparisonContainer) {
-      if (activities.length >= 2) {
-          comparisonContainer.classList.remove('hidden');
-      } else {
-          comparisonContainer.classList.add('hidden');
-      }
-  }
 }
-
 
 /* ========== Statistics functions ========== */
 async function updateStatistics() {
@@ -1509,48 +1544,79 @@ function updateLongestRidesList(items) {
 
 /* ========== Tab management ========== */
 function initTabs() {
-  const tabButtons = document.querySelectorAll('.tab-button');
-  const tabContents = document.querySelectorAll('.tab-content');
-  
-  tabButtons.forEach(button => {
-    button.addEventListener('click', () => {
-      const tabId = button.getAttribute('data-tab');
-      
-      tabButtons.forEach(btn => btn.classList.remove('active'));
-      tabContents.forEach(content => content.classList.remove('active'));
-      
-      button.classList.add('active');
-      document.getElementById(`${tabId}-tab`).classList.add('active');
-      
-      if (tabId === 'charts' && currentAnalysis) {
-        setTimeout(() => {
-          showElevationChart(currentAnalysis.trackpoints, currentAnalysis.cumDist);
-          showSpeedChart(currentAnalysis.trackpoints, currentAnalysis.cumDist);
-        }, 100);
-      }
-      
-      if (tabId === 'stats') {
-        updateStatistics();
-      }
-      
-      if (tabId === 'rankings') {
-        initRankings();
-      }
-      
-      if (tabId === 'saved') {
-        renderSavedList();
-      }
+    const tabButtons = document.querySelectorAll('.tab-button');
+    const tabContents = document.querySelectorAll('.tab-content');
+    
+    tabButtons.forEach(button => {
+        button.addEventListener('click', () => {
+            const tabId = button.getAttribute('data-tab');
+            
+            tabButtons.forEach(btn => btn.classList.remove('active'));
+            tabContents.forEach(content => content.classList.remove('active'));
+            
+            button.classList.add('active');
+            document.getElementById(`${tabId}-tab`).classList.add('active');
+            
+            if (tabId === 'charts' && currentAnalysis) {
+                setTimeout(() => {
+                    showElevationChart(currentAnalysis.trackpoints, currentAnalysis.cumDist);
+                    showSpeedChart(currentAnalysis.trackpoints, currentAnalysis.cumDist);
+                }, 100);
+            }
+            
+            if (tabId === 'stats') {
+                updateStatistics();
+            }
+            
+            if (tabId === 'rankings') {
+                // Zorg dat rangschikking direct op datum staat
+                const chartSortBy = document.getElementById('chartSortBy');
+                if (chartSortBy && chartSortBy.value !== 'date') {
+                    chartSortBy.value = 'date';
+                }
+                initRankings();
+            }
+            
+            if (tabId === 'saved') {
+                renderSavedList();
+            }
+        });
     });
-  });
+    
+    // Zorg dat rangschikking tab correct geïnitialiseerd is bij pagina load
+    const activeTab = document.querySelector('.tab-button.active');
+    if (activeTab && activeTab.getAttribute('data-tab') === 'rankings') {
+        const chartSortBy = document.getElementById('chartSortBy');
+        if (chartSortBy) {
+            chartSortBy.value = 'date';
+        }
+        initRankings();
+    }
 }
+
 
 /* ========== Event handlers ========== */
 analyzeBtn.addEventListener("click", async () => {
-  const file = fileInput.files[0];
-  if (!file) { alert("Kies eerst een TCX of GPX bestand."); return; }
-  const text = await file.text();
-  await analyzeText(text, file, file.name);
+    const file = fileInput.files[0];
+    if (!file) { 
+        alert("Kies eerst een TCX of GPX bestand."); 
+        return; 
+    }
+    
+    try {
+        console.log('📁 Bestand geselecteerd:', file.name);
+        const text = await file.text();
+        console.log('📊 Start analyse...');
+        await analyzeText(text, file, file.name);
+    } catch (error) {
+        console.error('❌ Fout bij analyseren:', error);
+        alert("Fout bij analyseren: " + error.message);
+    }
 });
+
+if (sortFieldSelect) sortFieldSelect.addEventListener("change", () => renderSavedList());
+if (sortOrderSelect) sortOrderSelect.addEventListener("change", () => renderSavedList());
+
 
 if (sortFieldSelect) sortFieldSelect.addEventListener("change", () => renderSavedList());
 if (sortOrderSelect) sortOrderSelect.addEventListener("change", () => renderSavedList());
@@ -2339,6 +2405,9 @@ async function showRankings(distance) {
             return;
         }
 
+        // Haal de huidige sortering op (standaard is 'date')
+        const sortBy = document.getElementById('chartSortBy')?.value || 'date';
+        
         // Toon rangschikking met grafiek
         let html = `
             <div class="rankings-chart-container">
@@ -2355,9 +2424,9 @@ async function showRankings(distance) {
                         </select>
                         <label>Sorteer op:</label>
                         <select id="chartSortBy">
-                            <option value="speed" selected>Snelheid</option>
-                            <option value="date">Datum</option>
-                            <option value="duration">Tijd</option>
+                            <option value="date" ${sortBy === 'date' ? 'selected' : ''}>Datum</option>
+                            <option value="speed" ${sortBy === 'speed' ? 'selected' : ''}>Snelheid</option>
+                            <option value="duration" ${sortBy === 'duration' ? 'selected' : ''}>Tijd</option>
                         </select>
                     </div>
                 </div>
@@ -2366,16 +2435,18 @@ async function showRankings(distance) {
                 </div>
                 <div class="rankings-legend">
                     <div class="legend-item">
-                        <div class="legend-color" style="background: #2563eb;"></div>
+                        <div class="legend-color" style="background: #3b82f6;"></div>
                         <span>Snelheid (km/u)</span>
                     </div>
+                    ${sortBy === 'date' ? `
                     <div class="legend-item">
-                        <div class="legend-color" style="background: #10b981;"></div>
-                        <span>Gemiddeld</span>
+                        <div class="legend-color" style="background: #dc2626;"></div>
+                        <span>Trendlijn</span>
                     </div>
+                    ` : ''}
                     <div class="legend-item">
                         <div class="legend-color" style="background: #f59e0b;"></div>
-                        <span>Top 3</span>
+                        <span>Gemiddeld</span>
                     </div>
                 </div>
             </div>
@@ -2400,9 +2471,55 @@ async function showRankings(distance) {
             </div>
 
             <div style="margin: 25px 0; padding: 15px; background: var(--success-color); color: white; border-radius: 8px; text-align: center;">
-                ✅ ${segments.length} ${distance} km segmenten gevonden - Top ${Math.min(segments.length, 50)} getoond in tabel
+                ✅ ${segments.length} ${distance} km segmenten gevonden - Toont ${sortBy === 'date' ? 'op datum (oud → nieuw)' : sortBy === 'speed' ? 'op snelheid' : 'op tijd'}
             </div>
+        `;
 
+        // Voeg MSE analyse toe (alleen voor datum-sortering)
+        if (sortBy === 'date') {
+            const regression = calculateLinearRegression(segments, 'date');
+            if (regression) {
+                html += `
+                    <div class="mse-analysis">
+                        <div class="mse-stats">
+                            <h5>📈 Trendanalyse (Op Datum)</h5>
+                            <div class="mse-grid">
+                                <div class="mse-stat">
+                                    <span class="mse-label">Trendvergelijking:</span>
+                                    <span class="mse-value">${regression.equation}</span>
+                                </div>
+                                <div class="mse-stat">
+                                    <span class="mse-label">R² (verklaarde variantie):</span>
+                                    <span class="mse-value">${regression.rSquared.toFixed(4)}</span>
+                                </div>
+                                <div class="mse-stat">
+                                    <span class="mse-label">Helling (km/u per dag):</span>
+                                    <span class="mse-value">${regression.slope.toFixed(4)}</span>
+                                </div>
+                                <div class="mse-stat">
+                                    <span class="mse-label">Startpunt (oudste rit):</span>
+                                    <span class="mse-value">${regression.intercept.toFixed(1)} km/u</span>
+                                </div>
+                            </div>
+                            <div class="mse-explanation">
+                                <p><strong>Interpretatie:</strong> De trendlijn laat zien hoe je snelheid zich ontwikkelt over tijd.</p>
+                                <p>${regression.slope > 0 ? 
+                                    `📈 <strong>Positieve trend (+${regression.slope.toFixed(3)} km/u per dag)</strong> - Je snelheid verbetert over tijd!` : 
+                                    regression.slope < 0 ? 
+                                    `📉 <strong>Negatieve trend (${regression.slope.toFixed(3)} km/u per dag)</strong> - Je snelheid neemt af over tijd.` :
+                                    `➡️ <strong>Stabiele trend</strong> - Je snelheid blijft constant over tijd.`
+                                }</p>
+                                <p>R² = ${regression.rSquared.toFixed(3)} betekent dat ${(regression.rSquared * 100).toFixed(1)}% 
+                                van de snelheidsverschillen verklaard wordt door het tijdsverloop.</p>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+        }
+
+        // Voeg de tabel toe
+        html += `
             <table class="ranking-table">
                 <thead>
                     <tr>
@@ -2417,7 +2534,21 @@ async function showRankings(distance) {
                 <tbody>
         `;
 
-        segments.slice(0, 50).forEach((segment, index) => {
+        // Sorteer segments voor de tabel weergave
+        let tableSegments = [...segments];
+        if (sortBy === 'date') {
+            tableSegments.sort((a, b) => {
+                const dateA = a.rideDate ? new Date(a.rideDate) : new Date(0);
+                const dateB = b.rideDate ? new Date(b.rideDate) : new Date(0);
+                return dateA - dateB; // Oudste eerst
+            });
+        } else if (sortBy === 'speed') {
+            tableSegments.sort((a, b) => b.avgKmh - a.avgKmh);
+        } else if (sortBy === 'duration') {
+            tableSegments.sort((a, b) => a.durationSec - b.durationSec);
+        }
+
+        tableSegments.slice(0, 50).forEach((segment, index) => {
             const rank = index + 1;
             const dateStr = segment.rideDate ? 
                 new Date(segment.rideDate).toLocaleDateString('nl-NL') : 'Onbekend';
@@ -2460,20 +2591,15 @@ async function showRankings(distance) {
                 </tbody>
             </table>
             <div style="margin-top: 15px; text-align: center; color: var(--text-secondary); font-size: 0.9rem;">
-                Toont top ${Math.min(segments.length, 50)} van ${segments.length} segmenten
+                Toont ${Math.min(tableSegments.length, 50)} van ${tableSegments.length} segmenten - gesorteerd op ${sortBy === 'date' ? 'datum (oud → nieuw)' : sortBy === 'speed' ? 'snelheid' : 'tijd'}
             </div>
         `;
 
         resultsContainer.innerHTML = html;
 
-        // Voeg MSE analyse toe
-        addMSEToRankingDetails(segments);
-        updateRankingsStatsWithMSE(segments, distance);
-
-        // Maak de chart aan (met vertraging om zeker te zijn dat DOM klaar is)
+        // Maak de chart aan
         setTimeout(() => {
             createRankingsChart(segments, distance);
-            updateChartWithMSEInfo(segments);
         }, 100);
 
         // Voeg event listeners toe voor filters
@@ -2817,12 +2943,13 @@ function initRankings() {
     const refreshRankings = document.getElementById('refreshRankings');
     const chartSortBy = document.getElementById('chartSortBy');
     
-    // Zet datum als default waarde
+    // Zet datum als default waarde in de dropdown
     if (chartSortBy) {
         chartSortBy.value = 'date';
     }
     
     if (rankingsDistance && refreshRankings) {
+        // Laad direct met datum sortering
         showRankings('5');
         
         rankingsDistance.addEventListener('change', (e) => {
@@ -2839,20 +2966,20 @@ function initRankings() {
 
 /* ========== Initialize ========== */
 window.addEventListener('load', async () => {
-  initTabs();
-  
-  try { 
-    await renderSavedList(); 
-  } catch (err) { 
-    console.error(err); 
-  }
-  
-  if (document.getElementById('stats-tab').classList.contains('active')) {
-    updateStatistics();
-  }
-  
-  debug("Ready");
+    console.log('🚀 Initialiseer applicatie...');
+    
+    // Initialize tabs
+    initTabs();
+    
+    // Load quick stats
+    await updateQuickStats();
+    
+    // Show dashboard by default
+    showDashboard();
+    
+    console.log('✅ Applicatie klaar');
 });
+
 
 /**
  * Debug functie om huidige annotations te tonen
@@ -3957,3 +4084,80 @@ function initComparison() {
 document.addEventListener('DOMContentLoaded', function() {
     initComparison();
 });
+
+javascript
+/* ========== DASHBOARD MANAGEMENT ========== */
+function showDashboard() {
+    document.getElementById('analysisResults').classList.add('hidden');
+    document.querySelector('.dashboard-grid').style.display = 'grid';
+    updateQuickStats();
+}
+
+function showAnalysis() {
+    // Verberg dashboard en toon analysis results
+    const dashboard = document.querySelector('.dashboard-grid');
+    const analysisResults = document.getElementById('analysisResults');
+    
+    if (dashboard) dashboard.style.display = 'none';
+    if (analysisResults) analysisResults.classList.remove('hidden');
+}
+
+function showTab(tabName) {
+    showAnalysis();
+    
+    // Switch to the requested tab
+    const tabButton = document.querySelector(`[data-tab="${tabName}"]`);
+    if (tabButton) {
+        tabButton.click();
+    }
+}
+
+/* ========== QUICK STATS ========== */
+async function updateQuickStats() {
+    try {
+        const activities = await listActivitiesFromDB();
+        
+        // Total rides
+        document.getElementById('quickTotalRides').textContent = activities.length;
+        
+        // Total distance
+        const totalDistance = activities.reduce((sum, item) => {
+            return sum + (item.summary?.distanceKm ? parseFloat(item.summary.distanceKm) : 0);
+        }, 0);
+        document.getElementById('quickTotalDistance').textContent = totalDistance.toFixed(0);
+        
+        // Total elevation
+        const totalElevation = activities.reduce((sum, item) => {
+            return sum + (item.summary?.elevationGain || 0);
+        }, 0);
+        document.getElementById('quickTotalElevation').textContent = totalElevation;
+        
+        // Update saved preview
+        updateSavedPreview(activities);
+        
+    } catch (error) {
+        console.error('Error updating quick stats:', error);
+    }
+}
+
+function updateSavedPreview(activities) {
+    const preview = document.getElementById('savedPreview');
+    if (!preview) return;
+    
+    if (activities.length === 0) {
+        preview.innerHTML = '<p>Geen ritten opgeslagen</p>';
+        return;
+    }
+    
+    // Show last 3 activities
+    const recentActivities = activities.slice(-3).reverse();
+    preview.innerHTML = recentActivities.map(activity => `
+        <div style="text-align: left; margin-bottom: 10px; padding: 10px; background: rgba(255,255,255,0.05); border-radius: 8px;">
+            <div style="font-weight: 600; margin-bottom: 5px;">${activity.fileName}</div>
+            <div style="font-size: 0.8rem; color: var(--text-secondary);">
+                ${activity.summary?.distanceKm || '?'} km • 
+                ${activity.summary?.elevationGain || '?'} m
+            </div>
+        </div>
+    `).join('');
+}
