@@ -1633,39 +1633,55 @@ function updateRankingsStatsWithMSE(segments, distance) {
     statsContainer.appendChild(mseStats);
 }
 
-function calculateLinearRegression(segments, sortBy = 'speed') {
+function calculateLinearRegression(segments, sortBy = 'date') {
     if (!segments || segments.length === 0) return null;
     
     const n = segments.length;
     
-    // Bepaal x-waarden op basis van sortering
-    let xValues = [];
-    if (sortBy === 'speed') {
-        // Gebruik ranking positie (1, 2, 3, ...)
-        xValues = Array.from({length: n}, (_, i) => i + 1);
-    } else if (sortBy === 'date') {
-        // Gebruik timestamp in dagen sinds oudste rit
-        const dates = segments.map(segment => 
-            segment.rideDate ? new Date(segment.rideDate).getTime() : 0
-        );
-        const minDate = Math.min(...dates.filter(d => d > 0));
-        xValues = dates.map(date => date > 0 ? (date - minDate) / (1000 * 60 * 60 * 24) : 0);
-    } else if (sortBy === 'duration') {
-        // Gebruik duur in seconden
-        xValues = segments.map(segment => segment.durationSec);
+    // Gebruik altijd datum voor x-waarden, ongeacht de huidige sortering
+    const dates = segments.map(segment => 
+        segment.rideDate ? new Date(segment.rideDate).getTime() : 0
+    );
+    
+    // Filter segments met geldige datums
+    const validSegments = [];
+    const validDates = [];
+    const validSpeeds = [];
+    
+    for (let i = 0; i < n; i++) {
+        if (dates[i] > 0) { // Alleen segments met geldige datums
+            validSegments.push(segments[i]);
+            validDates.push(dates[i]);
+            validSpeeds.push(segments[i].avgKmh);
+        }
     }
     
-    const yValues = segments.map(segment => segment.avgKmh);
+    if (validSegments.length < 2) return null;
+    
+    const validN = validSegments.length;
+    
+    // Sorteer op datum (oud naar nieuw) voor regressie
+    const sortedIndices = validDates.map((_, index) => index)
+        .sort((a, b) => validDates[a] - validDates[b]);
+    
+    const sortedDates = sortedIndices.map(i => validDates[i]);
+    const sortedSpeeds = sortedIndices.map(i => validSpeeds[i]);
+    
+    // Normaliseer datums naar dagen sinds oudste datum
+    const minDate = Math.min(...sortedDates);
+    const xValues = sortedDates.map(date => (date - minDate) / (1000 * 60 * 60 * 24)); // dagen
+    
+    const yValues = sortedSpeeds;
     
     // Bereken gemiddelden
-    const xMean = xValues.reduce((a, b) => a + b, 0) / n;
-    const yMean = yValues.reduce((a, b) => a + b, 0) / n;
+    const xMean = xValues.reduce((a, b) => a + b, 0) / validN;
+    const yMean = yValues.reduce((a, b) => a + b, 0) / validN;
     
-    // Bereken helling (a)
+    // Bereken helling (a) en intercept (b)
     let numerator = 0;
     let denominator = 0;
     
-    for (let i = 0; i < n; i++) {
+    for (let i = 0; i < validN; i++) {
         numerator += (xValues[i] - xMean) * (yValues[i] - yMean);
         denominator += Math.pow(xValues[i] - xMean, 2);
     }
@@ -1673,11 +1689,11 @@ function calculateLinearRegression(segments, sortBy = 'speed') {
     const a = denominator !== 0 ? numerator / denominator : 0;
     const b = yMean - a * xMean;
     
-    // Bereken R² (determinatiecoëfficiënt)
+    // Bereken R²
     let ssTotal = 0;
     let ssResidual = 0;
     
-    for (let i = 0; i < n; i++) {
+    for (let i = 0; i < validN; i++) {
         const yPred = a * xValues[i] + b;
         ssTotal += Math.pow(yValues[i] - yMean, 2);
         ssResidual += Math.pow(yValues[i] - yPred, 2);
@@ -1685,22 +1701,18 @@ function calculateLinearRegression(segments, sortBy = 'speed') {
     
     const rSquared = ssTotal !== 0 ? 1 - (ssResidual / ssTotal) : 0;
     
-    // Maak vergelijking leesbaar op basis van sortering
-    let equation = '';
-    if (sortBy === 'speed') {
-        equation = `y = ${a.toFixed(3)}·rang + ${b.toFixed(3)}`;
-    } else if (sortBy === 'date') {
-        equation = `y = ${a.toFixed(3)}·dagen + ${b.toFixed(3)}`;
-    } else if (sortBy === 'duration') {
-        equation = `y = ${a.toFixed(3)}·tijd + ${b.toFixed(3)}`;
-    }
+    // Formatteer vergelijking
+    const equation = `y = ${a.toFixed(3)}·dagen + ${b.toFixed(1)}`;
     
     return {
         slope: a,
         intercept: b,
         rSquared: rSquared,
         equation: equation,
-        xValues: xValues
+        xValues: xValues,
+        minDate: minDate,
+        validSegments: validSegments,
+        sortedIndices: sortedIndices
     };
 }
 function calculateRegressionMSE(segments, regression) {
@@ -1729,21 +1741,20 @@ function createRankingsChart(segments, distance) {
     }
 
     const topLimit = parseInt(document.getElementById('chartTopLimit')?.value || '50');
-    const sortBy = document.getElementById('chartSortBy')?.value || 'speed';
+    const sortBy = document.getElementById('chartSortBy')?.value || 'date'; // DEFAULT NU 'date'
     
     let displaySegments = [...segments];
     
-    // Sorteer op basis van geselecteerde optie
-    if (sortBy === 'speed') {
-        // Sorteer op snelheid (standaard ranking)
-        displaySegments.sort((a, b) => b.avgKmh - a.avgKmh);
-    } else if (sortBy === 'date') {
-        // Sorteer op datum (oudste eerst)
+    // DEFAULT SORTERING: op datum (oud naar nieuw)
+    if (sortBy === 'date') {
         displaySegments.sort((a, b) => {
             const dateA = a.rideDate ? new Date(a.rideDate) : new Date(0);
             const dateB = b.rideDate ? new Date(b.rideDate) : new Date(0);
-            return dateA - dateB;
+            return dateA - dateB; // Oudste eerst
         });
+    } else if (sortBy === 'speed') {
+        // Sorteer op snelheid (snelste eerst)
+        displaySegments.sort((a, b) => b.avgKmh - a.avgKmh);
     } else if (sortBy === 'duration') {
         // Sorteer op tijd (snelste eerst)
         displaySegments.sort((a, b) => a.durationSec - b.durationSec);
@@ -1759,107 +1770,120 @@ function createRankingsChart(segments, distance) {
         return;
     }
 
-    // Bereken lineaire regressie op basis van de gesorteerde data
+    // Bereken lineaire regressie gebaseerd op DATUM
     const regression = calculateLinearRegression(displaySegments, sortBy);
-    const regressionMSE = calculateRegressionMSE(displaySegments, regression);
+    
+    let labels = [];
+    let speeds = [];
+    let backgroundColors = [];
+    let regressionData = [];
+
+    if (regression && sortBy === 'date') {
+        // Gebruik de gesorteerde segments van de regressie (oud -> nieuw)
+        speeds = regression.sortedIndices.map(i => regression.validSegments[i].avgKmh);
+        
+        // Labels: datums
+        labels = regression.sortedIndices.map(i => {
+            const segment = regression.validSegments[i];
+            return segment.rideDate ? 
+                new Date(segment.rideDate).toLocaleDateString('nl-NL') : 'Onbekend';
+        });
+        
+        // Regressielijn data
+        regressionData = regression.xValues.map(x => regression.slope * x + regression.intercept);
+        
+        // Kleuren: uniform voor datumweergave
+        backgroundColors = new Array(speeds.length).fill('#3b82f6');
+        
+    } else {
+        // Fallback voor andere sorteringen
+        speeds = displaySegments.map(segment => segment.avgKmh);
+        
+        if (sortBy === 'speed') {
+            labels = displaySegments.map((segment, index) => {
+                const speedSorted = [...segments].sort((a, b) => b.avgKmh - a.avgKmh);
+                const actualRank = speedSorted.findIndex(s => s.activityId === segment.activityId) + 1;
+                return `#${actualRank}`;
+            });
+            
+            backgroundColors = displaySegments.map((segment) => {
+                const speedSorted = [...segments].sort((a, b) => b.avgKmh - a.avgKmh);
+                const actualRank = speedSorted.findIndex(s => s.activityId === segment.activityId) + 1;
+                
+                if (actualRank === 1) return '#10b981';
+                if (actualRank === 2) return '#22c55e';  
+                if (actualRank === 3) return '#16a34a';
+                return '#2563eb';
+            });
+        } else if (sortBy === 'duration') {
+            labels = displaySegments.map(segment => formatDuration(segment.durationSec));
+            backgroundColors = new Array(displaySegments.length).fill('#3b82f6');
+        }
+        
+        // Geen regressie voor andere sorteringen
+        regressionData = new Array(speeds.length).fill(null);
+    }
+
     const averageSpeed = calculateAverageSpeed(displaySegments);
     
-    // Labels aanpassen op basis van sortering
-    let labels = [];
-    if (sortBy === 'speed') {
-        labels = displaySegments.map((segment, index) => {
-            const speedSorted = [...segments].sort((a, b) => b.avgKmh - a.avgKmh);
-            const actualRank = speedSorted.findIndex(s => s.activityId === segment.activityId) + 1;
-            return `#${actualRank}`;
-        });
-    } else if (sortBy === 'date') {
-        labels = displaySegments.map((segment, index) => {
-            const date = segment.rideDate ? new Date(segment.rideDate).toLocaleDateString('nl-NL') : 'Onbekend';
-            return `${date}`;
-        });
-    } else if (sortBy === 'duration') {
-        labels = displaySegments.map((segment, index) => {
-            return `${formatDuration(segment.durationSec)}`;
-        });
-    }
-
-    const speeds = displaySegments.map(segment => segment.avgKmh);
-    
-    // Bereken regressielijn punten
-    const regressionData = displaySegments.map((_, index) => {
-        const x = index + 1;
-        return regression.slope * x + regression.intercept;
-    });
-
-    // Bepaal kleuren op basis van sortering
-    let backgroundColors = [];
-    if (sortBy === 'speed') {
-        // Gebruik ranking kleuren voor snelheid sortering
-        backgroundColors = displaySegments.map((segment) => {
-            const speedSorted = [...segments].sort((a, b) => b.avgKmh - a.avgKmh);
-            const actualRank = speedSorted.findIndex(s => s.activityId === segment.activityId) + 1;
-            
-            if (actualRank === 1) return '#10b981';
-            if (actualRank === 2) return '#22c55e';  
-            if (actualRank === 3) return '#16a34a';
-            return '#2563eb';
-        });
-    } else {
-        // Gebruik uniforme kleur voor andere sorteringen
-        backgroundColors = displaySegments.map(() => '#3b82f6');
-    }
-
     // X-as label aanpassen op basis van sortering
-    let xAxisTitle = 'Positie';
+    let xAxisTitle = 'Datum (oud → nieuw)'; // DEFAULT
     if (sortBy === 'speed') xAxisTitle = 'Ranking Positie';
-    else if (sortBy === 'date') xAxisTitle = 'Datum (oud → nieuw)';
     else if (sortBy === 'duration') xAxisTitle = 'Tijd (snel → langzaam)';
+
+    const datasets = [
+        {
+            label: `Snelheid (km/u) - ${distance}km`,
+            data: speeds,
+            backgroundColor: backgroundColors,
+            borderColor: backgroundColors.map(color => {
+                if (color === '#10b981') return '#059669';
+                if (color === '#22c55e') return '#16a34a';
+                if (color === '#16a34a') return '#15803d';
+                return '#1d4ed8';
+            }),
+            borderWidth: 2,
+            borderRadius: 6,
+            borderSkipped: false,
+        }
+    ];
+
+    // Voeg regressielijn alleen toe voor datum-sortering
+    if (regression && sortBy === 'date' && regressionData.length > 0) {
+        datasets.push({
+            label: `Trendlijn: ${regression.equation}`,
+            data: regressionData,
+            type: 'line',
+            borderColor: '#dc2626',
+            backgroundColor: 'rgba(220, 38, 38, 0.1)',
+            borderWidth: 3,
+            pointRadius: 0,
+            fill: false,
+            tension: 0.2, // Iets vloeiender
+            order: 1
+        });
+    }
+
+    // Voeg gemiddelde lijn toe
+    datasets.push({
+        label: `Gemiddelde (${averageSpeed.toFixed(1)} km/u)`,
+        data: new Array(speeds.length).fill(averageSpeed),
+        type: 'line',
+        borderColor: '#f59e0b',
+        backgroundColor: 'rgba(245, 158, 11, 0.1)',
+        borderWidth: 2,
+        borderDash: [5, 5],
+        pointRadius: 0,
+        fill: false,
+        tension: 0,
+        order: 2
+    });
 
     rankingsChart = new Chart(ctx, {
         type: 'bar',
         data: {
             labels: labels,
-            datasets: [
-                {
-                    label: `Snelheid (km/u) - ${distance}km`,
-                    data: speeds,
-                    backgroundColor: backgroundColors,
-                    borderColor: backgroundColors.map(color => {
-                        if (color === '#10b981') return '#059669';
-                        if (color === '#22c55e') return '#16a34a';
-                        if (color === '#16a34a') return '#15803d';
-                        return '#1d4ed8';
-                    }),
-                    borderWidth: 2,
-                    borderRadius: 6,
-                    borderSkipped: false,
-                },
-                {
-                    label: `Regressielijn: ${regression.equation}`,
-                    data: regressionData,
-                    type: 'line',
-                    borderColor: '#dc2626',
-                    backgroundColor: 'rgba(220, 38, 38, 0.1)',
-                    borderWidth: 3,
-                    pointRadius: 0,
-                    fill: false,
-                    tension: 0,
-                    order: 1
-                },
-                {
-                    label: `Gemiddelde (${averageSpeed.toFixed(1)} km/u)`,
-                    data: new Array(displaySegments.length).fill(averageSpeed),
-                    type: 'line',
-                    borderColor: '#f59e0b',
-                    backgroundColor: 'rgba(245, 158, 11, 0.1)',
-                    borderWidth: 2,
-                    borderDash: [5, 5],
-                    pointRadius: 0,
-                    fill: false,
-                    tension: 0,
-                    order: 2
-                }
-            ]
+            datasets: datasets
         },
         options: {
             responsive: true,
@@ -1880,16 +1904,23 @@ function createRankingsChart(segments, distance) {
                     callbacks: {
                         title: (tooltipItems) => {
                             const index = tooltipItems[0].dataIndex;
-                            const segment = displaySegments[index];
+                            let segment;
+                            
+                            if (sortBy === 'date' && regression) {
+                                segment = regression.validSegments[regression.sortedIndices[index]];
+                            } else {
+                                segment = displaySegments[index];
+                            }
                             
                             let title = '';
-                            if (sortBy === 'speed') {
+                            if (sortBy === 'date') {
+                                const date = segment.rideDate ? 
+                                    new Date(segment.rideDate).toLocaleDateString('nl-NL') : 'Onbekend';
+                                title = `${date} - ${segment.fileName}`;
+                            } else if (sortBy === 'speed') {
                                 const speedSorted = [...segments].sort((a, b) => b.avgKmh - a.avgKmh);
                                 const actualRank = speedSorted.findIndex(s => s.activityId === segment.activityId) + 1;
                                 title = `#${actualRank} - ${segment.fileName}`;
-                            } else if (sortBy === 'date') {
-                                const date = segment.rideDate ? new Date(segment.rideDate).toLocaleDateString('nl-NL') : 'Onbekend';
-                                title = `${date} - ${segment.fileName}`;
                             } else if (sortBy === 'duration') {
                                 title = `${formatDuration(segment.durationSec)} - ${segment.fileName}`;
                             }
@@ -1898,39 +1929,42 @@ function createRankingsChart(segments, distance) {
                         },
                         label: (context) => {
                             if (context.datasetIndex === 0) {
-                                const segment = displaySegments[context.dataIndex];
-                                const yPredicted = regressionData[context.dataIndex];
-                                const error = segment.avgKmh - yPredicted;
-                                const squaredError = Math.pow(error, 2);
+                                let segment;
+                                let yPredicted = null;
+                                
+                                if (sortBy === 'date' && regression) {
+                                    segment = regression.validSegments[regression.sortedIndices[context.dataIndex]];
+                                    yPredicted = regressionData[context.dataIndex];
+                                } else {
+                                    segment = displaySegments[context.dataIndex];
+                                }
                                 
                                 const labels = [
                                     `Snelheid: ${segment.avgKmh?.toFixed(1)} km/u`,
-                                    `Voorspeld: ${yPredicted.toFixed(1)} km/u`,
-                                    `Fout: ${error >= 0 ? '+' : ''}${error.toFixed(1)} km/u`,
-                                    `Kwadratische fout: ${squaredError.toFixed(2)}`
+                                    `Tijd: ${formatDuration(segment.durationSec)}`
                                 ];
                                 
-                                // Voeg extra info toe op basis van sortering
-                                if (sortBy === 'date') {
-                                    const date = segment.rideDate ? new Date(segment.rideDate).toLocaleDateString('nl-NL') : 'Onbekend';
-                                    labels.unshift(`Datum: ${date}`);
-                                } else if (sortBy === 'duration') {
-                                    labels.unshift(`Tijd: ${formatDuration(segment.durationSec)}`);
+                                if (yPredicted !== null) {
+                                    const error = segment.avgKmh - yPredicted;
+                                    labels.push(
+                                        `Trend: ${yPredicted.toFixed(1)} km/u`,
+                                        `Afwijking: ${error >= 0 ? '+' : ''}${error.toFixed(1)} km/u`
+                                    );
                                 }
                                 
                                 return labels;
                             } else if (context.datasetIndex === 1) {
-                                return `Regressie: ${context.parsed.y.toFixed(1)} km/u`;
+                                return `Trendlijn: ${context.parsed.y.toFixed(1)} km/u`;
                             } else if (context.datasetIndex === 2) {
                                 return `Gemiddelde: ${averageSpeed.toFixed(1)} km/u`;
                             }
                             return '';
                         },
                         afterLabel: (context) => {
-                            if (context.datasetIndex === 0) {
+                            if (context.datasetIndex === 0 && regression && sortBy === 'date') {
                                 return [
-                                    `MSE regressie: ${regressionMSE.toFixed(2)}`,
-                                    `R²: ${regression.rSquared.toFixed(3)}`
+                                    `R²: ${regression.rSquared.toFixed(3)}`,
+                                    `Helling: ${regression.slope.toFixed(3)} km/u per dag`
                                 ];
                             }
                             return '';
@@ -1991,70 +2025,51 @@ function createRankingsChart(segments, distance) {
     });
 }
 
-function addMSEToRankingDetails(segments, sortBy = 'speed') {
+function addMSEToRankingDetails(segments, sortBy = 'date') { // DEFAULT NU 'date'
     const regression = calculateLinearRegression(segments, sortBy);
+    
+    if (!regression) {
+        console.log('Geen geldige regressie mogelijk (te weinig datums)');
+        return;
+    }
+    
     const regressionMSE = calculateRegressionMSE(segments, regression);
     const averageMSE = calculateSpeedMSE(segments);
     const averageSpeed = calculateAverageSpeed(segments);
-    
-    // Bereken som van kwadratische fouten voor beide methoden
-    let sumSquaredErrorsRegression = 0;
-    let sumSquaredErrorsAverage = 0;
-    
-    segments.forEach((segment, index) => {
-        const x = regression.xValues[index];
-        const yPredRegression = regression.slope * x + regression.intercept;
-        const yPredAverage = averageSpeed;
-        
-        sumSquaredErrorsRegression += Math.pow(segment.avgKmh - yPredRegression, 2);
-        sumSquaredErrorsAverage += Math.pow(segment.avgKmh - yPredAverage, 2);
-    });
-    
-    const improvement = ((sumSquaredErrorsAverage - sumSquaredErrorsRegression) / sumSquaredErrorsAverage * 100);
-    
-    // Uitleg aanpassen op basis van sortering
-    let explanation = '';
-    if (sortBy === 'speed') {
-        explanation = `De regressielijn toont de trend tussen ranking positie en snelheid. 
-        Een positieve helling betekent dat hogere rankings (betere prestaties) geassocieerd zijn met hogere snelheden.`;
-    } else if (sortBy === 'date') {
-        explanation = `De regressielijn toont de trend tussen datum en snelheid over tijd. 
-        Dit kan seizoenseffecten, training progressie, of andere temporele patronen onthullen.`;
-    } else if (sortBy === 'duration') {
-        explanation = `De regressielijn toont de relatie tussen ritduur en gemiddelde snelheid. 
-        Dit kan inzichten geven in pacing strategieën en uithoudingsvermogen.`;
-    }
     
     const analysisContainer = document.createElement('div');
     analysisContainer.className = 'mse-analysis';
     analysisContainer.innerHTML = `
         <div class="mse-stats">
-            <h5>📊 Lineaire Regressie Analyse (${getSortByLabel(sortBy)})</h5>
+            <h5>📈 Trendanalyse (Op Datum)</h5>
             <div class="mse-grid">
                 <div class="mse-stat">
-                    <span class="mse-label">Regressievergelijking:</span>
+                    <span class="mse-label">Trendvergelijking:</span>
                     <span class="mse-value">${regression.equation}</span>
                 </div>
                 <div class="mse-stat">
-                    <span class="mse-label">R² (determinatiecoëfficiënt):</span>
+                    <span class="mse-label">R² (verklaarde variantie):</span>
                     <span class="mse-value">${regression.rSquared.toFixed(4)}</span>
                 </div>
                 <div class="mse-stat">
-                    <span class="mse-label">MSE Regressie:</span>
-                    <span class="mse-value">${regressionMSE.toFixed(2)}</span>
+                    <span class="mse-label">Helling (km/u per dag):</span>
+                    <span class="mse-value">${regression.slope.toFixed(4)}</span>
                 </div>
                 <div class="mse-stat">
-                    <span class="mse-label">MSE Gemiddelde:</span>
-                    <span class="mse-value">${averageMSE.toFixed(2)}</span>
+                    <span class="mse-label">Startpunt (oudste rit):</span>
+                    <span class="mse-value">${regression.intercept.toFixed(1)} km/u</span>
                 </div>
             </div>
             <div class="mse-explanation">
-                <p><strong>Uitleg:</strong> ${explanation}</p>
-                <p>R² = ${regression.rSquared.toFixed(3)} geeft aan dat ${(regression.rSquared * 100).toFixed(1)}% 
-                van de variantie in snelheid verklaard wordt door ${getSortByLabel(sortBy).toLowerCase()}.</p>
-                <p>De regressielijn heeft ${improvement > 0 ? 
-                    `<strong>${improvement.toFixed(1)}% betere fit</strong> dan het horizontale gemiddelde` : 
-                    `<strong>${Math.abs(improvement).toFixed(1)}% slechtere fit</strong> dan het horizontale gemiddelde`}.</p>
+                <p><strong>Interpretatie:</strong> De trendlijn laat zien hoe je snelheid zich ontwikkelt over tijd.</p>
+                <p>${regression.slope > 0 ? 
+                    `📈 <strong>Positieve trend (+${regression.slope.toFixed(3)} km/u per dag)</strong> - Je snelheid verbetert over tijd!` : 
+                    regression.slope < 0 ? 
+                    `📉 <strong>Negatieve trend (${regression.slope.toFixed(3)} km/u per dag)</strong> - Je snelheid neemt af over tijd.` :
+                    `➡️ <strong>Stabiele trend</strong> - Je snelheid blijft constant over tijd.`
+                }</p>
+                <p>R² = ${regression.rSquared.toFixed(3)} betekent dat ${(regression.rSquared * 100).toFixed(1)}% 
+                van de snelheidsverschillen verklaard wordt door het tijdsverloop.</p>
             </div>
         </div>
     `;
@@ -2800,6 +2815,12 @@ async function highlightRankingSegment(activityId, distance) {
 function initRankings() {
     const rankingsDistance = document.getElementById('rankingsDistance');
     const refreshRankings = document.getElementById('refreshRankings');
+    const chartSortBy = document.getElementById('chartSortBy');
+    
+    // Zet datum als default waarde
+    if (chartSortBy) {
+        chartSortBy.value = 'date';
+    }
     
     if (rankingsDistance && refreshRankings) {
         showRankings('5');
