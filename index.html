@@ -75,36 +75,36 @@
         </div>
 
         <!-- Rit Vergelijking Section -->
-        <!-- Rit Vergelijking Section -->
-<div id="comparisonContainer" class="comparison-container hidden">
-    <div class="comparison-header">
-        <h2>🔄 Rit Vergelijking</h2>
-        <p class="comparison-subtitle">Vergelijk meerdere ritten om je vooruitgang te zien</p>
-    </div>
-
-    <div class="rit-selection-cards" id="comparisonSelectsContainer">
-        <!-- Wordt dynamisch ingevuld -->
-    </div>
-
-    <div class="comparison-controls">
-        <button id="addComparisonBtn" class="control-btn control-btn-success">
-            <span>➕</span> Rit Toevoegen
-        </button>
-        <button id="removeComparisonBtn" class="control-btn control-btn-danger">
-            <span>➖</span> Rit Verwijderen
-        </button>
-        <button id="compareBtn" class="control-btn control-btn-primary">
-            <span>🔄</span> Ritten Vergelijken
-        </button>
-        <button id="clearComparisonBtn" class="control-btn control-btn-secondary">
-            <span>🗑️</span> Alles Wissen
-        </button>
-    </div>
-
-    <div id="comparisonResults" class="comparison-results hidden">
-        <!-- Hier komen de vergelijkingsresultaten -->
-    </div>
-</div>
+        <div id="comparisonContainer" class="hidden">
+            <div class="comparison-controls">
+                <div class="comparison-select-group">
+                    <select id="comparisonSelect1" class="comparison-select">
+                        <option value="">Selecteer rit 1</option>
+                    </select>
+                    <select id="comparisonSelect2" class="comparison-select">
+                        <option value="">Selecteer rit 2</option>
+                    </select>
+                    <select id="comparisonSelect3" class="comparison-select">
+                        <option value="">Selecteer rit 3</option>
+                    </select>
+                    <select id="comparisonSelect4" class="comparison-select">
+                        <option value="">Selecteer rit 4</option>
+                    </select>
+                    <select id="comparisonSelect5" class="comparison-select">
+                        <option value="">Selecteer rit 5</option>
+                    </select>
+                </div>
+                <div class="comparison-buttons">
+                    <button id="compareBtn" class="btn btn-primary">🔄 Vergelijken (2-5 ritten)</button>
+                    <button id="clearComparisonBtn" class="btn btn-secondary">🗑️ Wis vergelijking</button>
+                    <button id="addComparisonBtn" class="btn btn-success">➕ Voeg rit toe</button>
+                    <button id="removeComparisonBtn" class="btn btn-danger">➖ Verwijder rit</button>
+                </div>
+            </div>
+            <div id="comparisonResults" class="comparison-results hidden">
+                <!-- Hier komen de vergelijkingsresultaten -->
+            </div>
+        </div>
 
         <div class="tabs">
             <div class="tab-header">
