@@ -2971,11 +2971,11 @@ window.addEventListener('load', async () => {
     // Initialize tabs
     initTabs();
     
+    // Initialize comparison functionality
+    initComparison();
+    
     // Load quick stats
     await updateQuickStats();
-    
-    // Show dashboard by default
-    showDashboard();
     
     console.log('✅ Applicatie klaar');
 });
@@ -3141,28 +3141,44 @@ function formatActivityDisplay(activity) {
 }
 
 async function populateComparisonSelects() {
+    console.log('🔄 Populeer vergelijking selecties...');
+    
     const selectIds = ['comparisonSelect1', 'comparisonSelect2', 'comparisonSelect3', 'comparisonSelect4', 'comparisonSelect5'];
     const labels = ['Rit 1', 'Rit 2', 'Rit 3', 'Rit 4', 'Rit 5'];
     
     const comparisonSelectGroup = document.querySelector('.comparison-select-group');
-    if (!comparisonSelectGroup) return;
+    if (!comparisonSelectGroup) {
+        console.error('❌ comparisonSelectGroup niet gevonden');
+        return;
+    }
     
     try {
         const activities = await listActivitiesFromDB();
         comparisonActivities = activities;
         
+        console.log(`📝 Toon ${currentComparisonCount} selecties van ${activities.length} activiteiten`);
+        
+        // Maak de container leeg
         comparisonSelectGroup.innerHTML = '';
+        
+        // Voeg selecties toe
         for (let i = 0; i < currentComparisonCount; i++) {
             const selectContainer = createSearchableSelect(selectIds[i], labels[i]);
             comparisonSelectGroup.appendChild(selectContainer);
         }
         
+        // Populeer elke select
         selectIds.forEach(id => {
             const select = document.getElementById(id);
-            if (!select) return;
+            if (!select) {
+                console.warn(`⚠️ Select ${id} niet gevonden`);
+                return;
+            }
             
+            // Reset options
             select.innerHTML = '<option value="">-- Selecteer een rit --</option>';
             
+            // Verzamel al geselecteerde IDs van andere selects
             const otherSelectedValues = {};
             selectIds.forEach(otherId => {
                 if (otherId !== id && currentSelections[otherId]) {
@@ -3170,10 +3186,12 @@ async function populateComparisonSelects() {
                 }
             });
             
+            // Voeg beschikbare activiteiten toe
             let availableCount = 0;
             activities.forEach(activity => {
                 let isSelectedInOther = false;
                 
+                // Check of deze activiteit al in een andere select is gekozen
                 for (const otherSelectId in otherSelectedValues) {
                     if (otherSelectedValues[otherSelectId] === activity.id) {
                         isSelectedInOther = true;
@@ -3181,6 +3199,7 @@ async function populateComparisonSelects() {
                     }
                 }
                 
+                // Alleen toevoegen als niet al geselecteerd in andere select
                 if (!isSelectedInOther) {
                     const displayText = formatActivityDisplay(activity);
                     const option = new Option(displayText, activity.id);
@@ -3192,25 +3211,31 @@ async function populateComparisonSelects() {
                 }
             });
             
+            // Herstel vorige selectie als die nog beschikbaar is
             if (currentSelections[id] && Array.from(select.options).some(opt => opt.value === currentSelections[id])) {
                 select.value = currentSelections[id];
+                updateSelectInfo(id, currentSelections[id], activities);
             }
             
+            // Update placeholder tekst
             const placeholder = select.options[0];
             if (availableCount === 0) {
                 placeholder.text = '-- Geen ritten beschikbaar --';
             } else {
                 placeholder.text = `-- Kies uit ${availableCount} rit${availableCount !== 1 ? 'ten' : ''} --`;
             }
-            
-            updateSelectInfo(id, select.value, activities);
         });
         
+        // Setup search functionaliteit
         setupSearchFunctionality();
+        
+        // Setup event listeners
         setupComparisonSelectListeners();
         
+        console.log('✅ Vergelijking selecties succesvol gepopuleerd');
+        
     } catch (error) {
-        console.error('Fout bij laden vergelijkingsdata:', error);
+        console.error('❌ Fout bij populeren vergelijking:', error);
     }
 }
 
@@ -3371,11 +3396,17 @@ function removeComparisonSelect() {
 }
 
 async function compareActivities() {
+    console.log('🔄 Start rit vergelijking...');
+    
     const selectIds = ['comparisonSelect1', 'comparisonSelect2', 'comparisonSelect3', 'comparisonSelect4', 'comparisonSelect5'];
     const resultsContainer = document.getElementById('comparisonResults');
     
-    if (!resultsContainer) return;
+    if (!resultsContainer) {
+        console.error('❌ comparisonResults container niet gevonden');
+        return;
+    }
     
+    // Verzamel geselecteerde activiteiten
     const selectedActivities = [];
     const selectedIds = new Set();
     
@@ -3385,7 +3416,7 @@ async function compareActivities() {
         
         if (activityId) {
             if (selectedIds.has(activityId)) {
-                alert('Er zijn dubbele ritten geselecteerd. Dit zou niet moeten voorkomen.');
+                alert('Er zijn dubbele ritten geselecteerd. Kies verschillende ritten om te vergelijken.');
                 return;
             }
             selectedIds.add(activityId);
@@ -3397,23 +3428,29 @@ async function compareActivities() {
         }
     }
     
+    console.log(`📊 ${selectedActivities.length} ritten geselecteerd voor vergelijking`);
+    
     if (selectedActivities.length < 2) {
-        alert('Selecteer minimaal 2 ritten om te vergelijken');
+        alert('Selecteer minimaal 2 verschillende ritten om te vergelijken');
         return;
     }
     
     try {
+        // Toon loading state
         resultsContainer.innerHTML = `
             <div class="comparison-loading">
                 <div class="loading-spinner"></div>
                 <h4>Ritten worden vergeleken...</h4>
                 <p>Even geduld, dit kan even duren bij veel data</p>
+                <p><small>Geanalyseerde ritten: ${selectedActivities.map(a => a.activityId).join(', ')}</small></p>
             </div>
         `;
         resultsContainer.classList.remove('hidden');
         
+        // Analyseer elke geselecteerde activiteit
         const analyses = [];
         for (const selected of selectedActivities) {
+            console.log(`🔍 Analyseer rit: ${selected.activityId}`);
             const activity = await getActivityFromDB(selected.activityId);
             const analysis = await analyzeActivityForComparison(activity);
             analyses.push({
@@ -3423,15 +3460,21 @@ async function compareActivities() {
             });
         }
         
+        console.log(`✅ Alle analyses voltooid, toon resultaten`);
+        
+        // Toon de resultaten
         displayMultiComparisonResults(analyses);
         
     } catch (error) {
-        console.error('Fout bij vergelijken:', error);
+        console.error('💥 Fout bij vergelijken:', error);
         resultsContainer.innerHTML = `
             <div class="comparison-error">
                 <h4>❌ Fout bij vergelijken</h4>
                 <p>${error.message}</p>
                 <small>Controleer of de bestanden geldige GPS data bevatten</small>
+                <button onclick="clearComparison()" style="margin-top: 15px; padding: 8px 16px; background: var(--error-color); color: white; border: none; border-radius: 6px; cursor: pointer;">
+                    Opnieuw proberen
+                </button>
             </div>
         `;
     }
@@ -4044,10 +4087,15 @@ function smoothSpeedEndpoints(speedData, avgSpeed) {
 
 // Initialisatie functie voor vergelijking
 function initComparison() {
+    console.log('🔧 Initialiseer vergelijking...');
+    
+    // Reset state
     currentSelections = {
         'comparisonSelect1': '',
         'comparisonSelect2': ''
     };
+    
+    currentComparisonCount = 2;
     
     const compareBtn = document.getElementById('compareBtn');
     const clearComparisonBtn = document.getElementById('clearComparisonBtn');
@@ -4056,6 +4104,9 @@ function initComparison() {
     
     if (compareBtn) {
         compareBtn.addEventListener('click', compareActivities);
+        console.log('✅ Compare knop geladen');
+    } else {
+        console.error('❌ Compare knop niet gevonden');
     }
     
     if (clearComparisonBtn) {
@@ -4070,14 +4121,25 @@ function initComparison() {
         removeComparisonBtn.addEventListener('click', removeComparisonSelect);
     }
     
+    // Populeer de selecties na een korte delay
     setTimeout(async () => {
-        const comparisonContainer = document.getElementById('comparisonContainer');
-        const activities = await listActivitiesFromDB();
-        if (activities.length >= 2 && comparisonContainer) {
-            comparisonContainer.classList.remove('hidden');
-            await populateComparisonSelects();
+        try {
+            const comparisonContainer = document.getElementById('comparisonContainer');
+            const activities = await listActivitiesFromDB();
+            
+            console.log(`📊 ${activities.length} activiteiten gevonden voor vergelijking`);
+            
+            if (activities.length >= 2 && comparisonContainer) {
+                comparisonContainer.classList.remove('hidden');
+                await populateComparisonSelects();
+                console.log('✅ Vergelijking selecties gepopuleerd');
+            } else {
+                console.log('ℹ️ Niet genoeg activiteiten voor vergelijking');
+            }
+        } catch (error) {
+            console.error('❌ Fout bij initialiseren vergelijking:', error);
         }
-    }, 1000);
+    }, 500);
 }
 
 // Voeg deze initialisatie toe aan de bestaande init functies
@@ -4161,3 +4223,109 @@ function updateSavedPreview(activities) {
         </div>
     `).join('');
 }
+
+// Verbeterde comparison functies
+function createRitSelectionCard(selectId, label, index) {
+    const colors = ['#3B82F6', '#F59E0B', '#10B981', '#8B5CF6', '#EC4899'];
+    const color = colors[index] || colors[0];
+    
+    return `
+        <div class="rit-card" data-rit-index="${index}">
+            <div class="rit-card-header">
+                <div class="rit-number" style="background: ${color}">${index + 1}</div>
+                <div class="rit-actions">
+                    <button class="rit-action-btn" onclick="clearRitSelection('${selectId}')" title="Selectie wissen">
+                        🗑️
+                    </button>
+                </div>
+            </div>
+            
+            <div class="searchable-select-container">
+                <div class="select-header">
+                    <label class="select-label">
+                        <span>📊</span> ${label}
+                    </label>
+                    <div class="search-box">
+                        <input type="text" placeholder="Typ om ritten te zoeken..." 
+                               class="search-input" data-for="${selectId}">
+                        <span class="search-icon">🔍</span>
+                    </div>
+                </div>
+                <select id="${selectId}" class="searchable-select" 
+                        onchange="onRitSelectionChange('${selectId}')">
+                    <option value="">-- Selecteer een rit --</option>
+                </select>
+            </div>
+            
+            <div id="${selectId}-info" class="rit-info-display hidden">
+                <!-- Rit info wordt hier getoond -->
+            </div>
+        </div>
+    `;
+}
+
+function updateRitInfoDisplay(selectId, activity) {
+    const infoElement = document.getElementById(`${selectId}-info`);
+    if (!infoElement) return;
+    
+    if (!activity) {
+        infoElement.innerHTML = `
+            <div style="text-align: center; color: #6B7280; padding: 20px;">
+                <div style="font-size: 2rem; margin-bottom: 10px;">📊</div>
+                <p>Selecteer een rit om details te zien</p>
+            </div>
+        `;
+        infoElement.classList.add('hidden');
+        return;
+    }
+    
+    const summary = activity.summary || {};
+    const distance = summary.distanceKm ? `${parseFloat(summary.distanceKm).toFixed(1)} km` : '? km';
+    const elevation = summary.elevationGain ? `${summary.elevationGain} m` : '? m';
+    const date = summary.rideDate ? 
+        new Date(summary.rideDate).toLocaleDateString('nl-NL') : 'Onbekend';
+    
+    infoElement.innerHTML = `
+        <div class="rit-info-header">
+            <div class="rit-name">${activity.fileName}</div>
+        </div>
+        <div class="rit-stats-grid">
+            <div class="rit-stat">
+                <span class="stat-value">${distance}</span>
+                <span class="stat-label">Afstand</span>
+            </div>
+            <div class="rit-stat">
+                <span class="stat-value">${elevation}</span>
+                <span class="stat-label">Hoogte</span>
+            </div>
+            <div class="rit-stat">
+                <span class="stat-value">${date}</span>
+                <span class="stat-label">Datum</span>
+            </div>
+        </div>
+    `;
+    infoElement.classList.remove('hidden');
+    infoElement.classList.add('fade-in');
+}
+
+// Voeg deze globale functies toe
+window.clearRitSelection = function(selectId) {
+    const select = document.getElementById(selectId);
+    if (select) {
+        select.value = '';
+        updateRitInfoDisplay(selectId, null);
+    }
+};
+
+window.onRitSelectionChange = function(selectId) {
+    const select = document.getElementById(selectId);
+    const activityId = select.value;
+    
+    // Hier moet je de activity ophalen en updateRitInfoDisplay aanroepen
+    // Voor nu: placeholder
+    if (activityId) {
+        // updateRitInfoDisplay(selectId, activity);
+    } else {
+        updateRitInfoDisplay(selectId, null);
+    }
+};
