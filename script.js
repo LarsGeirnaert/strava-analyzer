@@ -2415,18 +2415,7 @@ async function showRankings(distance) {
         `;
 
         // Sorteer segments voor de tabel weergave
-        let tableSegments = [...segments];
-        if (sortBy === 'date') {
-            tableSegments.sort((a, b) => {
-                const dateA = a.rideDate ? new Date(a.rideDate) : new Date(0);
-                const dateB = b.rideDate ? new Date(b.rideDate) : new Date(0);
-                return dateA - dateB; // Oudste eerst
-            });
-        } else if (sortBy === 'speed') {
-            tableSegments.sort((a, b) => b.avgKmh - a.avgKmh);
-        } else if (sortBy === 'duration') {
-            tableSegments.sort((a, b) => a.durationSec - b.durationSec);
-        }
+        let tableSegments = [...segments].sort((a, b) => b.avgKmh - a.avgKmh);
 
         tableSegments.slice(0, 50).forEach((segment, index) => {
             const rank = index + 1;
@@ -2471,8 +2460,7 @@ async function showRankings(distance) {
                 </tbody>
             </table>
             <div style="margin-top: 15px; text-align: center; color: var(--text-secondary); font-size: 0.9rem;">
-                Toont ${Math.min(tableSegments.length, 50)} van ${tableSegments.length} segmenten - gesorteerd op ${sortBy === 'date' ? 'datum (oud → nieuw)' : sortBy === 'speed' ? 'snelheid' : 'tijd'}
-            </div>
+                Toont ${Math.min(tableSegments.length, 50)} van ${tableSegments.length} segmenten - gesorteerd op snelheid (snelste eerst)            </div>
         `;
 
         resultsContainer.innerHTML = html;
