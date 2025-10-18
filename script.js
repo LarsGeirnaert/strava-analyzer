@@ -3199,19 +3199,23 @@ async function populateComparisonSelects() {
 
 function setupSearchFunctionality() {
     document.querySelectorAll('.search-input').forEach(input => {
-        input.replaceWith(input.cloneNode(true));
+        // Vervang input om event listeners te resetten
+        const newInput = input.cloneNode(true);
+        input.parentNode.replaceChild(newInput, input);
     });
     
     document.querySelectorAll('.search-input').forEach(input => {
         const selectId = input.getAttribute('data-for');
         
         input.addEventListener('input', function(e) {
-            const searchTerm = e.target.value.toLowerCase();
+            const searchTerm = e.target.value.toLowerCase().trim();
             const select = document.getElementById(selectId);
             
             if (!select) return;
             
             let visibleCount = 0;
+            let hasExactMatch = false;
+            
             Array.from(select.options).forEach(option => {
                 if (option.value === '') {
                     option.style.display = '';
@@ -3219,35 +3223,75 @@ function setupSearchFunctionality() {
                 }
                 
                 const searchText = option.getAttribute('data-search-text') || option.text.toLowerCase();
-                if (searchText.includes(searchTerm)) {
+                const matches = searchText.includes(searchTerm);
+                
+                if (matches) {
                     option.style.display = '';
                     visibleCount++;
+                    
+                    // Markeer exacte matches
+                    if (searchText === searchTerm) {
+                        hasExactMatch = true;
+                        option.style.fontWeight = 'bold';
+                        option.style.background = 'rgba(37, 99, 235, 0.1)';
+                    } else {
+                        option.style.fontWeight = '';
+                        option.style.background = '';
+                    }
                 } else {
                     option.style.display = 'none';
+                    option.style.fontWeight = '';
+                    option.style.background = '';
                 }
             });
             
             const placeholder = select.options[0];
             if (searchTerm && visibleCount === 0) {
                 placeholder.text = '❌ Geen ritten gevonden';
+                placeholder.style.color = '#dc2626';
             } else if (searchTerm) {
-                placeholder.text = `-- ${visibleCount} rit(ten) gevonden --`;
+                placeholder.text = `🔍 ${visibleCount} rit${visibleCount !== 1 ? 'ten' : ''} gevonden`;
+                placeholder.style.color = '#059669';
+            } else {
+                placeholder.text = '-- Selecteer een rit --';
+                placeholder.style.color = '';
+            }
+            
+            // Auto-select bij exacte match
+            if (hasExactMatch && searchTerm.length > 2) {
+                const exactOption = Array.from(select.options).find(opt => 
+                    opt.value !== '' && 
+                    opt.getAttribute('data-search-text') === searchTerm
+                );
+                if (exactOption) {
+                    select.value = exactOption.value;
+                    const event = new Event('change');
+                    select.dispatchEvent(event);
+                }
             }
         });
         
+        // Clear search bij escape
         input.addEventListener('keydown', function(e) {
             if (e.key === 'Escape') {
                 e.target.value = '';
                 const select = document.getElementById(selectId);
                 Array.from(select.options).forEach(opt => {
                     opt.style.display = '';
+                    opt.style.fontWeight = '';
+                    opt.style.background = '';
                 });
                 updateAvailableCount(selectId);
             }
         });
         
-        input.addEventListener('change', function() {
-            this.value = '';
+        // Animation bij focus
+        input.addEventListener('focus', function() {
+            this.parentElement.style.transform = 'scale(1.02)';
+        });
+        
+        input.addEventListener('blur', function() {
+            this.parentElement.style.transform = 'scale(1)';
         });
     });
 }
@@ -3259,7 +3303,11 @@ function updateSelectInfo(selectId, selectedValue, activities) {
     if (!selectedValue) {
         infoElement.innerHTML = `
             <div class="activity-info-empty">
-                <small>📝 Selecteer een rit om te vergelijken</small>
+                <span class="info-icon">💡</span>
+                <div>
+                    <strong>Selecteer een rit</strong><br>
+                    <small>Kies een rit uit de dropdown om details te zien</small>
+                </div>
             </div>
         `;
         return;
@@ -3269,25 +3317,34 @@ function updateSelectInfo(selectId, selectedValue, activities) {
     if (!activity) {
         infoElement.innerHTML = `
             <div class="activity-info-error">
-                <small>❌ Rit niet gevonden</small>
+                <span>❌</span>
+                <div>
+                    <strong>Rit niet gevonden</strong><br>
+                    <small>Probeer een andere rit te selecteren</small>
+                </div>
             </div>
         `;
         return;
     }
     
     const summary = activity.summary || {};
+    const index = parseInt(selectId.replace('comparisonSelect', ''));
+    
     infoElement.innerHTML = `
         <div class="activity-info-details">
-            <div class="activity-name">${activity.fileName}</div>
+            <div class="activity-name">
+                ${activity.fileName}
+                <span class="rit-badge rit-${index}">Rit ${index}</span>
+            </div>
             <div class="activity-stats">
                 <span class="stat">📏 ${summary.distanceKm || '?'} km</span>
                 <span class="stat">⛰️ ${summary.elevationGain || '?'} m</span>
+                <span class="stat">🚀 ${summary.avgSpeed ? summary.avgSpeed.toFixed(1) + ' km/u' : '?'}</span>
                 <span class="stat">📅 ${summary.rideDate ? new Date(summary.rideDate).toLocaleDateString('nl-NL') : 'onbekend'}</span>
             </div>
         </div>
     `;
 }
-
 function updateAvailableCount(selectId) {
     const select = document.getElementById(selectId);
     if (!select) return;
