@@ -1325,44 +1325,49 @@ function showTemporaryMessage(message) {
         }
     }, 5000);
 }
+function getXAxisTitle(sortBy) {
+    const titles = {
+        'date': 'Datum (oud → nieuw)',
+        'speed': 'Ranking Positie (snelste eerst)',
+        'duration': 'Tijd (snel → langzaam)'
+    };
+    return titles[sortBy] || 'Ranking Positie';
+}
 
-/* ========== Saved list rendering ========== */
 async function renderSavedList() {
     if (!savedListContainer) return;
-    savedListContainer.innerHTML = "<h3>Mijn opgeslagen ritten</h3>";
-
-    const sortField = sortFieldSelect ? sortFieldSelect.value : "rideDate";
-    const sortOrder = sortOrderSelect ? sortOrderSelect.value : "desc";
+    
+    // Maak sortering altijd beschikbaar
+    const sortField = document.getElementById('sortField')?.value || "rideDate";
+    const sortOrder = document.getElementById('sortOrder')?.value || "desc";
 
     let items = [];
     try {
         items = await listActivitiesFromDB();
     } catch (err) {
         console.error("lijst ophalen mislukt:", err);
-        savedListContainer.innerHTML += "<p>Fout bij ophalen ritten</p>";
+        savedListContainer.innerHTML = `
+            <div class="no-saved">
+                <div style="font-size: 3rem; margin-bottom: 20px; opacity: 0.5;">❌</div>
+                <h4>Fout bij ophalen ritten</h4>
+                <p>Er ging iets mis bij het laden van je opgeslagen ritten</p>
+            </div>
+        `;
         return;
     }
     
     if (!items.length) { 
-        savedListContainer.innerHTML += "<p>Geen ritten opgeslagen</p>"; 
+        savedListContainer.innerHTML = `
+            <div class="no-saved">
+                <div style="font-size: 3rem; margin-bottom: 20px; opacity: 0.5;">📂</div>
+                <h4>Geen ritten opgeslagen</h4>
+                <p>Upload en sla ritten op om ze hier terug te vinden</p>
+            </div>
+        `; 
         return; 
     }
 
-    await Promise.all(items.map(async (it) => {
-        if (!it.summary) it.summary = {};
-        if (!it.summary.rideDate) {
-            try {
-                const rd = await extractRideDateFromBlob(it.fileBlob);
-                if (rd) {
-                    it.summary.rideDate = rd;
-                    try { await updateActivityInDB(it); } catch (e) { console.warn("updateActivityInDB failed", e); }
-                }
-            } catch (e) {
-                console.warn("couldn't extract rideDate for", it.fileName, e);
-            }
-        }
-    }));
-
+    // Sorteer items
     items.sort((a, b) => {
         let va, vb;
         if (sortField === "rideDate") {
@@ -1385,93 +1390,95 @@ async function renderSavedList() {
         return (va < vb) ? -1 * dir : 1 * dir;
     });
 
-    const ul = document.createElement("ul");
-    ul.style.paddingLeft = "0";
-    for (const it of items) {
-        const li = document.createElement("li");
-        li.style.marginBottom = "8px";
-        const distanceTxt = it.summary?.distanceKm ? `${it.summary.distanceKm} km` : "? km";
-        const elevTxt = (it.summary && it.summary.elevationGain !== undefined) ? `${it.summary.elevationGain} m` : "—";
-        const rideDateTxt = it.summary?.rideDate ? new Date(it.summary.rideDate).toLocaleString() : "????";
-        li.innerHTML = `<strong>${it.fileName}</strong> — ${distanceTxt} — ${elevTxt} — rit: ${rideDateTxt}`;
-        
-        const loadBtn = document.createElement("button"); 
-        loadBtn.textContent = "📂 Open";
-        loadBtn.className = "load-btn";
-        
-        loadBtn.onclick = async () => {
-            try {
-                console.log('📂 Open rit:', it.fileName);
-                const rec = await getActivityFromDB(it.id);
-                if (!rec || !rec.fileBlob) {
-                    alert("Kon rit niet laden: bestand niet gevonden");
-                    return;
-                }
-                const blob = rec.fileBlob;
-                const text = await blob.text();
-                console.log('📊 Analyseer rit:', rec.fileName);
-                await analyzeText(text, blob, rec.fileName);
-            } catch (error) {
-                console.error('❌ Fout bij openen rit:', error);
-                alert("Fout bij openen rit: " + error.message);
-            }
-        };
-        
-        const dlBtn = document.createElement("button"); 
-        dlBtn.textContent = "💾 Download";
-        dlBtn.className = "download-btn";
+    let html = `
+        <div class="sort-controls">
+            <span>Sorteren op:</span>
+            <select id="sortField">
+                <option value="rideDate" ${sortField === 'rideDate' ? 'selected' : ''}>Rit Datum</option>
+                <option value="createdAt" ${sortField === 'createdAt' ? 'selected' : ''}>Toegevoegd op</option>
+                <option value="distance" ${sortField === 'distance' ? 'selected' : ''}>Afstand</option>
+                <option value="elevation" ${sortField === 'elevation' ? 'selected' : ''}>Hoogtemeters</option>
+            </select>
+            <select id="sortOrder">
+                <option value="desc" ${sortOrder === 'desc' ? 'selected' : ''}>Aflopend</option>
+                <option value="asc" ${sortOrder === 'asc' ? 'selected' : ''}>Oplopend</option>
+            </select>
+        </div>
+        <div class="saved-activities">
+            <ul>
+    `;
 
-        dlBtn.onclick = () => {
-            try {
-                const url = URL.createObjectURL(it.fileBlob);
-                const a = document.createElement("a"); 
-                a.href = url; 
-                a.download = it.fileName; 
-                a.click();
-                URL.revokeObjectURL(url);
-            } catch (error) {
-                console.error('❌ Fout bij downloaden:', error);
-                alert("Fout bij downloaden: " + error.message);
-            }
-        };
+    items.forEach(item => {
+        const distanceTxt = item.summary?.distanceKm ? `${parseFloat(item.summary.distanceKm).toFixed(1)} km` : "? km";
+        const elevTxt = (item.summary && item.summary.elevationGain !== undefined) ? `${item.summary.elevationGain} m` : "—";
+        const speedTxt = item.summary?.avgSpeed ? `${item.summary.avgSpeed.toFixed(1)} km/u` : "—";
+        const rideDateTxt = item.summary?.rideDate ? new Date(item.summary.rideDate).toLocaleDateString('nl-NL') : "onbekend";
+        const createdDateTxt = item.createdAt ? new Date(item.createdAt).toLocaleDateString('nl-NL') : "onbekend";
         
-        const delBtn = document.createElement("button"); 
-        delBtn.textContent = "🗑️ Verwijder";
-        delBtn.className = "delete-btn"; 
-        
-        delBtn.onclick = async () => { 
-            if (confirm(`Weet je zeker dat je "${it.fileName}" wilt verwijderen?`)) {
-                try {
-                    await deleteActivityFromDB(it.id);
-                    await renderSavedList();
-                } catch (error) {
-                    console.error('❌ Fout bij verwijderen:', error);
-                    alert("Fout bij verwijderen: " + error.message);
-                }
-            }
-        };
-        
-        li.appendChild(loadBtn); 
-        li.appendChild(dlBtn); 
-        li.appendChild(delBtn);
-        ul.appendChild(li);
-    }
-    savedListContainer.appendChild(ul);
+        html += `
+            <li>
+                <div class="activity-info">
+                    <strong>${item.fileName}</strong>
+                    <div class="activity-meta">
+                        <span>📏 ${distanceTxt}</span>
+                        <span>⛰️ ${elevTxt}</span>
+                        <span>🚀 ${speedTxt}</span>
+                    </div>
+                </div>
+                <div class="activity-date">
+                    ${sortField === 'createdAt' ? createdDateTxt : rideDateTxt}
+                </div>
+                <div class="activity-actions">
+                    <button class="load-btn" onclick="loadSavedActivity('${item.id}')">
+                        📂 Openen
+                    </button>
+                    <button class="download-btn" onclick="downloadSavedActivity('${item.id}')">
+                        💾 Download
+                    </button>
+                    <button class="delete-btn" onclick="deleteSavedActivity('${item.id}')">
+                        🗑️ Verwijder
+                    </button>
+                </div>
+            </li>
+        `;
+    });
 
-    // VERGELIJKING CODE TOEVOEGEN
-    await populateComparisonSelects();
-    
-    const comparisonContainer = document.getElementById('comparisonContainer');
-    const activities = await listActivitiesFromDB();
-    
-    if (comparisonContainer) {
-        if (activities.length >= 2) {
-            comparisonContainer.classList.remove('hidden');
-        } else {
-            comparisonContainer.classList.add('hidden');
-        }
+    html += `
+            </ul>
+        </div>
+    `;
+
+    savedListContainer.innerHTML = html;
+
+    // Voeg event listeners toe
+    document.getElementById('sortField').addEventListener('change', () => renderSavedList());
+    document.getElementById('sortOrder').addEventListener('change', () => renderSavedList());
+}
+
+async function loadSavedActivity(id) {
+    const activity = await getActivityFromDB(id);
+    const text = await activity.fileBlob.text();
+    await analyzeText(text, activity.fileBlob, activity.fileName);
+}
+
+function downloadSavedActivity(id) {
+    getActivityFromDB(id).then(activity => {
+        const url = URL.createObjectURL(activity.fileBlob);
+        const a = document.createElement("a"); 
+        a.href = url; 
+        a.download = activity.fileName; 
+        a.click();
+        URL.revokeObjectURL(url);
+    });
+}
+
+async function deleteSavedActivity(id) {
+    if (confirm(`Weet je zeker dat je deze rit wilt verwijderen?`)) {
+        await deleteActivityFromDB(id);
+        await renderSavedList();
     }
 }
+
 
 /* ========== Statistics functions ========== */
 async function updateStatistics() {
@@ -1790,24 +1797,25 @@ function createRankingsChart(segments, distance) {
     }
 
     const topLimit = parseInt(document.getElementById('chartTopLimit')?.value || '50');
-    const sortBy = document.getElementById('chartSortBy')?.value || 'date'; // DEFAULT NU 'date'
+    const sortBy = document.getElementById('chartSortBy')?.value || 'speed';
     
-    let displaySegments = [...segments];
+    // ALTIJD sorteren op snelheid (snelste eerst) voor de echte ranking
+    let displaySegments = [...segments].sort((a, b) => b.avgKmh - a.avgKmh);
     
-    // DEFAULT SORTERING: op datum (oud naar nieuw)
+    // Bereken lineaire regressie
+    const regression = calculateLinearRegression(displaySegments);
+    
+    // Pas daarna extra sortering toe voor weergave (maar behoud de echte ranking kleuren)
     if (sortBy === 'date') {
         displaySegments.sort((a, b) => {
             const dateA = a.rideDate ? new Date(a.rideDate) : new Date(0);
             const dateB = b.rideDate ? new Date(b.rideDate) : new Date(0);
-            return dateA - dateB; // Oudste eerst
+            return dateA - dateB;
         });
-    } else if (sortBy === 'speed') {
-        // Sorteer op snelheid (snelste eerst)
-        displaySegments.sort((a, b) => b.avgKmh - a.avgKmh);
     } else if (sortBy === 'duration') {
-        // Sorteer op tijd (snelste eerst)
         displaySegments.sort((a, b) => a.durationSec - b.durationSec);
     }
+    // Voor 'speed' sortering, gebruik de al gesorteerde lijst
     
     // Beperk aantal weergave
     if (topLimit > 0) {
@@ -1819,204 +1827,92 @@ function createRankingsChart(segments, distance) {
         return;
     }
 
-    // Bereken lineaire regressie gebaseerd op DATUM
-    const regression = calculateLinearRegression(displaySegments, sortBy);
-    
+    // Bepaal labels op basis van sortering
     let labels = [];
-    let speeds = [];
-    let backgroundColors = [];
-    let regressionData = [];
-
-    if (regression && sortBy === 'date') {
-        // Gebruik de gesorteerde segments van de regressie (oud -> nieuw)
-        speeds = regression.sortedIndices.map(i => regression.validSegments[i].avgKmh);
-        
-        // Labels: datums
-        labels = regression.sortedIndices.map(i => {
-            const segment = regression.validSegments[i];
+    if (sortBy === 'date') {
+        labels = displaySegments.map(segment => {
             return segment.rideDate ? 
                 new Date(segment.rideDate).toLocaleDateString('nl-NL') : 'Onbekend';
         });
-        
-        // Regressielijn data
-        regressionData = regression.xValues.map(x => regression.slope * x + regression.intercept);
-        
-        // Kleuren: uniform voor datumweergave
-        backgroundColors = new Array(speeds.length).fill('#3b82f6');
-        
-    } else {
-        // Fallback voor andere sorteringen
-        speeds = displaySegments.map(segment => segment.avgKmh);
-        
-        if (sortBy === 'speed') {
-            labels = displaySegments.map((segment, index) => {
-                const speedSorted = [...segments].sort((a, b) => b.avgKmh - a.avgKmh);
-                const actualRank = speedSorted.findIndex(s => s.activityId === segment.activityId) + 1;
-                return `#${actualRank}`;
-            });
-            
-            backgroundColors = displaySegments.map((segment) => {
-                const speedSorted = [...segments].sort((a, b) => b.avgKmh - a.avgKmh);
-                const actualRank = speedSorted.findIndex(s => s.activityId === segment.activityId) + 1;
-                
-                if (actualRank === 1) return '#10b981';
-                if (actualRank === 2) return '#22c55e';  
-                if (actualRank === 3) return '#16a34a';
-                return '#2563eb';
-            });
-        } else if (sortBy === 'duration') {
-            labels = displaySegments.map(segment => formatDuration(segment.durationSec));
-            backgroundColors = new Array(displaySegments.length).fill('#3b82f6');
-        }
-        
-        // Geen regressie voor andere sorteringen
-        regressionData = new Array(speeds.length).fill(null);
+    } else if (sortBy === 'speed') {
+        labels = displaySegments.map((segment, index) => {
+            const speedSorted = [...segments].sort((a, b) => b.avgKmh - a.avgKmh);
+            const actualRank = speedSorted.findIndex(s => s.activityId === segment.activityId) + 1;
+            return `#${actualRank}`;
+        });
+    } else if (sortBy === 'duration') {
+        labels = displaySegments.map(segment => formatDuration(segment.durationSec));
     }
-
+    
+    const speeds = displaySegments.map(segment => segment.avgKmh);
     const averageSpeed = calculateAverageSpeed(displaySegments);
     
-    // X-as label aanpassen op basis van sortering
-    let xAxisTitle = 'Datum (oud → nieuw)'; // DEFAULT
-    if (sortBy === 'speed') xAxisTitle = 'Ranking Positie';
-    else if (sortBy === 'duration') xAxisTitle = 'Tijd (snel → langzaam)';
-
-    const datasets = [
-        {
-            label: `Snelheid (km/u) - ${distance}km`,
-            data: speeds,
-            backgroundColor: backgroundColors,
-            borderColor: backgroundColors.map(color => {
-                if (color === '#10b981') return '#059669';
-                if (color === '#22c55e') return '#16a34a';
-                if (color === '#16a34a') return '#15803d';
-                return '#1d4ed8';
-            }),
-            borderWidth: 2,
-            borderRadius: 6,
-            borderSkipped: false,
-        }
-    ];
-
-    // Voeg regressielijn alleen toe voor datum-sortering
-    if (regression && sortBy === 'date' && regressionData.length > 0) {
-        datasets.push({
-            label: `Trendlijn: ${regression.equation}`,
-            data: regressionData,
-            type: 'line',
-            borderColor: '#dc2626',
-            backgroundColor: 'rgba(220, 38, 38, 0.1)',
-            borderWidth: 3,
-            pointRadius: 0,
-            fill: false,
-            tension: 0.2, // Iets vloeiender
-            order: 1
-        });
-    }
-
-    // Voeg gemiddelde lijn toe
-    datasets.push({
-        label: `Gemiddelde (${averageSpeed.toFixed(1)} km/u)`,
-        data: new Array(speeds.length).fill(averageSpeed),
-        type: 'line',
-        borderColor: '#f59e0b',
-        backgroundColor: 'rgba(245, 158, 11, 0.1)',
-        borderWidth: 2,
-        borderDash: [5, 5],
-        pointRadius: 0,
-        fill: false,
-        tension: 0,
-        order: 2
+    // Bepaal kleuren op basis van ECHTE snelheidsranking (niet weergave ranking)
+    const backgroundColors = displaySegments.map((segment) => {
+        const speedSorted = [...segments].sort((a, b) => b.avgKmh - a.avgKmh);
+        const actualRank = speedSorted.findIndex(s => s.activityId === segment.activityId) + 1;
+        
+        if (actualRank === 1) return '#10b981';
+        if (actualRank === 2) return '#22c55e';  
+        if (actualRank === 3) return '#16a34a';
+        if (actualRank <= 10) return '#2563eb';
+        if (actualRank <= 20) return '#3b82f6';
+        return '#60a5fa';
     });
 
     rankingsChart = new Chart(ctx, {
         type: 'bar',
         data: {
             labels: labels,
-            datasets: datasets
+            datasets: [
+                {
+                    label: `Snelheid (km/u) - ${distance}km`,
+                    data: speeds,
+                    backgroundColor: backgroundColors,
+                    borderColor: backgroundColors.map(color => {
+                        if (color === '#10b981') return '#059669';
+                        if (color === '#22c55e') return '#16a34a';
+                        if (color === '#16a34a') return '#15803d';
+                        if (color === '#2563eb') return '#1d4ed8';
+                        if (color === '#3b82f6') return '#2563eb';
+                        return '#3b82f6';
+                    }),
+                    borderWidth: 2,
+                    borderRadius: 6,
+                    borderSkipped: false,
+                }
+            ]
         },
         options: {
             responsive: true,
             maintainAspectRatio: false,
             plugins: {
                 legend: {
-                    display: true,
-                    position: 'top',
-                    labels: {
-                        usePointStyle: true,
-                        padding: 20,
-                        font: {
-                            size: 12
-                        }
-                    }
+                    display: false
                 },
                 tooltip: {
                     callbacks: {
                         title: (tooltipItems) => {
                             const index = tooltipItems[0].dataIndex;
-                            let segment;
+                            const segment = displaySegments[index];
+                            const speedSorted = [...segments].sort((a, b) => b.avgKmh - a.avgKmh);
+                            const actualRank = speedSorted.findIndex(s => s.activityId === segment.activityId) + 1;
                             
-                            if (sortBy === 'date' && regression) {
-                                segment = regression.validSegments[regression.sortedIndices[index]];
-                            } else {
-                                segment = displaySegments[index];
-                            }
+                            let rankText = '';
+                            if (actualRank === 1) rankText = '🥇 1e plaats';
+                            else if (actualRank === 2) rankText = '🥈 2e plaats';
+                            else if (actualRank === 3) rankText = '🥉 3e plaats';
+                            else rankText = `#${actualRank}`;
                             
-                            let title = '';
-                            if (sortBy === 'date') {
-                                const date = segment.rideDate ? 
-                                    new Date(segment.rideDate).toLocaleDateString('nl-NL') : 'Onbekend';
-                                title = `${date} - ${segment.fileName}`;
-                            } else if (sortBy === 'speed') {
-                                const speedSorted = [...segments].sort((a, b) => b.avgKmh - a.avgKmh);
-                                const actualRank = speedSorted.findIndex(s => s.activityId === segment.activityId) + 1;
-                                title = `#${actualRank} - ${segment.fileName}`;
-                            } else if (sortBy === 'duration') {
-                                title = `${formatDuration(segment.durationSec)} - ${segment.fileName}`;
-                            }
-                            
-                            return title;
+                            return `${rankText} - ${segment.fileName}`;
                         },
                         label: (context) => {
-                            if (context.datasetIndex === 0) {
-                                let segment;
-                                let yPredicted = null;
-                                
-                                if (sortBy === 'date' && regression) {
-                                    segment = regression.validSegments[regression.sortedIndices[context.dataIndex]];
-                                    yPredicted = regressionData[context.dataIndex];
-                                } else {
-                                    segment = displaySegments[context.dataIndex];
-                                }
-                                
-                                const labels = [
-                                    `Snelheid: ${segment.avgKmh?.toFixed(1)} km/u`,
-                                    `Tijd: ${formatDuration(segment.durationSec)}`
-                                ];
-                                
-                                if (yPredicted !== null) {
-                                    const error = segment.avgKmh - yPredicted;
-                                    labels.push(
-                                        `Trend: ${yPredicted.toFixed(1)} km/u`,
-                                        `Afwijking: ${error >= 0 ? '+' : ''}${error.toFixed(1)} km/u`
-                                    );
-                                }
-                                
-                                return labels;
-                            } else if (context.datasetIndex === 1) {
-                                return `Trendlijn: ${context.parsed.y.toFixed(1)} km/u`;
-                            } else if (context.datasetIndex === 2) {
-                                return `Gemiddelde: ${averageSpeed.toFixed(1)} km/u`;
-                            }
-                            return '';
-                        },
-                        afterLabel: (context) => {
-                            if (context.datasetIndex === 0 && regression && sortBy === 'date') {
-                                return [
-                                    `R²: ${regression.rSquared.toFixed(3)}`,
-                                    `Helling: ${regression.slope.toFixed(3)} km/u per dag`
-                                ];
-                            }
-                            return '';
+                            const segment = displaySegments[context.dataIndex];
+                            return [
+                                `Snelheid: ${segment.avgKmh?.toFixed(1)} km/u`,
+                                `Tijd: ${formatDuration(segment.durationSec)}`,
+                                `Datum: ${segment.rideDate ? new Date(segment.rideDate).toLocaleDateString('nl-NL') : 'Onbekend'}`
+                            ];
                         }
                     }
                 }
@@ -2045,7 +1941,7 @@ function createRankingsChart(segments, distance) {
                 x: {
                     title: {
                         display: true,
-                        text: xAxisTitle,
+                        text: getXAxisTitle(sortBy),
                         font: {
                             size: 13,
                             weight: 'bold'
@@ -2359,8 +2255,9 @@ async function showRankings(distance) {
     
     resultsContainer.innerHTML = `
         <div class="no-rankings">
-            <p>🔄 Rangschikking wordt berekend...</p>
-            <p><small>Dit kan even duren bij veel ritten</small></p>
+            <div style="font-size: 3rem; margin-bottom: 20px; opacity: 0.5;">🔍</div>
+            <h4>Ranglijsten worden berekend...</h4>
+            <p>Even geduld, dit kan even duren bij veel ritten</p>
         </div>
     `;
 
@@ -3803,7 +3700,7 @@ function displayMultiComparisonResults(analyses) {
     resultsContainer.innerHTML = `
         <div class="text-center" style="padding: 40px;">
             <div class="spinner" style="width: 40px; height: 40px; margin: 0 auto 20px;"></div>
-            <p>Charts worden geladen...</p>
+            <p>Vergelijking wordt geladen...</p>
         </div>
     `;
     
@@ -3816,22 +3713,25 @@ function displayMultiComparisonResults(analyses) {
             { bg: 'rgba(236, 72, 153, 0.9)', light: 'rgba(236, 72, 153, 0.1)' }
         ];
         
+        // Definieer de statistieken in de gewenste volgorde: 2 boven, 2 onder
         const comparisonData = [
             {
                 label: 'Afstand',
                 unit: 'km',
                 better: 'higher',
                 icon: '📏',
-                getValue: (analysis) => (analysis.totalDistance / 1000).toFixed(2),
-                getNumeric: (analysis) => analysis.totalDistance
+                type: 'distance',
+                getValue: (analysis) => analysis.totalDistance ? (analysis.totalDistance / 1000).toFixed(2) : '0.00',
+                getNumeric: (analysis) => analysis.totalDistance ? analysis.totalDistance / 1000 : 0
             },
             {
                 label: 'Bewegingstijd',
                 unit: '',
                 better: 'lower',
                 icon: '⏱️',
-                getValue: (analysis) => analysis.totalSeconds,
-                getNumeric: (analysis) => analysis.totalSeconds,
+                type: 'duration',
+                getValue: (analysis) => analysis.totalSeconds ? formatDuration(analysis.totalSeconds) : '00:00:00',
+                getNumeric: (analysis) => analysis.totalSeconds || 0,
                 format: 'duration'
             },
             {
@@ -3839,7 +3739,8 @@ function displayMultiComparisonResults(analyses) {
                 unit: 'km/u',
                 better: 'higher',
                 icon: '🚀',
-                getValue: (analysis) => analysis.avgSpeedKmh ? analysis.avgSpeedKmh.toFixed(1) : 'n.v.t.',
+                type: 'speed',
+                getValue: (analysis) => analysis.avgSpeedKmh ? analysis.avgSpeedKmh.toFixed(1) : '0.0',
                 getNumeric: (analysis) => analysis.avgSpeedKmh || 0
             },
             {
@@ -3847,8 +3748,9 @@ function displayMultiComparisonResults(analyses) {
                 unit: 'm',
                 better: 'higher',
                 icon: '⛰️',
-                getValue: (analysis) => analysis.elevationGain,
-                getNumeric: (analysis) => analysis.elevationGain
+                type: 'elevation',
+                getValue: (analysis) => analysis.elevationGain ? analysis.elevationGain.toString() : '0',
+                getNumeric: (analysis) => analysis.elevationGain || 0
             }
         ];
         
@@ -3875,45 +3777,19 @@ function displayMultiComparisonResults(analyses) {
             <div class="comparison-stats-grid">
         `;
         
-        comparisonData.forEach(metric => {
-            html += `
-                <div class="comparison-stat-item">
-                    <div class="stat-header">
-                        <span class="stat-icon">${metric.icon}</span>
-                        <span class="stat-label">${metric.label}</span>
-                    </div>
-                    <div class="comparison-stat-values">
-            `;
-            
-            const values = analyses.map(analysis => metric.getNumeric(analysis));
-            const validValues = values.filter(v => !isNaN(v) && v > 0);
-            
-            let bestValue = null;
-            if (validValues.length > 0) {
-                bestValue = metric.better === 'higher' ? 
-                    Math.max(...validValues) : 
-                    Math.min(...validValues);
-            }
-            
-            analyses.forEach((analysis, index) => {
-                const value = metric.getNumeric(analysis);
-                const displayValue = metric.format === 'duration' ? 
-                    formatDuration(metric.getValue(analysis)) : metric.getValue(analysis);
-                const isWinner = bestValue !== null && !isNaN(value) && value === bestValue && value > 0;
-                const color = colors[index] || colors[0];
-                
-                html += `
-                    <div class="stat-value-multi ${isWinner ? 'winner' : ''}" style="border-color: ${isWinner ? 'var(--success-color)' : color.bg}">
-                        <div class="value">${displayValue}</div>
-                        <div class="unit">${metric.unit}</div>
-                    </div>
-                `;
-            });
-            
-            html += `
-                    </div>
-                </div>
-            `;
+        // Toon eerst 2 statistieken (rij 1)
+        comparisonData.slice(0, 2).forEach(metric => {
+            html += createStatItemHTML(metric, analyses, colors);
+        });
+        
+        html += `
+            </div>
+            <div class="comparison-stats-grid">
+        `;
+        
+        // Toon volgende 2 statistieken (rij 2)
+        comparisonData.slice(2, 4).forEach(metric => {
+            html += createStatItemHTML(metric, analyses, colors);
         });
         
         html += `
@@ -3949,6 +3825,74 @@ function displayMultiComparisonResults(analyses) {
         }, 100);
         
     }, 50);
+}
+
+function createStatItemHTML(metric, analyses, colors) {
+    let html = `
+        <div class="comparison-stat-item" data-stat-type="${metric.type}">
+            <div class="stat-header">
+                <div class="stat-icon">${metric.icon}</div>
+                <div class="stat-label">${metric.label}</div>
+            </div>
+            <div class="comparison-stat-values">
+    `;
+    
+    const values = analyses.map(analysis => metric.getNumeric(analysis));
+    const validValues = values.filter(v => !isNaN(v) && v > 0);
+    
+    let bestValue = null;
+    if (validValues.length > 0) {
+        bestValue = metric.better === 'higher' ? 
+            Math.max(...validValues) : 
+            Math.min(...validValues);
+    }
+    
+    analyses.forEach((analysis, index) => {
+        const value = metric.getNumeric(analysis);
+        const displayValue = metric.format === 'duration' ? 
+            formatDuration(metric.getNumeric(analysis)) : metric.getValue(analysis);
+        const isWinner = bestValue !== null && !isNaN(value) && value === bestValue && value > 0;
+        const color = colors[index] || colors[0];
+        
+        html += `
+            <div class="stat-value-multi ${isWinner ? 'winner' : ''}" style="border-color: ${isWinner ? 'var(--success-color)' : color.bg}">
+                <div class="value">${displayValue}</div>
+                <div class="unit">${metric.unit}</div>
+                <div class="rit-indicator rit-indicator-${index + 1}">
+                    Rit ${index + 1}
+                </div>
+        `;
+        
+        // Voeg verschil indicator toe voor snelheid en afstand (alleen voor rit 2 en hoger)
+        if (index > 0 && (metric.type === 'speed' || metric.type === 'distance')) {
+            const firstValue = metric.getNumeric(analyses[0]);
+            if (firstValue > 0 && value > 0) {
+                const difference = value - firstValue;
+                const percentage = ((difference / firstValue) * 100);
+                
+                if (Math.abs(percentage) > 0.1) { // Alleen tonen bij significante verschillen
+                    const differenceClass = difference > 0 ? 'difference-positive' : 
+                                          difference < 0 ? 'difference-negative' : 'difference-neutral';
+                    const differenceSymbol = difference > 0 ? '↗' : difference < 0 ? '↘' : '→';
+                    
+                    html += `
+                        <div class="difference-indicator ${differenceClass}">
+                            ${differenceSymbol} ${Math.abs(percentage).toFixed(1)}%
+                        </div>
+                    `;
+                }
+            }
+        }
+        
+        html += `</div>`;
+    });
+    
+    html += `
+            </div>
+        </div>
+    `;
+    
+    return html;
 }
 
 function createMultiComparisonCharts(analyses, colors) {
