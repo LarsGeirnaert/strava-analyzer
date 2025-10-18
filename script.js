@@ -3091,7 +3091,7 @@ function createSearchableSelect(selectId, label) {
         <div class="select-header">
             <label class="select-label">${label}</label>
             <div class="search-box">
-                <input type="text" placeholder="Typ om te zoeken..." class="search-input" 
+                <input type="text" placeholder="Typ om te zoeken... (Enter voor alle resultaten)" class="search-input" 
                        data-for="${selectId}">
                 <span class="search-icon">🔍</span>
             </div>
@@ -3199,89 +3199,34 @@ async function populateComparisonSelects() {
 
 function setupSearchFunctionality() {
     document.querySelectorAll('.search-input').forEach(input => {
-        // Vervang input om event listeners te resetten
         const newInput = input.cloneNode(true);
         input.parentNode.replaceChild(newInput, input);
     });
     
     document.querySelectorAll('.search-input').forEach(input => {
         const selectId = input.getAttribute('data-for');
+        let currentSearchTerm = '';
         
         input.addEventListener('input', function(e) {
-            const searchTerm = e.target.value.toLowerCase().trim();
-            const select = document.getElementById(selectId);
-            
-            if (!select) return;
-            
-            let visibleCount = 0;
-            let hasExactMatch = false;
-            
-            Array.from(select.options).forEach(option => {
-                if (option.value === '') {
-                    option.style.display = '';
-                    return;
-                }
-                
-                const searchText = option.getAttribute('data-search-text') || option.text.toLowerCase();
-                const matches = searchText.includes(searchTerm);
-                
-                if (matches) {
-                    option.style.display = '';
-                    visibleCount++;
-                    
-                    // Markeer exacte matches
-                    if (searchText === searchTerm) {
-                        hasExactMatch = true;
-                        option.style.fontWeight = 'bold';
-                        option.style.background = 'rgba(37, 99, 235, 0.1)';
-                    } else {
-                        option.style.fontWeight = '';
-                        option.style.background = '';
-                    }
-                } else {
-                    option.style.display = 'none';
-                    option.style.fontWeight = '';
-                    option.style.background = '';
-                }
-            });
-            
-            const placeholder = select.options[0];
-            if (searchTerm && visibleCount === 0) {
-                placeholder.text = '❌ Geen ritten gevonden';
-                placeholder.style.color = '#dc2626';
-            } else if (searchTerm) {
-                placeholder.text = `🔍 ${visibleCount} rit${visibleCount !== 1 ? 'ten' : ''} gevonden`;
-                placeholder.style.color = '#059669';
-            } else {
-                placeholder.text = '-- Selecteer een rit --';
-                placeholder.style.color = '';
-            }
-            
-            // Auto-select bij exacte match
-            if (hasExactMatch && searchTerm.length > 2) {
-                const exactOption = Array.from(select.options).find(opt => 
-                    opt.value !== '' && 
-                    opt.getAttribute('data-search-text') === searchTerm
-                );
-                if (exactOption) {
-                    select.value = exactOption.value;
-                    const event = new Event('change');
-                    select.dispatchEvent(event);
-                }
-            }
+            currentSearchTerm = e.target.value.toLowerCase().trim();
+            performSearch(selectId, currentSearchTerm, false);
         });
         
-        // Clear search bij escape
+        // Enter-toets voor uitgebreide zoekresultaten
         input.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter' && currentSearchTerm.length > 0) {
+                e.preventDefault();
+                showSearchResultsOverlay(selectId, currentSearchTerm);
+            }
+            
             if (e.key === 'Escape') {
-                e.target.value = '';
-                const select = document.getElementById(selectId);
-                Array.from(select.options).forEach(opt => {
-                    opt.style.display = '';
-                    opt.style.fontWeight = '';
-                    opt.style.background = '';
-                });
-                updateAvailableCount(selectId);
+                if (document.getElementById('searchResultsOverlay').style.display === 'flex') {
+                    closeSearchResults();
+                } else {
+                    e.target.value = '';
+                    currentSearchTerm = '';
+                    performSearch(selectId, '', false);
+                }
             }
         });
         
@@ -3294,7 +3239,254 @@ function setupSearchFunctionality() {
             this.parentElement.style.transform = 'scale(1)';
         });
     });
+    
+    // Close overlay bij klik buiten of op close button
+    document.addEventListener('click', function(e) {
+        if (e.target.id === 'searchResultsOverlay' || e.target.classList.contains('close-results')) {
+            closeSearchResults();
+        }
+    });
+    
+    // Escape-toets om overlay te sluiten
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape' && document.getElementById('searchResultsOverlay').style.display === 'flex') {
+            closeSearchResults();
+        }
+    });
 }
+
+function performSearch(selectId, searchTerm, showAll = false) {
+    const select = document.getElementById(selectId);
+    if (!select) return;
+    
+    let visibleCount = 0;
+    let hasExactMatch = false;
+    const matchingOptions = [];
+    
+    Array.from(select.options).forEach(option => {
+        if (option.value === '') {
+            option.style.display = '';
+            return;
+        }
+        
+        const searchText = option.getAttribute('data-search-text') || option.text.toLowerCase();
+        const matches = searchText.includes(searchTerm) || showAll;
+        
+        if (matches) {
+            option.style.display = '';
+            visibleCount++;
+            
+            if (searchText === searchTerm) {
+                hasExactMatch = true;
+                option.style.fontWeight = 'bold';
+                option.style.background = 'rgba(37, 99, 235, 0.1)';
+            } else {
+                option.style.fontWeight = '';
+                option.style.background = '';
+            }
+            
+            matchingOptions.push({
+                element: option,
+                text: searchText,
+                exactMatch: searchText === searchTerm
+            });
+        } else {
+            option.style.display = 'none';
+            option.style.fontWeight = '';
+            option.style.background = '';
+        }
+    });
+    
+    const placeholder = select.options[0];
+    if (searchTerm && visibleCount === 0) {
+        placeholder.text = '❌ Geen ritten gevonden';
+        placeholder.style.color = '#dc2626';
+    } else if (searchTerm) {
+        placeholder.text = `🔍 ${visibleCount} rit${visibleCount !== 1 ? 'ten' : ''} gevonden`;
+        placeholder.style.color = '#059669';
+    } else {
+        placeholder.text = '-- Selecteer een rit --';
+        placeholder.style.color = '';
+    }
+    
+    // Auto-select bij exacte match (alleen bij normale zoekopdracht)
+    if (!showAll && hasExactMatch && searchTerm.length > 2) {
+        const exactOption = Array.from(select.options).find(opt => 
+            opt.value !== '' && 
+            opt.getAttribute('data-search-text') === searchTerm
+        );
+        if (exactOption) {
+            select.value = exactOption.value;
+            const event = new Event('change');
+            select.dispatchEvent(event);
+        }
+    }
+    
+    return matchingOptions;
+}
+
+function showSearchResultsOverlay(selectId, searchTerm) {
+    const select = document.getElementById(selectId);
+    const activities = comparisonActivities;
+    
+    if (!select || !activities) return;
+    
+    // Zoek alle matching activiteiten
+    const matchingActivities = activities.filter(activity => {
+        const searchText = `${activity.fileName} ${activity.summary?.distanceKm || ''} ${activity.summary?.elevationGain || ''} ${activity.summary?.rideDate || ''}`.toLowerCase();
+        return searchText.includes(searchTerm);
+    });
+    
+    // Creëer of update overlay
+    let overlay = document.getElementById('searchResultsOverlay');
+    if (!overlay) {
+        overlay = document.createElement('div');
+        overlay.id = 'searchResultsOverlay';
+        overlay.className = 'search-results-overlay';
+        overlay.innerHTML = `
+            <div class="search-results-container">
+                <div class="search-results-header">
+                    <h3>Zoekresultaten</h3>
+                    <button class="close-results">×</button>
+                </div>
+                <div id="searchResultsContent"></div>
+            </div>
+        `;
+        document.body.appendChild(overlay);
+    }
+    
+    const content = document.getElementById('searchResultsContent');
+    
+    if (matchingActivities.length === 0) {
+        content.innerHTML = `
+            <div class="no-results-message">
+                <div class="icon">🔍</div>
+                <h4>Geen ritten gevonden</h4>
+                <p>Geen ritten gevonden voor "${searchTerm}"</p>
+                <p><small>Probeer een andere zoekterm</small></p>
+            </div>
+        `;
+    } else {
+        let resultsHTML = `
+            <div class="search-results-info">
+                <p><strong>${matchingActivities.length}</strong> rit${matchingActivities.length !== 1 ? 'ten' : ''} gevonden voor "<strong>${searchTerm}</strong>"</p>
+            </div>
+            <div class="search-results-grid">
+        `;
+        
+        matchingActivities.forEach((activity, index) => {
+            const summary = activity.summary || {};
+            const fileName = highlightText(activity.fileName, searchTerm);
+            const date = summary.rideDate ? new Date(summary.rideDate).toLocaleDateString('nl-NL') : 'Onbekende datum';
+            
+            resultsHTML += `
+                <div class="search-result-item" data-activity-id="${activity.id}" data-select-id="${selectId}">
+                    <div class="result-item-header">
+                        <div class="result-item-name">${fileName}</div>
+                        <div class="result-item-date">${date}</div>
+                    </div>
+                    <div class="result-item-stats">
+                        <div class="result-stat">
+                            <span class="result-stat-icon">📏</span>
+                            ${summary.distanceKm || '?'} km
+                        </div>
+                        <div class="result-stat">
+                            <span class="result-stat-icon">⛰️</span>
+                            ${summary.elevationGain || '?'} m
+                        </div>
+                        <div class="result-stat">
+                            <span class="result-stat-icon">🚀</span>
+                            ${summary.avgSpeed ? summary.avgSpeed.toFixed(1) + ' km/u' : '?'}
+                        </div>
+                        <div class="result-stat">
+                            <span class="result-stat-icon">⏱️</span>
+                            ${summary.durationSec ? formatDuration(summary.durationSec) : '?'}
+                        </div>
+                    </div>
+                    <div class="result-item-actions">
+                        <button class="select-result-btn" onclick="selectSearchResult('${selectId}', '${activity.id}')">
+                            Selecteren
+                        </button>
+                    </div>
+                </div>
+            `;
+        });
+        
+        resultsHTML += `
+            </div>
+            <div class="quick-actions">
+                <button class="quick-action-btn" onclick="closeSearchResults()">
+                    ❌ Sluiten
+                </button>
+                <button class="quick-action-btn" onclick="clearSearch('${selectId}')">
+                    🔄 Wissen
+                </button>
+            </div>
+        `;
+        
+        content.innerHTML = resultsHTML;
+        
+        // Voeg click event toe aan result items
+        content.querySelectorAll('.search-result-item').forEach(item => {
+            item.addEventListener('click', function(e) {
+                if (!e.target.classList.contains('select-result-btn')) {
+                    const activityId = this.getAttribute('data-activity-id');
+                    const selectId = this.getAttribute('data-select-id');
+                    selectSearchResult(selectId, activityId);
+                }
+            });
+        });
+    }
+    
+    overlay.style.display = 'flex';
+    
+    // Focus op eerste resultaat
+    setTimeout(() => {
+        const firstResult = content.querySelector('.search-result-item');
+        if (firstResult) {
+            firstResult.focus();
+        }
+    }, 100);
+}
+
+function highlightText(text, searchTerm) {
+    if (!searchTerm) return text;
+    
+    const regex = new RegExp(`(${escapeRegex(searchTerm)})`, 'gi');
+    return text.replace(regex, '<span class="highlight-match">$1</span>');
+}
+
+function escapeRegex(string) {
+    return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// Selecteer een zoekresultaat
+function selectSearchResult(selectId, activityId) {
+    const select = document.getElementById(selectId);
+    if (select) {
+        select.value = activityId;
+        const event = new Event('change');
+        select.dispatchEvent(event);
+    }
+    closeSearchResults();
+}
+function closeSearchResults() {
+    const overlay = document.getElementById('searchResultsOverlay');
+    if (overlay) {
+        overlay.style.display = 'none';
+    }
+}
+
+// Wis zoekopdracht
+function clearSearch(selectId) {
+    const input = document.querySelector(`.search-input[data-for="${selectId}"]`);
+    if (input) {
+        input.value = '';
+        performSearch(selectId, '', false);
+    }
+    closeSearchResults();
+}
+
 
 function updateSelectInfo(selectId, selectedValue, activities) {
     const infoElement = document.getElementById(`${selectId}-info`);
