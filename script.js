@@ -1044,50 +1044,49 @@ function showFastestSegments(trackpoints, cumDist, hasTimes) {
         <td style="white-space:nowrap">${startStr} → ${endStr}</td>
       `;
       
-      // Hover effect - tijdelijk markeren (zelfde als voorheen)
-      tr.addEventListener('mouseenter', () => {
+            // In de hover event listeners, zorg dat ze niet activeren tijdens clicks
+        tr.addEventListener('mouseenter', () => {
+    // Alleen hover tonen als dit niet het geselecteerde segment is
+    if (!tr.classList.contains('table-row-selected')) {
         const startDistanceKm = currentAnalysis.cumDist[res.startIdx] / 1000;
         const endDistanceKm = currentAnalysis.cumDist[res.endIdx] / 1000;
-        highlightSegmentInChart(startDistanceKm, endDistanceKm, km, false); // false = tijdelijk
-      });
-      
-      tr.addEventListener('mouseleave', () => {
-        // Alleen verwijderen als dit niet het permanent geselecteerde segment is
-        if (permanentlySelectedSegment !== km) {
-          removeTemporaryHighlight();
-        }
-      });
+        highlightSegmentInChart(startDistanceKm, endDistanceKm, km, false);
+    }
+});
+
+tr.addEventListener('mouseleave', () => {
+    // Alleen verwijderen als dit niet het geselecteerde segment is
+    if (!tr.classList.contains('table-row-selected')) {
+        removeTemporaryHighlight();
+    }
+});
       
       // Klik voor permanente markering (zelfde als hover maar permanent)
       tr.style.cursor = 'pointer';
       tr.title = `Klik om ${km} km segment permanent te markeren`;
       // Vervang de bestaande click event listener met deze versie:
-      tr.addEventListener('click', () => {
-          console.log('🖱️ Segment geklikt:', km + 'km');
-          
-          // Verwijder eerst de vorige permanente markering
-          removePermanentHighlight();
-          
-          // Verwijder vorige rij selectie
-          document.querySelectorAll('.table-row-selected').forEach(row => {
-              row.classList.remove('table-row-selected');
-          });
-          
-          // Markeer huidige rij
-          tr.classList.add('table-row-selected');
-          
-          const startDistanceKm = currentAnalysis.cumDist[res.startIdx] / 1000;
-          const endDistanceKm = currentAnalysis.cumDist[res.endIdx] / 1000;
-          
-          // Markeer in grafiek als permanent segment
-          highlightSegmentInChart(startDistanceKm, endDistanceKm, km, true);
-          
-          // Update permanent geselecteerd segment
-          permanentlySelectedSegment = km;
-          
-          console.log('✅ Nieuw segment gemarkeerd:', km + 'km');
-          showTemporaryMessage(`${km} km segment gemarkeerd`);
-      });
+        // In showFastestSegments, vervang de click event listener:
+tr.addEventListener('click', () => {
+    console.log('🖱️ Segment geklikt:', km + 'km');
+    
+    // Verwijder alleen de vorige permanente markering
+    clearAllHighlights();
+    
+    // Markeer huidige rij
+    tr.classList.add('table-row-selected');
+    
+    // Gebruik de EXACTE afstanden uit het segment resultaat
+    const startDistanceKm = res.startDistance / 1000;
+    const endDistanceKm = res.endDistance / 1000;
+    
+    console.log(`📍 Segment coördinaten: ${startDistanceKm.toFixed(2)}km - ${endDistanceKm.toFixed(2)}km`);
+    
+    // Markeer in grafiek als permanent segment
+    highlightSegmentInChart(startDistanceKm, endDistanceKm, km, true);
+    
+    console.log('✅ Nieuw segment gemarkeerd:', km + 'km');
+    showTemporaryMessage(`${km} km segment gemarkeerd (${res.avgKmh.toFixed(1)} km/u)`);
+});
     }
     
     fastestTableBody.appendChild(tr);
@@ -1112,129 +1111,46 @@ function removeSegmentHighlight() {
     }
 }
 
-/**
- * Markeer een segment in de snelheidsgrafiek - verbeterde versie
- */
-function highlightSegmentInChart(startDistanceKm, endDistanceKm, distanceKm, permanent = false) {
-    if (!window.speedChart) {
-        console.warn('Speed chart niet beschikbaar');
-        return;
-    }
+function clearAllHighlights() {
+    console.log('🗑️ Verwijder alleen permanente markeringen');
     
-    const chart = window.speedChart;
+    // Verwijder rij selecties
+    document.querySelectorAll('.table-row-selected').forEach(row => {
+        row.classList.remove('table-row-selected');
+    });
     
-    // Zorg dat de annotation plugin correct is ingesteld
-    if (!chart.options.plugins) {
-        chart.options.plugins = {};
-    }
-    if (!chart.options.plugins.annotation) {
-        chart.options.plugins.annotation = { annotations: {} };
-    }
-    
-    // Voor categorische x-as moeten we de index van de labels vinden
-    const labels = chart.data.labels;
-    let startIndex = -1;
-    let endIndex = -1;
-    
-    // Zoek de dichtstbijzijnde labels voor start en end
-    for (let i = 0; i < labels.length; i++) {
-        const labelValue = parseFloat(labels[i]);
-        if (startIndex === -1 && labelValue >= startDistanceKm) {
-            startIndex = i;
-        }
-        if (endIndex === -1 && labelValue >= endDistanceKm) {
-            endIndex = i;
-            break;
+    // Verwijder alleen permanente annotaties van snelheidsgrafiek
+    if (window.speedChart?.options?.plugins?.annotation) {
+        const annotations = window.speedChart.options.plugins.annotation.annotations;
+        if (annotations && annotations.permanentSegment) {
+            console.log('🗑️ Verwijder permanente segment markering');
+            delete annotations.permanentSegment;
+            window.speedChart.update();
         }
     }
-    
-    // Als we geen exacte match vinden, gebruik dan de eerste en laatste
-    if (startIndex === -1) startIndex = 0;
-    if (endIndex === -1) endIndex = labels.length - 1;
-    
-    // Gebruik EXACT DEZELFDE highlight voor zowel hover als klik
-    const annotationId = permanent ? 'permanentSegment' : 'temporarySegment';
-    
-    // Behoud bestaande annotations en voeg nieuwe toe
-    const currentAnnotations = chart.options.plugins.annotation.annotations || {};
-    
-    chart.options.plugins.annotation.annotations = {
-        ...currentAnnotations, // Behoud bestaande annotations
-        [annotationId]: {
-            type: 'box',
-            xMin: labels[startIndex],
-            xMax: labels[endIndex],
-            yMin: 0,
-            yMax: chart.scales.y.max,
-            backgroundColor: 'rgba(255, 193, 7, 0.25)',
-            borderColor: 'rgba(255, 193, 7, 0.8)',
-            borderWidth: 2,
-            borderDash: [5, 5],
-            label: {
-                display: true,
-                content: `${distanceKm} km${permanent ? ' 🔒' : ''}`,
-                position: 'start',
-                backgroundColor: 'rgba(255, 193, 7, 0.9)',
-                color: '#000',
-                font: {
-                    weight: 'bold',
-                    size: 12
-                }
-            }
-        }
-    };
-    
-    chart.update();
-    
-    // Alleen scrollen en tab wisselen bij permanente selectie
-    if (permanent) {
-        const chartsTabButton = document.querySelector('[data-tab="charts"]');
-        if (chartsTabButton) {
-            chartsTabButton.click();
-        }
-        
-        setTimeout(() => {
-            const speedChartElement = document.getElementById("speedChart");
-            if (speedChartElement) {
-                speedChartElement.scrollIntoView({ 
-                    behavior: 'smooth', 
-                    block: 'center' 
-                });
-            }
-        }, 300);
-    }
-    
-    console.log(`📊 ${permanent ? 'Permanente' : 'Tijdelijke'} markering geplaatst: ${distanceKm}km`);
-    console.log('🔧 Huidige annotations:', Object.keys(chart.options.plugins.annotation.annotations));
 }
 
 /**
  * Verwijder alleen tijdelijke markeringen (voor hover)
  */
 function removeTemporaryHighlight() {
-    if (!window.speedChart || !window.speedChart.options) return;
+    if (!window.speedChart?.options?.plugins?.annotation) return;
     
     const chart = window.speedChart;
+    const annotations = chart.options.plugins.annotation.annotations;
     
-    if (chart.options.plugins && chart.options.plugins.annotation) {
-        // Verwijder alleen tijdelijke annotaties, behoud permanente
-        const annotations = chart.options.plugins.annotation.annotations;
-        
-        if (annotations && annotations.temporarySegment) {
-            // Maak een kopie van alle annotations behalve de tijdelijke
-            const newAnnotations = { ...annotations };
-            delete newAnnotations.temporarySegment;
-            
-            chart.options.plugins.annotation.annotations = newAnnotations;
-            chart.update();
-        }
+    // Verwijder alleen tijdelijke annotaties (niet de permanente)
+    if (annotations && annotations.temporarySegment) {
+        const newAnnotations = { ...annotations };
+        delete newAnnotations.temporarySegment;
+        chart.options.plugins.annotation.annotations = newAnnotations;
+        chart.update();
     }
 }
 
-/**
- * Verwijder alle markeringen (bij nieuwe analyse)
- */
 function clearAllHighlights() {
+    console.log('🗑️ Verwijder alle markeringen');
+    
     // Verwijder rij selecties
     document.querySelectorAll('.table-row-selected').forEach(row => {
         row.classList.remove('table-row-selected');
@@ -1246,6 +1162,16 @@ function clearAllHighlights() {
             annotations: {}
         };
         window.speedChart.update();
+        console.log('📊 Snelheidsgrafiek annotations verwijderd');
+    }
+    
+    // Verwijder alle annotaties van hoogtegrafiek (voor de zekerheid)
+    if (window.elevationChart?.options?.plugins?.annotation) {
+        window.elevationChart.options.plugins.annotation = {
+            annotations: {}
+        };
+        window.elevationChart.update();
+        console.log('📈 Hoogtegrafiek annotations verwijderd');
     }
 }
 
@@ -2806,6 +2732,81 @@ async function highlightRankingSegment(activityId, distance) {
     if (chartsTab) chartsTab.click();
 }
 
+function highlightSegmentInChart(startDistanceKm, endDistanceKm, distanceKm, permanent = false) {
+    if (!window.speedChart) {
+        console.warn('Speed chart niet beschikbaar');
+        return;
+    }
+    
+    const chart = window.speedChart;
+    
+    // Zorg dat de annotation plugin correct is ingesteld
+    if (!chart.options.plugins) {
+        chart.options.plugins = {};
+    }
+    if (!chart.options.plugins.annotation) {
+        chart.options.plugins.annotation = { annotations: {} };
+    }
+
+    // Voor categorische x-as moeten we de index van de labels vinden
+    const labels = chart.data.labels;
+    let startIndex = -1;
+    let endIndex = -1;
+    
+    // Zoek de dichtstbijzijnde labels voor start en end
+    for (let i = 0; i < labels.length; i++) {
+        const labelValue = parseFloat(labels[i]);
+        if (startIndex === -1 && labelValue >= startDistanceKm) {
+            startIndex = i;
+        }
+        if (endIndex === -1 && labelValue >= endDistanceKm) {
+            endIndex = i;
+            break;
+        }
+    }
+    
+    // Als we geen exacte match vinden, gebruik dan de eerste en laatste
+    if (startIndex === -1) startIndex = 0;
+    if (endIndex === -1) endIndex = labels.length - 1;
+
+    const annotationId = permanent ? 'permanentSegment' : 'temporarySegment';
+    
+    // Behoud bestaande annotations (vooral tijdelijke voor hover)
+    const currentAnnotations = chart.options.plugins.annotation.annotations || {};
+    
+    // VERVANG alleen de annotation die we willen wijzigen
+    chart.options.plugins.annotation.annotations = {
+        ...currentAnnotations,
+        [annotationId]: {
+            type: 'box',
+            xMin: labels[startIndex],
+            xMax: labels[endIndex],
+            yMin: 0,
+            yMax: chart.scales.y.max,
+            backgroundColor: permanent ? 'rgba(255, 193, 7, 0.35)' : 'rgba(255, 193, 7, 0.15)',
+            borderColor: 'rgba(255, 193, 7, 0.8)',
+            borderWidth: 2,
+            borderDash: permanent ? [] : [5, 5],
+            label: {
+                display: true,
+                content: `${distanceKm} km${permanent ? ' 🔒' : ''}`,
+                position: 'start',
+                backgroundColor: 'rgba(255, 193, 7, 0.9)',
+                color: '#000',
+                font: {
+                    weight: 'bold',
+                    size: 12
+                }
+            }
+        }
+    };
+    
+    chart.update();
+    
+    if (permanent) {
+        console.log(`📊 PERMANENT segment gemarkeerd: ${distanceKm}km`);
+    }
+}
 function initRankings() {
     const rankingsDistance = document.getElementById('rankingsDistance');
     const refreshRankings = document.getElementById('refreshRankings');
