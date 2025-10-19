@@ -3175,3 +3175,177 @@ body {
     color: #1e293b !important;
     font-weight: 700;
 }
+
+/* ========== VERBETERDE SAMENVATTING TEKST ========== */
+#summaryContainer {
+    color: #1e293b !important; /* Donkere tekstkleur */
+}
+
+#summaryContainer ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+#summaryContainer li {
+    color: #1e293b !important; /* Donkere tekst */
+    font-size: 1.1rem;
+    margin-bottom: 12px;
+    padding: 12px 16px;
+    background: rgba(255, 255, 255, 0.9);
+    border-radius: 8px;
+    border-left: 4px solid var(--primary-color);
+    font-weight: 600;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+#summaryContainer li strong {
+    color: var(--primary-color) !important; /* Accent kleur voor belangrijke waarden */
+    font-weight: 800;
+}
+
+/* Specifieke styling voor de summary grid */
+.summary-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 15px;
+    margin-bottom: 20px;
+}
+
+.summary-item {
+    background: white !important;
+    color: #1e293b !important;
+    padding: 20px;
+    border-radius: 12px;
+    text-align: center;
+    border: 2px solid var(--border-color);
+    box-shadow: var(--shadow);
+}
+
+.summary-item h3 {
+    color: #64748b !important;
+    font-size: 0.9rem;
+    margin-bottom: 8px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-weight: 600;
+}
+
+.summary-item .value {
+    color: #1e293b !important;
+    font-size: 1.8rem;
+    font-weight: 800;
+}
+
+/* Zorg dat alle tekst in de card leesbaar is */
+.card {
+    color: #1e293b !important;
+}
+
+.card h3, .card h4 {
+    color: #1e293b !important;
+}
+
+/* Als de samenvatting in een specifieke card staat */
+.card #summaryContainer {
+    color: #1e293b !important;
+}
+
+/* ========== VERBETERDE SNELSTE SEGMENTEN TABEL ========== */
+.table-container {
+    background: white !important;
+    color: #1e293b !important;
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: var(--shadow);
+    border: 2px solid var(--border-color);
+}
+
+.table-header {
+    background: linear-gradient(135deg, var(--primary-color), var(--primary-dark)) !important;
+    color: white !important;
+    padding: 20px;
+}
+
+.table-header h3 {
+    color: white !important;
+    margin: 0;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.table-scroll {
+    overflow-x: auto;
+    background: white !important;
+}
+
+#fastestTable {
+    width: 100%;
+    border-collapse: collapse;
+    background: white !important;
+    color: #1e293b !important;
+}
+
+#fastestTable th {
+    background: #f8fafc !important;
+    color: #1e293b !important;
+    padding: 15px 12px;
+    text-align: left;
+    font-weight: 700;
+    font-size: 0.9rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    border-bottom: 2px solid var(--border-color);
+}
+
+#fastestTable td {
+    padding: 12px;
+    border-bottom: 1px solid #e2e8f0;
+    color: #1e293b !important;
+    font-weight: 600;
+    background: white !important;
+}
+
+#fastestTable tbody tr {
+    cursor: pointer;
+    transition: all 0.2s ease;
+    background: white !important;
+}
+
+#fastestTable tbody tr:hover {
+    background: rgba(37, 99, 235, 0.05) !important;
+    transform: translateX(4px);
+}
+
+#fastestTable tbody tr.table-row-selected {
+    background: linear-gradient(135deg, rgba(37, 99, 235, 0.15), rgba(37, 99, 235, 0.08)) !important;
+    border-left: 4px solid var(--primary-color);
+    position: relative;
+}
+
+#fastestTable tbody tr.table-row-selected::after {
+    content: '🔒';
+    position: absolute;
+    right: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 14px;
+}
+
+/* Zorg dat alle tekst in de snelste segmenten leesbaar is */
+#fastestTableBody * {
+    color: #1e293b !important;
+}
+
+/* Responsive tabel */
+@media (max-width: 768px) {
+    .table-scroll {
+        font-size: 0.9rem;
+    }
+    
+    #fastestTable th,
+    #fastestTable td {
+        padding: 10px 8px;
+    }
+}
