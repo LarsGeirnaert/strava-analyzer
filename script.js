@@ -701,25 +701,26 @@ function calculateTotalDistanceFromXML(doc) {
 
 /* ========== Chart functions ========== */
 function showElevationChart(trackpoints, cumDist) {
-  if (!trackpoints || trackpoints.length < 2) return;
+    if (!trackpoints || trackpoints.length < 2) return;
 
-  const elevationValues = trackpoints.map(tp => isNaN(tp.altitude) ? null : tp.altitude);
-  
-  const smoothData = (arr, windowSize = 5) => {
-    const result = [];
-    for (let i = 0; i < arr.length; i++) {
-      const start = Math.max(0, i - Math.floor(windowSize/2));
-      const end = Math.min(arr.length, i + Math.floor(windowSize/2) + 1);
-      const window = arr.slice(start, end).filter(v => v !== null);
-      result.push(window.length ? window.reduce((a,b)=>a+b,0)/window.length : null);
-    }
-    return result;
-  };
-  const smoothedElevation = smoothData(elevationValues, 5);
+    const elevationValues = trackpoints.map(tp => isNaN(tp.altitude) ? null : tp.altitude);
+    
+    const smoothData = (arr, windowSize = 5) => {
+        const result = [];
+        for (let i = 0; i < arr.length; i++) {
+            const start = Math.max(0, i - Math.floor(windowSize/2));
+            const end = Math.min(arr.length, i + Math.floor(windowSize/2) + 1);
+            const window = arr.slice(start, end).filter(v => v !== null);
+            result.push(window.length ? window.reduce((a,b)=>a+b,0)/window.length : null);
+        }
+        return result;
+    };
+    const smoothedElevation = smoothData(elevationValues, 5);
 
-  const step = Math.ceil(smoothedElevation.length / 150);
-  const dsElevation = smoothedElevation.filter((_, i) => i % step === 0);
-  const dsLabels = cumDist.filter((_, i) => i % step === 0).map(d => (d/1000).toFixed(2));
+    // GEBRUIK EXACT DEZELFDE DOWN SAMPLING ALS SNELHEIDSGRAFIEK
+    const step = Math.ceil(smoothedElevation.length / 150);
+    const dsElevation = smoothedElevation.filter((_, i) => i % step === 0);
+    const dsLabels = cumDist.filter((_, i) => i % step === 0).map(d => (d/1000).toFixed(2));
 
   const validElevations = dsElevation.filter(v => v !== null);
   const avgElevation = validElevations.length ? validElevations.reduce((a,b)=>a+b,0)/validElevations.length : null;
@@ -773,12 +774,20 @@ function showElevationChart(trackpoints, cumDist) {
       responsive: true,
       maintainAspectRatio: false,
       interaction: { mode: 'index', intersect: false },
-      scales: {
-        x: {
-          title: { display: true, text: "Afstand (km)", font: { weight: 'bold' } },
-          grid: { color: 'rgba(0,0,0,0.05)' },
-          ticks: { maxTicksLimit: 10 }
+        scales: {
+    x: {
+        type: 'linear', // Gebruik linear i.p.v. category voor betere uitlijning
+        title: { display: true, text: "Afstand (km)", font: { weight: 'bold' } },
+        grid: { color: 'rgba(0,0,0,0.05)' },
+        ticks: { 
+            maxTicksLimit: 10,
+            callback: function(value) {
+                return value.toFixed(1) + ' km';
+            }
         },
+        min: 0,
+        max: Math.ceil(cumDist[cumDist.length - 1] / 1000) // Zelfde max als snelheidsgrafiek
+    },
         y: {
           min: yMin,
           max: yMax,
@@ -902,11 +911,19 @@ function showSpeedChart(trackpoints, cumDist) {
       maintainAspectRatio: false,
       interaction: { mode: 'index', intersect: false },
       scales: {
-        x: {
-          title: { display: true, text: "Afstand (km)", font: { weight: 'bold' } },
-          grid: { color: 'rgba(0,0,0,0.05)' },
-          ticks: { maxTicksLimit: 10 }
+    x: {
+        type: 'linear', // Gebruik linear i.p.v. category
+        title: { display: true, text: "Afstand (km)", font: { weight: 'bold' } },
+        grid: { color: 'rgba(0,0,0,0.05)' },
+        ticks: { 
+            maxTicksLimit: 10,
+            callback: function(value) {
+                return value.toFixed(1) + ' km';
+            }
         },
+        min: 0,
+        max: Math.ceil(cumDist[cumDist.length - 1] / 1000) // Zelfde max als hoogtegrafiek
+    },
         y: {
           min: 0,
           max: yMax,
@@ -1119,33 +1136,43 @@ function clearAllHighlights() {
         row.classList.remove('table-row-selected');
     });
     
-    // Verwijder alleen permanente annotaties van snelheidsgrafiek
-    if (window.speedChart?.options?.plugins?.annotation) {
-        const annotations = window.speedChart.options.plugins.annotation.annotations;
-        if (annotations && annotations.permanentSegment) {
-            console.log('🗑️ Verwijder permanente segment markering');
-            delete annotations.permanentSegment;
-            window.speedChart.update();
+    // Verwijder alleen permanente annotaties van BEIDE grafieken
+    [window.speedChart, window.elevationChart].forEach(chart => {
+        if (chart?.options?.plugins?.annotation) {
+            const annotations = chart.options.plugins.annotation.annotations;
+            if (annotations) {
+                // Verwijder permanente segment annotaties
+                if (annotations.permanentSegmentSpeed) {
+                    delete annotations.permanentSegmentSpeed;
+                }
+                if (annotations.permanentSegmentElevation) {
+                    delete annotations.permanentSegmentElevation;
+                }
+                chart.update();
+            }
         }
-    }
+    });
+    
+    console.log('🗑️ Permanente markeringen verwijderd uit beide grafieken');
 }
 
-/**
- * Verwijder alleen tijdelijke markeringen (voor hover)
- */
 function removeTemporaryHighlight() {
-    if (!window.speedChart?.options?.plugins?.annotation) return;
-    
-    const chart = window.speedChart;
-    const annotations = chart.options.plugins.annotation.annotations;
-    
-    // Verwijder alleen tijdelijke annotaties (niet de permanente)
-    if (annotations && annotations.temporarySegment) {
-        const newAnnotations = { ...annotations };
-        delete newAnnotations.temporarySegment;
-        chart.options.plugins.annotation.annotations = newAnnotations;
-        chart.update();
-    }
+    // Verwijder tijdelijke markeringen uit BEIDE grafieken
+    [window.speedChart, window.elevationChart].forEach(chart => {
+        if (chart?.options?.plugins?.annotation) {
+            const annotations = chart.options.plugins.annotation.annotations;
+            if (annotations) {
+                // Verwijder tijdelijke segment annotaties
+                if (annotations.temporarySegmentSpeed) {
+                    delete annotations.temporarySegmentSpeed;
+                }
+                if (annotations.temporarySegmentElevation) {
+                    delete annotations.temporarySegmentElevation;
+                }
+                chart.update();
+            }
+        }
+    });
 }
 
 function clearAllHighlights() {
@@ -2733,10 +2760,92 @@ async function highlightRankingSegment(activityId, distance) {
 }
 
 function highlightSegmentInChart(startDistanceKm, endDistanceKm, distanceKm, permanent = false) {
-    if (!window.speedChart) {
-        console.warn('Speed chart niet beschikbaar');
+    if (!window.speedChart || !window.elevationChart) {
+        console.warn('Charts niet beschikbaar');
         return;
     }
+    
+    console.log(`📍 Markeer segment in beide grafieken: ${startDistanceKm.toFixed(1)}km - ${endDistanceKm.toFixed(1)}km (${distanceKm}km)`);
+    
+    // Markeer in SNELHEIDSgrafiek
+    highlightSegmentInSpeedChart(startDistanceKm, endDistanceKm, distanceKm, permanent);
+    
+    // Markeer in HOOGTEgrafiek
+    highlightSegmentInElevationChart(startDistanceKm, endDistanceKm, distanceKm, permanent);
+    
+    console.log(`📊 Segment gemarkeerd in beide grafieken: ${distanceKm}km`);
+}
+
+function highlightSegmentInElevationChart(startDistanceKm, endDistanceKm, distanceKm, permanent = false) {
+    if (!window.elevationChart) return;
+    
+    const chart = window.elevationChart;
+    
+    // Zorg dat de annotation plugin correct is ingesteld
+    if (!chart.options.plugins) {
+        chart.options.plugins = {};
+    }
+    if (!chart.options.plugins.annotation) {
+        chart.options.plugins.annotation = { annotations: {} };
+    }
+
+    // Voor categorische x-as moeten we de index van de labels vinden
+    const labels = chart.data.labels;
+    let startIndex = -1;
+    let endIndex = -1;
+    
+    // Zoek de dichtstbijzijnde labels voor start en end
+    for (let i = 0; i < labels.length; i++) {
+        const labelValue = parseFloat(labels[i]);
+        if (startIndex === -1 && labelValue >= startDistanceKm) {
+            startIndex = i;
+        }
+        if (endIndex === -1 && labelValue >= endDistanceKm) {
+            endIndex = i;
+            break;
+        }
+    }
+    
+    // Als we geen exacte match vinden, gebruik dan de eerste en laatste
+    if (startIndex === -1) startIndex = 0;
+    if (endIndex === -1) endIndex = labels.length - 1;
+
+    const annotationId = permanent ? 'permanentSegmentElevation' : 'temporarySegmentElevation';
+    
+    // Behoud bestaande annotations
+    const currentAnnotations = chart.options.plugins.annotation.annotations || {};
+    
+    chart.options.plugins.annotation.annotations = {
+        ...currentAnnotations,
+        [annotationId]: {
+            type: 'box',
+            xMin: labels[startIndex],
+            xMax: labels[endIndex],
+            yMin: chart.scales.y.min,
+            yMax: chart.scales.y.max,
+            backgroundColor: permanent ? 'rgba(16, 185, 129, 0.25)' : 'rgba(16, 185, 129, 0.15)',
+            borderColor: 'rgba(16, 185, 129, 0.8)',
+            borderWidth: 2,
+            borderDash: permanent ? [] : [5, 5],
+            label: {
+                display: true,
+                content: `${distanceKm} km${permanent ? ' 🔒' : ''}`,
+                position: 'start',
+                backgroundColor: 'rgba(16, 185, 129, 0.9)',
+                color: '#000',
+                font: {
+                    weight: 'bold',
+                    size: 12
+                }
+            }
+        }
+    };
+    
+    chart.update();
+}
+
+function highlightSegmentInSpeedChart(startDistanceKm, endDistanceKm, distanceKm, permanent = false) {
+    if (!window.speedChart) return;
     
     const chart = window.speedChart;
     
@@ -2769,12 +2878,11 @@ function highlightSegmentInChart(startDistanceKm, endDistanceKm, distanceKm, per
     if (startIndex === -1) startIndex = 0;
     if (endIndex === -1) endIndex = labels.length - 1;
 
-    const annotationId = permanent ? 'permanentSegment' : 'temporarySegment';
+    const annotationId = permanent ? 'permanentSegmentSpeed' : 'temporarySegmentSpeed';
     
-    // Behoud bestaande annotations (vooral tijdelijke voor hover)
+    // Behoud bestaande annotations
     const currentAnnotations = chart.options.plugins.annotation.annotations || {};
     
-    // VERVANG alleen de annotation die we willen wijzigen
     chart.options.plugins.annotation.annotations = {
         ...currentAnnotations,
         [annotationId]: {
@@ -2802,11 +2910,8 @@ function highlightSegmentInChart(startDistanceKm, endDistanceKm, distanceKm, per
     };
     
     chart.update();
-    
-    if (permanent) {
-        console.log(`📊 PERMANENT segment gemarkeerd: ${distanceKm}km`);
-    }
 }
+
 function initRankings() {
     const rankingsDistance = document.getElementById('rankingsDistance');
     const refreshRankings = document.getElementById('refreshRankings');

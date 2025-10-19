@@ -3349,3 +3349,41 @@ body {
         padding: 10px 8px;
     }
 }
+
+/* ========== GRAFIEKEN UITLIJNING ========== */
+.chart-container {
+    margin-bottom: 0 !important;
+    padding-bottom: 0 !important;
+}
+
+.chart-wrapper {
+    height: 300px !important;
+    width: 100% !important;
+    position: relative;
+}
+
+/* Zorg dat beide grafieken exact dezelfde breedte hebben */
+#speedChart, #elevationChart {
+    width: 100% !important;
+    height: 100% !important;
+}
+
+/* Maak de containers even groot */
+#charts-tab .chart-container {
+    flex: 1;
+    min-height: 350px;
+    display: flex;
+    flex-direction: column;
+}
+
+#charts-tab .chart-container h3 {
+    margin-bottom: 15px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+}
+
+/* Zorg voor consistente padding */
+.chart-container {
+    padding: 20px !important;
+}
