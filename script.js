@@ -1287,153 +1287,6 @@ function getXAxisTitle(sortBy) {
     return titles[sortBy] || 'Ranking Positie';
 }
 
-async function renderSavedList() {
-    if (!savedListContainer) return;
-    
-    // Maak sortering altijd beschikbaar
-    const sortField = document.getElementById('sortField')?.value || "rideDate";
-    const sortOrder = document.getElementById('sortOrder')?.value || "desc";
-
-    let items = [];
-    try {
-        items = await listActivitiesFromDB();
-    } catch (err) {
-        console.error("lijst ophalen mislukt:", err);
-        savedListContainer.innerHTML = `
-            <div class="no-saved">
-                <div style="font-size: 3rem; margin-bottom: 20px; opacity: 0.5;">❌</div>
-                <h4>Fout bij ophalen ritten</h4>
-                <p>Er ging iets mis bij het laden van je opgeslagen ritten</p>
-            </div>
-        `;
-        return;
-    }
-    
-    if (!items.length) { 
-        savedListContainer.innerHTML = `
-            <div class="no-saved">
-                <div style="font-size: 3rem; margin-bottom: 20px; opacity: 0.5;">📂</div>
-                <h4>Geen ritten opgeslagen</h4>
-                <p>Upload en sla ritten op om ze hier terug te vinden</p>
-            </div>
-        `; 
-        return; 
-    }
-
-    // Sorteer items
-    items.sort((a, b) => {
-        let va, vb;
-        if (sortField === "rideDate") {
-            va = a.summary?.rideDate ? new Date(a.summary.rideDate).getTime() : (a.createdAt ? new Date(a.createdAt).getTime() : 0);
-            vb = b.summary?.rideDate ? new Date(b.summary.rideDate).getTime() : (b.createdAt ? new Date(b.createdAt).getTime() : 0);
-        } else if (sortField === "createdAt") {
-            va = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-            vb = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-        } else if (sortField === "distance") {
-            va = a.summary?.distanceKm ? Number(a.summary.distanceKm) : -1;
-            vb = b.summary?.distanceKm ? Number(b.summary.distanceKm) : -1;
-        } else if (sortField === "elevation") {
-            va = a.summary?.elevationGain ? Number(a.summary.elevationGain) : -1;
-            vb = b.summary?.elevationGain ? Number(b.summary.elevationGain) : -1;
-        } else {
-            va = 0; vb = 0;
-        }
-        if (va === vb) return 0;
-        const dir = (sortOrder === "asc") ? 1 : -1;
-        return (va < vb) ? -1 * dir : 1 * dir;
-    });
-
-    let html = `
-        <div class="sort-controls">
-            <span>Sorteren op:</span>
-            <select id="sortField">
-                <option value="rideDate" ${sortField === 'rideDate' ? 'selected' : ''}>Rit Datum</option>
-                <option value="createdAt" ${sortField === 'createdAt' ? 'selected' : ''}>Toegevoegd op</option>
-                <option value="distance" ${sortField === 'distance' ? 'selected' : ''}>Afstand</option>
-                <option value="elevation" ${sortField === 'elevation' ? 'selected' : ''}>Hoogtemeters</option>
-            </select>
-            <select id="sortOrder">
-                <option value="desc" ${sortOrder === 'desc' ? 'selected' : ''}>Aflopend</option>
-                <option value="asc" ${sortOrder === 'asc' ? 'selected' : ''}>Oplopend</option>
-            </select>
-        </div>
-        <div class="saved-activities">
-            <ul>
-    `;
-
-    items.forEach(item => {
-        const distanceTxt = item.summary?.distanceKm ? `${parseFloat(item.summary.distanceKm).toFixed(1)} km` : "? km";
-        const elevTxt = (item.summary && item.summary.elevationGain !== undefined) ? `${item.summary.elevationGain} m` : "—";
-        const speedTxt = item.summary?.avgSpeed ? `${item.summary.avgSpeed.toFixed(1)} km/u` : "—";
-        const rideDateTxt = item.summary?.rideDate ? new Date(item.summary.rideDate).toLocaleDateString('nl-NL') : "onbekend";
-        const createdDateTxt = item.createdAt ? new Date(item.createdAt).toLocaleDateString('nl-NL') : "onbekend";
-        
-        html += `
-            <li>
-                <div class="activity-info">
-                    <strong>${item.fileName}</strong>
-                    <div class="activity-meta">
-                        <span>📏 ${distanceTxt}</span>
-                        <span>⛰️ ${elevTxt}</span>
-                        <span>🚀 ${speedTxt}</span>
-                    </div>
-                </div>
-                <div class="activity-date">
-                    ${sortField === 'createdAt' ? createdDateTxt : rideDateTxt}
-                </div>
-                <div class="activity-actions">
-                    <button class="load-btn" onclick="loadSavedActivity('${item.id}')">
-                        📂 Openen
-                    </button>
-                    <button class="download-btn" onclick="downloadSavedActivity('${item.id}')">
-                        💾 Download
-                    </button>
-                    <button class="delete-btn" onclick="deleteSavedActivity('${item.id}')">
-                        🗑️ Verwijder
-                    </button>
-                </div>
-            </li>
-        `;
-    });
-
-    html += `
-            </ul>
-        </div>
-    `;
-
-    savedListContainer.innerHTML = html;
-
-    // Voeg event listeners toe
-    document.getElementById('sortField').addEventListener('change', () => renderSavedList());
-    document.getElementById('sortOrder').addEventListener('change', () => renderSavedList());
-}
-
-async function loadSavedActivity(id) {
-    const activity = await getActivityFromDB(id);
-    const text = await activity.fileBlob.text();
-    await analyzeText(text, activity.fileBlob, activity.fileName);
-}
-
-function downloadSavedActivity(id) {
-    getActivityFromDB(id).then(activity => {
-        const url = URL.createObjectURL(activity.fileBlob);
-        const a = document.createElement("a"); 
-        a.href = url; 
-        a.download = activity.fileName; 
-        a.click();
-        URL.revokeObjectURL(url);
-    });
-}
-
-async function deleteSavedActivity(id) {
-    if (confirm(`Weet je zeker dat je deze rit wilt verwijderen?`)) {
-        await deleteActivityFromDB(id);
-        await renderSavedList();
-    }
-}
-
-
-/* ========== Statistics functions ========== */
 async function updateStatistics() {
   const items = await listActivitiesFromDB();
   
@@ -1487,7 +1340,6 @@ function updateLongestRidesList(items) {
   `).join('');
 }
 
-/* ========== Tab management ========== */
 function initTabs() {
     const tabButtons = document.querySelectorAll('.tab-button');
     const tabContents = document.querySelectorAll('.tab-content');
@@ -1514,7 +1366,6 @@ function initTabs() {
             }
             
             if (tabId === 'rankings') {
-                // Zorg dat rangschikking direct op datum staat
                 const chartSortBy = document.getElementById('chartSortBy');
                 if (chartSortBy && chartSortBy.value !== 'date') {
                     chartSortBy.value = 'date';
@@ -1528,7 +1379,6 @@ function initTabs() {
         });
     });
     
-    // Zorg dat rangschikking tab correct geïnitialiseerd is bij pagina load
     const activeTab = document.querySelector('.tab-button.active');
     if (activeTab && activeTab.getAttribute('data-tab') === 'rankings') {
         const chartSortBy = document.getElementById('chartSortBy');
@@ -1540,7 +1390,6 @@ function initTabs() {
 }
 
 
-/* ========== Event handlers ========== */
 analyzeBtn.addEventListener("click", async () => {
     const file = fileInput.files[0];
     if (!file) { 
@@ -1598,16 +1447,10 @@ function calculateSpeedVariance(segments) {
     return variance;
 }
 
-/**
- * Bereken standaardafwijking voor snelheid bij ranking
- */
 function calculateSpeedStandardDeviation(segments) {
     return Math.sqrt(calculateSpeedVariance(segments));
 }
 
-/**
- * Update de rankings statistieken met MSE en variantie
- */
 function updateRankingsStatsWithMSE(segments, distance) {
     const statsContainer = document.querySelector('.rankings-stats');
     if (!statsContainer) return;
@@ -1617,7 +1460,6 @@ function updateRankingsStatsWithMSE(segments, distance) {
     const stdDev = calculateSpeedStandardDeviation(segments);
     const averageSpeed = calculateAverageSpeed(segments);
     
-    // Voeg MSE statistieken toe aan bestaande stats
     const mseStats = document.createElement('div');
     mseStats.className = 'mse-stats-grid';
     mseStats.innerHTML = `
@@ -1648,7 +1490,6 @@ function calculateLinearRegression(segments) {
         return null;
     }
     
-    // Filter segments met geldige datums en snelheden
     const validSegments = segments.filter(segment => {
         const hasDate = segment.rideDate && !isNaN(new Date(segment.rideDate).getTime());
         const hasSpeed = segment.avgKmh && segment.avgKmh > 0;
@@ -1662,26 +1503,22 @@ function calculateLinearRegression(segments) {
         return null;
     }
     
-    // Sorteer op datum (oud naar nieuw)
     validSegments.sort((a, b) => {
         const dateA = new Date(a.rideDate);
         const dateB = new Date(b.rideDate);
         return dateA - dateB;
     });
     
-    // Converteer datums naar dagen sinds eerste datum
     const firstDate = new Date(validSegments[0].rideDate).getTime();
     const xValues = validSegments.map(segment => 
-        (new Date(segment.rideDate).getTime() - firstDate) / (1000 * 60 * 60 * 24) // dagen
+        (new Date(segment.rideDate).getTime() - firstDate) / (1000 * 60 * 60 * 24)
     );
     
     const yValues = validSegments.map(segment => segment.avgKmh);
     
-    // Bereken gemiddelden
     const xMean = xValues.reduce((a, b) => a + b, 0) / validSegments.length;
     const yMean = yValues.reduce((a, b) => a + b, 0) / validSegments.length;
     
-    // Bereken helling (a) en intercept (b)
     let numerator = 0;
     let denominator = 0;
     
@@ -1693,7 +1530,6 @@ function calculateLinearRegression(segments) {
     const slope = denominator !== 0 ? numerator / denominator : 0;
     const intercept = yMean - slope * xMean;
     
-    // Bereken R²
     let ssTotal = 0;
     let ssResidual = 0;
     
@@ -1705,7 +1541,6 @@ function calculateLinearRegression(segments) {
     
     const rSquared = ssTotal !== 0 ? 1 - (ssResidual / ssTotal) : 0;
     
-    // Formatteer vergelijking
     const equation = `y = ${slope >= 0 ? '+' : ''}${slope.toFixed(4)}·dagen + ${intercept.toFixed(1)}`;
     
     console.log('Regressie resultaat:', {
@@ -1733,7 +1568,7 @@ function calculateRegressionMSE(segments, regression) {
     let sumSquaredErrors = 0;
     
     for (let i = 0; i < n; i++) {
-        const x = i + 1; // Ranking positie
+        const x = i + 1; 
         const yActual = segments[i].avgKmh;
         const yPredicted = regression.slope * x + regression.intercept;
         sumSquaredErrors += Math.pow(yActual - yPredicted, 2);
@@ -1746,7 +1581,6 @@ function createRankingsChart(segments, distance) {
     const ctx = document.getElementById('rankingsChart')?.getContext('2d');
     if (!ctx) return;
 
-    // Vernietig bestaande chart
     if (rankingsChart && typeof rankingsChart.destroy === 'function') {
         rankingsChart.destroy();
     }
@@ -1754,19 +1588,15 @@ function createRankingsChart(segments, distance) {
     const topLimit = parseInt(document.getElementById('chartTopLimit')?.value || '50');
     const sortBy = document.getElementById('chartSortBy')?.value || 'speed';
     
-    // ALTIJD sorteren op snelheid (snelste eerst) voor de echte ranking
     let displaySegments = [...segments].sort((a, b) => b.avgKmh - a.avgKmh);
     
-    // Bereken lineaire regressie (alleen voor datum sortering)
     const regression = sortBy === 'date' ? calculateLinearRegression(displaySegments) : null;
     
-    // Beperk aantal weergave VOOR sortering (zodat we de beste houden)
     let limitedSegments = displaySegments;
     if (topLimit > 0) {
         limitedSegments = displaySegments.slice(0, topLimit);
     }
 
-    // Pas sortering toe voor weergave op de beperkte set
     if (sortBy === 'date') {
         limitedSegments.sort((a, b) => {
             const dateA = a.rideDate ? new Date(a.rideDate) : new Date(0);
@@ -1774,10 +1604,8 @@ function createRankingsChart(segments, distance) {
             return dateA - dateB;
         });
     } else if (sortBy === 'speed') {
-        // Keer de volgorde om zodat snelste rechts staat (langzaam -> snel)
         limitedSegments.reverse();
     } else if (sortBy === 'elevation') {
-        // Sorteer op hoogtemeters (weinig -> veel)
         limitedSegments.sort((a, b) => {
             const elevA = a.originalActivity?.summary?.elevationGain || 0;
             const elevB = b.originalActivity?.summary?.elevationGain || 0;
