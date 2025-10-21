@@ -30,36 +30,75 @@ const STORE_NAME = "activities";
 
 function openDB() {
   return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, 1);
-    req.onupgradeneeded = () => {
+    // Gebruik een hoger versienummer (2 of hoger)
+    const req = indexedDB.open(DB_NAME, 3); // ← Verhoog naar 3 of hoger
+    req.onupgradeneeded = (event) => {
       const db = req.result;
+      const oldVersion = event.oldVersion;
+      const newVersion = event.newVersion;
+      
+      console.log(`🔄 Database upgrade: v${oldVersion} → v${newVersion}`);
+      
       if (!db.objectStoreNames.contains(STORE_NAME)) {
         const store = db.createObjectStore(STORE_NAME, { keyPath: "id" });
         store.createIndex("byDate", "createdAt");
+        console.log('✅ Database store aangemaakt');
+      }
+      
+      // Hier kun je toekomstige upgrades toevoegen
+      if (oldVersion < 2) {
+        // Voor toekomstige upgrades
+        console.log('🔄 Uitvoeren upgrade naar v2');
       }
     };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
+    req.onsuccess = () => {
+      console.log('✅ Database verbinding succesvol');
+      resolve(req.result);
+    };
+    req.onerror = () => {
+      console.error('❌ Database fout:', req.error);
+      reject(req.error);
+    };
   });
 }
 
 async function saveActivityToDB({ fileBlob, fileName, summary }) {
-  const db = await openDB();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(STORE_NAME, "readwrite");
-    const store = tx.objectStore(STORE_NAME);
-    const id = Date.now().toString();
-    const item = {
-      id,
-      fileName,
-      fileBlob,
-      summary,
-      createdAt: new Date().toISOString()
-    };
-    const req = store.add(item);
-    req.onsuccess = () => resolve(item);
-    req.onerror = () => reject(req.error);
-  });
+    const user = getCurrentUser();
+    
+    if (isDemoMode()) {
+        // Voor demo: user_id = null
+        return await saveToSupabase({ 
+            fileBlob, fileName, summary, 
+            user_id: null 
+        });
+    } else {
+        // Voor echte users: user_id = huidige gebruiker
+        return await saveToSupabase({
+            fileBlob, fileName, summary,
+            user_id: user.id
+        });
+    }
+}
+
+async function loadUserActivities() {
+    if (isDemoMode()) {
+        // Laad demo data (user_id IS NULL)
+        const { data } = await supabase
+            .from('activities')
+            .select('*')
+            .is('user_id', null)
+            .order('created_at', { ascending: false });
+        return data;
+    } else {
+        // Laad user's eigen data
+        const user = getCurrentUser();
+        const { data } = await supabase
+            .from('activities')
+            .select('*')
+            .eq('user_id', user.id)
+            .order('created_at', { ascending: false });
+        return data;
+    }
 }
 
 async function updateActivityInDB(item) {
