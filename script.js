@@ -63,21 +63,24 @@ function openDB() {
 }
 
 async function saveActivityToDB({ fileBlob, fileName, summary }) {
-    const user = getCurrentUser();
-    
-    if (isDemoMode()) {
-        // Voor demo: user_id = null
-        return await saveToSupabase({ 
-            fileBlob, fileName, summary, 
-            user_id: null 
-        });
-    } else {
-        // Voor echte users: user_id = huidige gebruiker
-        return await saveToSupabase({
-            fileBlob, fileName, summary,
-            user_id: user.id
-        });
-    }
+    // Gebruik lokale IndexedDB opslag (geen Supabase)
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+        const tx = db.transaction(STORE_NAME, "readwrite");
+        const store = tx.objectStore(STORE_NAME);
+        
+        const item = {
+            id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
+            fileName: fileName,
+            fileBlob: fileBlob,
+            summary: summary,
+            createdAt: new Date().toISOString()
+        };
+        
+        const req = store.add(item);
+        req.onsuccess = () => resolve(item);
+        req.onerror = () => reject(req.error);
+    });
 }
 
 async function loadUserActivities() {
@@ -113,16 +116,15 @@ async function updateActivityInDB(item) {
 }
 
 async function listActivitiesFromDB() {
-  const db = await openDB();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(STORE_NAME, "readonly");
-    const store = tx.objectStore(STORE_NAME);
-    const req = store.getAll();
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+        const tx = db.transaction(STORE_NAME, "readonly");
+        const store = tx.objectStore(STORE_NAME);
+        const req = store.getAll();
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+    });
 }
-
 async function getActivityFromDB(id) {
   const db = await openDB();
   return new Promise((resolve, reject) => {
