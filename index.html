@@ -12,8 +12,56 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    
+    <!-- Supabase CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
+    <!-- Auth Modal -->
+    <div id="authModal" class="modal hidden">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>🔐 Inloggen bij Strava Analyzer Pro</h2>
+                <button class="close-modal">&times;</button>
+            </div>
+            
+            <div class="auth-tabs">
+                <button class="auth-tab active" data-tab="login">Inloggen</button>
+                <button class="auth-tab" data-tab="register">Registreren</button>
+            </div>
+
+            <div id="loginForm" class="auth-form active">
+                <div class="form-group">
+                    <label>Email:</label>
+                    <input type="email" id="loginEmail" placeholder="jouw@email.com" required>
+                </div>
+                <div class="form-group">
+                    <label>Wachtwoord:</label>
+                    <input type="password" id="loginPassword" placeholder="Je wachtwoord" required>
+                </div>
+                <button id="loginBtn" class="btn btn-primary">🚀 Inloggen</button>
+            </div>
+
+            <div id="registerForm" class="auth-form">
+                <div class="form-group">
+                    <label>Email:</label>
+                    <input type="email" id="registerEmail" placeholder="jouw@email.com" required>
+                </div>
+                <div class="form-group">
+                    <label>Wachtwoord:</label>
+                    <input type="password" id="registerPassword" placeholder="Minimaal 6 tekens" required>
+                </div>
+                <button id="registerBtn" class="btn btn-success">📝 Account aanmaken</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- User Info -->
+    <div id="userInfo" class="user-info hidden">
+        <span id="userEmail"></span>
+        <button id="logoutBtn" class="btn btn-secondary">Uitloggen</button>
+    </div>
+
     <div class="logo-container">
         <div class="logo">
             <span class="logo-icon">🚴</span>
@@ -210,18 +258,18 @@
                 </div>
             </div>
 
-           <div id="saved-tab" class="tab-content">
-    <div id="savedList" class="saved-activities">
-        <!-- Dynamisch ingevuld -->
-    </div>
-</div>
+            <div id="saved-tab" class="tab-content">
+                <div id="savedList" class="saved-activities">
+                    <!-- Dynamisch ingevuld -->
+                </div>
+            </div>
         </div>
     </div>
 
+    <!-- JavaScript Files -->
+    <script src="auth.js"></script>
     <script src="script.js"></script>
     <script src="saved.js"></script>
     <script src="rankings.js"></script>
 </body>
-</html> 
-
-<!-- test -->
+</html>

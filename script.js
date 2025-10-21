@@ -448,7 +448,7 @@ function calculateMovingTimeAlternative(trackpoints, cumDist) {
     return movingTime;
 }
 
-/* ========== UI building helpers ========== */
+/* ========== UPDATE: SAVE BUTTON FUNCTIE ========== */
 function createSaveButton() {
   console.log('🔧 createSaveButton wordt aangeroepen');
   
@@ -470,7 +470,16 @@ function createSaveButton() {
 
   const btn = document.createElement("button");
   btn.id = "saveToDbBtn";
-  btn.innerHTML = "💾 <strong>Opslaan in lokaal archief</strong>";
+  
+  // Toon andere tekst voor Supabase vs lokale opslag
+  if (window.supabaseAuth && window.supabaseAuth.isLoggedIn()) {
+    btn.innerHTML = "💾 <strong>Opslaan in Cloud</strong>";
+    btn.title = "Sla op in Supabase (online)";
+  } else {
+    btn.innerHTML = "💾 <strong>Opslaan lokaal</strong>";
+    btn.title = "Sla op in lokale browser opslag";
+  }
+  
   btn.style.cssText = `
     background: linear-gradient(135deg, #10b981, #059669);
     color: white;
@@ -515,26 +524,36 @@ function createSaveButton() {
       distanceKm: (!isNaN(currentAnalysis.totalDistance) ? (currentAnalysis.totalDistance/1000).toFixed(2) : null),
       durationSec: currentAnalysis.totalSeconds,
       elevationGain: Math.round(currentAnalysis.elevationGain),
-      rideDate: currentAnalysis.rideDate
+      rideDate: currentAnalysis.rideDate,
+      avgSpeed: currentAnalysis.avgSpeedKmh
     };
     
     try {
-      const existingActivities = await listActivitiesFromDB();
-      const isDuplicate = await checkForDuplicateActivity(currentFileBlob, existingActivities);
-      
-      if (isDuplicate) {
-        alert("Deze rit is al eerder opgeslagen.");
-        return;
+      // GEBRUIK SUPABASE AUTH SAVE FUNCTIE!
+      if (window.supabaseAuth && window.supabaseAuth.isLoggedIn()) {
+        console.log('☁️ Opslaan in Supabase...');
+        const item = await window.supabaseAuth.saveActivity({ 
+          fileBlob: currentFileBlob, 
+          fileName: currentAnalysis.fileName, 
+          summary: summary 
+        });
+        alert("✅ Opgeslagen in Cloud: " + currentAnalysis.fileName);
+      } else {
+        // Val terug op lokale opslag
+        console.log('💾 Opslaan lokaal...');
+        const item = await saveActivityToDB({ 
+          fileBlob: currentFileBlob, 
+          fileName: currentAnalysis.fileName, 
+          summary: summary 
+        });
+        alert("✅ Lokaal opgeslagen: " + item.fileName);
       }
-
-      const item = await saveActivityToDB({ fileBlob: currentFileBlob, fileName: currentAnalysis.fileName, summary });
-      alert("✅ Opgeslagen: " + item.fileName);
-      await renderSavedList();
       
-      const savedTabButton = document.querySelector('[data-tab="saved"]');
-      if (savedTabButton) {
-        savedTabButton.click();
+      // Refresh de saved lijst
+      if (typeof renderSavedList === 'function') {
+        await renderSavedList();
       }
+      
     } catch (err) {
       console.error('Opslaan mislukt:', err);
       alert("Opslaan mislukt: " + err.message);
@@ -543,27 +562,14 @@ function createSaveButton() {
 
   buttonContainer.appendChild(btn);
   
-  // Probeer verschillende plaatsingen
   if (summaryContainer) {
     console.log('📍 Knop toevoegen aan summaryContainer');
     summaryContainer.appendChild(buttonContainer);
-    
-    // Zorg dat summaryContainer zichtbaar is
     summaryContainer.style.display = 'block';
     summaryContainer.style.visibility = 'visible';
     summaryContainer.classList.remove('hidden');
-  } else {
-    console.log('❌ summaryContainer niet gevonden, probeer charts tab');
-    // Probeer in charts tab te plaatsen
-    const chartsTab = document.getElementById('charts-tab');
-    if (chartsTab) {
-      chartsTab.appendChild(buttonContainer);
-    }
   }
-  
-  console.log('✅ Opslaan knop gemaakt en geplaatst');
 }
-
 // Voeg deze functie toe ergens in je script
 function debugSaveButton() {
     console.log('🔍 Debug save button...');
