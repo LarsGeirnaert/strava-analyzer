@@ -1,9 +1,10 @@
 // app.js - Map Visualisatie, GPX Parsing & Upload Logic
 
 let map, polyline, elevationChart;
-let segmentLayer = null; // NIEUW: Laag voor de groene highlight
+let segmentLayer = null; // Laag voor de groene highlight
 let currentRideData = null; 
 let calculatedSegments = []; 
+let activeSegment = null; // Houdt bij welk segment actief is
 
 document.addEventListener('DOMContentLoaded', () => {
     initMap();
@@ -29,12 +30,7 @@ function initMap() {
     }).addTo(map);
     
     // Klik op kaart verwijdert highlight
-    map.on('click', () => {
-        if(segmentLayer) {
-            map.removeLayer(segmentLayer);
-            segmentLayer = null;
-        }
-    });
+    map.on('click', () => clearSegmentHighlight());
 }
 
 // 1. RIT OPENEN UIT LIJST
@@ -257,7 +253,6 @@ async function saveToCloud() {
 
 // === HELPER FUNCTIES ===
 
-// AANGEPAST: Berekent nu ook startIdx en endIdx
 function calculateFastestSegments(distances, times) {
     const results = [];
     const targets = [];
@@ -275,14 +270,13 @@ function calculateFastestSegments(distances, times) {
         for (let endIdx = 1; endIdx < distances.length; endIdx++) {
             const distDiff = distances[endIdx] - distances[startIdx];
             if (distDiff >= targetKm) {
-                // Optimalisatie: Schuif start op zolang afstand >= target
                 while (distances[endIdx] - distances[startIdx + 1] >= targetKm) startIdx++;
                 
                 const timeDiff = times[endIdx] - times[startIdx];
                 if (timeDiff < bestTimeMs) { 
                     bestTimeMs = timeDiff; 
-                    bestStartIdx = startIdx; // BEWAAR INDEX
-                    bestEndIdx = endIdx;     // BEWAAR INDEX
+                    bestStartIdx = startIdx; 
+                    bestEndIdx = endIdx;     
                     found = true; 
                 }
             }
@@ -292,64 +286,110 @@ function calculateFastestSegments(distances, times) {
                 distance: targetKm, 
                 timeMs: bestTimeMs, 
                 speed: targetKm / (bestTimeMs / 3600000),
-                startIdx: bestStartIdx, // GEEF TERUG
-                endIdx: bestEndIdx      // GEEF TERUG
+                startIdx: bestStartIdx, 
+                endIdx: bestEndIdx      
             });
         }
     });
     return results.sort((a, b) => a.distance - b.distance);
 }
 
-// AANGEPAST: Voegt click event toe
+// AANGEPAST: UI Update voor segmenten (met toggle)
 function updateSegmentsUI(segments) {
     const list = document.getElementById('segments-list');
     list.innerHTML = '';
+    
+    // Reset actieve segment
+    activeSegment = null;
+
     if(!segments || segments.length === 0) { list.innerHTML = '<small>Geen segmenten.</small>'; return; }
     
+    // Voeg "Wis Selectie" knop toe (standaard verborgen)
+    const clearBtn = document.createElement('div');
+    clearBtn.id = 'clear-segment-btn';
+    clearBtn.className = 'segment-card clickable hidden';
+    clearBtn.style.textAlign = 'center';
+    clearBtn.style.justifyContent = 'center';
+    clearBtn.style.background = 'var(--hover-bg)';
+    clearBtn.innerHTML = '<span>❌ Wis Selectie</span>';
+    clearBtn.onclick = () => clearSegmentHighlight();
+    list.appendChild(clearBtn);
+
     segments.forEach(seg => {
         const div = document.createElement('div');
-        div.className = 'segment-card clickable'; // CSS class voor hover effect
+        div.className = 'segment-card clickable';
+        div.dataset.dist = seg.distance; // Voor styling selectie
         div.innerHTML = `<span><strong>${seg.distance}km</strong></span> <span>${seg.speed.toFixed(1)} km/u</span>`;
         
-        // INTERACTIE: Klik om te highlighten
-        div.onclick = () => highlightSegment(seg.startIdx, seg.endIdx);
+        div.onclick = () => {
+            // Als we op hetzelfde segment klikken -> Deselecteren
+            if (activeSegment === seg.distance) {
+                clearSegmentHighlight();
+            } else {
+                highlightSegment(seg.startIdx, seg.endIdx, seg.distance);
+            }
+        };
         
         list.appendChild(div);
     });
 }
 
-// app.js (vervang de functie highlightSegment)
+function clearSegmentHighlight() {
+    activeSegment = null;
+    
+    // Reset kaart
+    if (segmentLayer) { map.removeLayer(segmentLayer); segmentLayer = null; }
+    map.fitBounds(polyline.getBounds()); // Zoom terug naar hele rit
 
-function highlightSegment(startIdx, endIdx) {
+    // Reset grafiek
+    if(elevationChart && elevationChart.data.datasets.length > 1) {
+        elevationChart.data.datasets.pop(); // Verwijder overlay dataset
+        elevationChart.update();
+    }
+
+    // Reset UI styling
+    document.querySelectorAll('.segment-card').forEach(c => c.classList.remove('active-segment'));
+    const btn = document.getElementById('clear-segment-btn');
+    if(btn) btn.classList.add('hidden');
+}
+
+function highlightSegment(startIdx, endIdx, dist) {
     if (!map || !currentRideData) return;
 
-    // 1. KAART HIGHLIGHT (De groene lijn op de kaart)
-    if (segmentLayer) { map.removeLayer(segmentLayer); }
+    activeSegment = dist;
+
+    // UI Update
+    document.querySelectorAll('.segment-card').forEach(c => c.classList.remove('active-segment'));
+    const activeCard = document.querySelector(`.segment-card[data-dist="${dist}"]`);
+    if(activeCard) activeCard.classList.add('active-segment');
     
+    const btn = document.getElementById('clear-segment-btn');
+    if(btn) btn.classList.remove('hidden');
+
+    // 1. KAART HIGHLIGHT
+    if (segmentLayer) { map.removeLayer(segmentLayer); }
     const fullPath = currentRideData.uiData.latlngs;
     const segmentPath = fullPath.slice(startIdx, endIdx + 1);
     
     segmentLayer = L.polyline(segmentPath, {
-        color: '#00ff00', // Fel groen
-        weight: 6,        // Dikker
+        color: '#00ff00', 
+        weight: 6,        
         opacity: 1,
         lineCap: 'round'
     }).addTo(map);
     
     map.fitBounds(segmentLayer.getBounds(), { padding: [50, 50] });
 
-    // 2. GRAFIEK HIGHLIGHT (De "Overlay" methode)
+    // 2. GRAFIEK HIGHLIGHT (Overlay methode)
     if (elevationChart) {
-        const originalDataset = elevationChart.data.datasets[0]; // De oranje lijn
+        const originalDataset = elevationChart.data.datasets[0];
         const totalPoints = originalDataset.data.length;
-        const realTotalPoints = currentRideData.uiData.latlngs.length; // Originele GPS punten
+        const realTotalPoints = currentRideData.uiData.latlngs.length;
 
-        // Omdat de grafiek data "gefilterd" is (step), moeten we de index omrekenen
         const ratio = totalPoints / realTotalPoints;
         const chartStart = Math.floor(startIdx * ratio);
         const chartEnd = Math.ceil(endIdx * ratio);
 
-        // Maak een lege lijst (null) en vul ALLEEN het segment in
         const highlightData = new Array(totalPoints).fill(null);
         
         for (let i = 0; i < totalPoints; i++) {
@@ -358,26 +398,22 @@ function highlightSegment(startIdx, endIdx) {
             }
         }
 
-        // Check of we de highlight laag al hebben, anders maken we hem
-        // We willen altijd maximaal 2 datasets: [0]=Oranje basis, [1]=Groene highlight
+        // Zorg dat overlay bestaat
         if (elevationChart.data.datasets.length > 1) {
-            // Update bestaande highlight laag
             elevationChart.data.datasets[1].data = highlightData;
         } else {
-            // Maak nieuwe highlight laag aan
             elevationChart.data.datasets.push({
                 label: 'Segment',
                 data: highlightData,
-                borderColor: '#00ff00',       // Fel Groene Lijn
-                backgroundColor: 'rgba(0, 255, 0, 0.4)', // Groene Gloed eronder
-                borderWidth: 3,               // Iets dikker dan normaal
-                pointRadius: 0,               // Geen bolletjes (strakke lijn)
+                borderColor: '#00ff00',
+                backgroundColor: 'rgba(0, 255, 0, 0.4)',
+                borderWidth: 3,
+                pointRadius: 0,
                 pointHoverRadius: 5,
-                fill: true,                   // Vul het gebied onder de lijn!
-                order: 0                      // Ligt BOVENOP oranje
+                fill: true,
+                order: 0 
             });
         }
-
         elevationChart.update();
     }
 }
@@ -385,7 +421,7 @@ function highlightSegment(startIdx, endIdx) {
 function updateMap(latlngs) {
     if (!map) return;
     if (polyline) map.removeLayer(polyline);
-    if (segmentLayer) { map.removeLayer(segmentLayer); segmentLayer = null; } // Reset highlight bij nieuwe rit
+    if (segmentLayer) { map.removeLayer(segmentLayer); segmentLayer = null; } 
 
     polyline = L.polyline(latlngs, {color: '#fc4c02', weight: 4}).addTo(map);
     setTimeout(() => { map.invalidateSize(); map.fitBounds(polyline.getBounds()); }, 200);
@@ -402,26 +438,24 @@ function updateStats(dist, timeMs, speed, ele) {
 
 function updateChart(labels, dataPoints) {
     const ctx = document.getElementById('elevationChart').getContext('2d');
-    const step = Math.ceil(labels.length / 500); // Optimalisatie voor grote ritten
+    const step = Math.ceil(labels.length / 500); // Filter
     
     if (elevationChart) elevationChart.destroy();
 
     elevationChart = new Chart(ctx, {
         type: 'line',
         data: {
-            // We filteren de labels voor betere performance
             labels: labels.filter((_,i) => i % step === 0).map(d => d.toFixed(1)),
             datasets: [
                 { 
                     label: 'Hoogte', 
-                    // Originele data (Oranje)
                     data: dataPoints.filter((_,i) => i % step === 0), 
                     borderColor: '#fc4c02', 
                     backgroundColor: 'rgba(252,76,2,0.1)', 
                     fill: true, 
                     pointRadius: 0,
                     borderWidth: 2,
-                    order: 1 // Ligt onderop
+                    order: 1
                 }
             ]
         },
@@ -434,6 +468,7 @@ function updateChart(labels, dataPoints) {
         }
     });
 }
+
 function getDistanceFromLatLonInKm(lat1, lon1, lat2, lon2) {
     const R = 6371; const p = Math.PI/180;
     const a = 0.5 - Math.cos((lat2-lat1)*p)/2 + Math.cos(lat1*p)*Math.cos(lat2*p) * (1-Math.cos((lon2-lon1)*p))/2;
