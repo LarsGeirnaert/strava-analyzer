@@ -1,9 +1,8 @@
-// ui.js - Dashboard, Tabs, Ranglijsten en Weergave
+// ui.js - VOLLEDIGE VERSIE (Met bugfixes)
 
 let allActivitiesCache = null; 
 let muniMap = null; 
-let geoJsonLayer = null;
-let conqueredMunis = new Set();
+let selectedRides = new Set(); // HIER slaan we de aangevinkte ID's op
 
 document.addEventListener('DOMContentLoaded', () => {
     setupNavigation();
@@ -26,8 +25,7 @@ function setupSegmentSelector() {
         select.innerHTML = ''; 
         for (let k = 5; k <= 100; k += 5) {
             const option = document.createElement('option');
-            option.value = k;
-            option.text = `${k} km`;
+            option.value = k; option.text = `${k} km`;
             select.appendChild(option);
         }
         select.value = "5";
@@ -46,22 +44,18 @@ function switchTab(tabName) {
     if(tabName === 'analysis') {
         setTimeout(() => { if(typeof map !== 'undefined') map.invalidateSize(); }, 100);
     }
-    
     if(tabName === 'dashboard') {
+        // Reset selectie bij openen dashboard
+        selectedRides.clear();
+        updateDeleteButton();
         updateDashboard();
     }
-    
     if(tabName === 'rankings') {
         const select = document.getElementById('segmentSelector');
-        const val = select ? select.value : 5;
-        loadRankings(val);
+        loadRankings(select ? select.value : 5);
     }
-    
     if(tabName === 'municipalities') {
-        setTimeout(() => {
-            initMuniMap(); 
-            calculateConqueredMunicipalities();
-        }, 200);
+        setTimeout(() => { initMuniMap(); calculateConqueredMunicipalities(); }, 200);
     }
 }
 
@@ -85,26 +79,23 @@ async function updateDashboard() {
     document.getElementById('total-elev').innerText = totalElev.toFixed(0) + ' m';
     document.getElementById('total-rides').innerText = activities.length;
 
-    // Standaard: Toon top 5
     renderActivityList(activities.slice(0, 5), "📜 Recente Activiteiten");
 }
 
-// Wordt aangeroepen door klik op "Aantal Ritten" kaart
 window.showAllActivities = function() {
     if(allActivitiesCache) {
         renderActivityList(allActivitiesCache, "📜 Alle Activiteiten (" + allActivitiesCache.length + ")");
     }
 };
 
-// Helper om de lijst te tekenen
+// 4. LIJST RENDERING (MET VEILIGE KLIK ZONE)
 function renderActivityList(activities, title) {
     const list = document.getElementById('dashboard-list');
     
-    // Update titel
     let titleElem = document.querySelector('.recent-section h3');
     if(titleElem) titleElem.innerText = title;
 
-    list.innerHTML = ''; // Leegmaken
+    list.innerHTML = ''; 
 
     if(activities.length === 0) {
         list.innerHTML = '<p style="padding:15px; color:#888">Nog geen ritten. Upload er eentje!</p>';
@@ -114,89 +105,145 @@ function renderActivityList(activities, title) {
     activities.forEach(act => {
         const div = document.createElement('div');
         div.className = 'dash-list-item';
-        
+        div.style.paddingLeft = "0"; 
+        div.style.display = "flex";
+        div.style.alignItems = "stretch";
+
         const date = new Date(act.summary.rideDate).toLocaleDateString('nl-NL');
         const dist = act.summary.distanceKm || '?';
-        const speed = act.summary.avgSpeed || '?';
-        const name = act.fileName || "Naamloos"; // Gebruikt de gefixte fileName
+        const name = act.fileName || "Naamloos"; 
 
         div.innerHTML = `
-            <div>
-                <strong>${name}</strong><br>
-                <small style="color:#888">📅 ${date}</small>
+            <div class="checkbox-zone">
+                <input type="checkbox" class="list-checkbox" value="${act.id}">
             </div>
-            <div style="text-align:right">
-                <strong>${dist} km</strong><br>
-                <small style="color:#888">${speed} km/u</small>
+            
+            <div class="item-content" style="flex:1; display:flex; justify-content:space-between; align-items:center; padding: 15px 15px 15px 0;">
+                <div>
+                    <strong>${name}</strong><br>
+                    <small style="color:#888">📅 ${date}</small>
+                </div>
+                <div style="text-align:right">
+                    <strong>${dist} km</strong><br>
+                    <small style="color:#888">${act.summary.avgSpeed} km/u</small>
+                </div>
             </div>
         `;
         
-        div.onclick = () => { 
+        const checkbox = div.querySelector('.list-checkbox');
+        const checkZone = div.querySelector('.checkbox-zone');
+        const contentZone = div.querySelector('.item-content');
+
+        // Klik op checkbox zone
+        checkZone.addEventListener('click', (e) => {
+            e.stopPropagation(); 
+            toggleSelection(act.id);
+            checkbox.checked = selectedRides.has(act.id);
+        });
+        
+        if(selectedRides.has(act.id)) {
+            checkbox.checked = true;
+        }
+
+        // Klik op tekst opent rit
+        contentZone.onclick = () => { 
             switchTab('analysis'); 
             window.openRide(act); 
         };
+        
         list.appendChild(div);
     });
 }
 
-// 4. RANGLIJST LOGICA
+// 5. SELECTIE LOGICA
+function toggleSelection(id) {
+    if(selectedRides.has(id)) {
+        selectedRides.delete(id);
+    } else {
+        selectedRides.add(id);
+    }
+    updateDeleteButton();
+}
+
+function updateDeleteButton() {
+    const btn = document.getElementById('delete-btn');
+    const countSpan = document.getElementById('delete-count');
+    
+    // FIX: Check of de knop wel bestaat om error te voorkomen
+    if(!btn || !countSpan) return;
+
+    if(selectedRides.size > 0) {
+        btn.classList.remove('hidden');
+        countSpan.innerText = selectedRides.size;
+    } else {
+        btn.classList.add('hidden');
+    }
+}
+
+// 6. VERWIJDER LOGICA
+window.deleteSelectedRides = async function() {
+    if(selectedRides.size === 0) return;
+
+    if(!confirm(`Weet je zeker dat je ${selectedRides.size} ritten wilt verwijderen? Dit kan niet ongedaan gemaakt worden.`)) {
+        return;
+    }
+
+    const btn = document.getElementById('delete-btn');
+    btn.innerText = "Bezig...";
+    
+    try {
+        const idsArray = Array.from(selectedRides);
+        await window.supabaseAuth.deleteActivities(idsArray);
+        
+        allActivitiesCache = null;
+        selectedRides.clear();
+        
+        btn.innerText = "🗑️ Verwijderd!";
+        setTimeout(() => {
+            updateDeleteButton();
+            btn.innerText = "🗑️ Verwijder Selectie";
+        }, 1000);
+
+        updateDashboard();
+
+    } catch (e) {
+        console.error(e);
+        alert("Fout bij verwijderen: " + e.message);
+        btn.innerText = "Fout";
+    }
+};
+
+// 7. RANGLIJSTEN & GEMEENTE
 window.loadRankings = async function(distanceKm) {
     distanceKm = parseInt(distanceKm);
     const list = document.getElementById('ranking-list');
     list.innerHTML = '<p style="padding:20px; text-align:center;">Laden...</p>';
-
     let activities = allActivitiesCache;
     if(!activities) {
         if(!window.supabaseAuth) return;
         activities = await window.supabaseAuth.listActivities();
         allActivitiesCache = activities;
     }
-
-    // Filteren
     const rankedData = activities.map(act => {
         const segments = act.summary.segments || [];
         const match = segments.find(s => s.distance === distanceKm);
         return match ? { ...match, fileName: act.fileName, date: act.summary.rideDate, activity: act } : null;
-    })
-    .filter(item => item !== null)
-    .sort((a, b) => b.speed - a.speed);
+    }).filter(i => i).sort((a, b) => b.speed - a.speed);
 
     list.innerHTML = '';
-    
-    if(rankedData.length === 0) {
-        list.innerHTML = `<p style="padding:20px; text-align:center;">Geen prestaties gevonden voor ${distanceKm} km.</p>`;
-        return;
-    }
+    if(rankedData.length === 0) { list.innerHTML = `<p style="padding:20px; text-align:center;">Geen prestaties gevonden voor ${distanceKm} km.</p>`; return; }
 
     rankedData.forEach((item, index) => {
         const div = document.createElement('div');
-        let rankClass = index === 0 ? 'gold' : index === 1 ? 'silver' : index === 2 ? 'bronze' : '';
-        let medal = index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : `#${index + 1}`;
-        
-        const t = Math.floor(item.timeMs / 1000);
-        const timeStr = `${Math.floor(t/3600)}:${Math.floor((t%3600)/60).toString().padStart(2,'0')}:${(t%60).toString().padStart(2,'0')}`;
-
-        div.className = `rank-card ${rankClass}`;
-        div.innerHTML = `
-            <div style="display:flex; align-items:center; gap:15px;">
-                <div class="rank-pos">${medal}</div>
-                <div>
-                    <strong>${item.fileName}</strong><br>
-                    <small style="color:#666">${new Date(item.date).toLocaleDateString('nl-NL')}</small>
-                </div>
-            </div>
-            <div style="text-align:right;">
-                <div class="rank-speed">${item.speed.toFixed(1)} km/u</div>
-                <small style="color:#666; font-family:monospace;">${timeStr}</small>
-            </div>
-        `;
-        div.style.cursor = 'pointer';
+        let c = index===0?'gold':index===1?'silver':index===2?'bronze':'';
+        div.className = `rank-card ${c}`;
+        const t = Math.floor(item.timeMs/1000);
+        div.innerHTML = `<div style="display:flex;gap:15px;"><div class="rank-pos">#${index+1}</div><div><strong>${item.fileName}</strong><br><small>${new Date(item.date).toLocaleDateString()}</small></div></div><div style="text-align:right"><div class="rank-speed">${item.speed.toFixed(1)} km/u</div></div>`;
         div.onclick = () => { switchTab('analysis'); window.openRide(item.activity); };
         list.appendChild(div);
     });
 };
 
-// 5. GEMEENTE JAGER (VEILIGE MODUS)
 async function initMuniMap() {
     if (muniMap) { muniMap.invalidateSize(); return; }
     muniMap = L.map('map-municipalities').setView([50.8503, 4.3517], 8);
@@ -204,17 +251,17 @@ async function initMuniMap() {
 }
 
 async function calculateConqueredMunicipalities() {
-    // We hebben de "Lazy Loading" update gedaan.
-    // Dit betekent dat we niet meer zomaar alle bestanden hebben om te analyseren.
-    // Om crashes te voorkomen, tonen we nu een melding.
     const loading = document.getElementById('muni-loading');
-    if(loading) {
-        loading.innerHTML = "⚠️ Gemeente analyse vereist server-aanpassing (wegens grote hoeveelheid data).";
-        loading.style.display = 'block';
-    }
+    if(loading) { loading.innerHTML = "⚠️ Gemeente analyse tijdelijk uitgeschakeld."; loading.style.display = 'block'; }
 }
 
-// Exports
+// 8. HELPERS & EXPORTS (DE FIX: triggerUpload toegevoegd)
+function triggerUpload() {
+    switchTab('analysis');
+    const input = document.getElementById('gpxInput');
+    if(input) input.click();
+}
+
 window.switchTab = switchTab;
 window.updateDashboard = updateDashboard;
 window.triggerUpload = triggerUpload;

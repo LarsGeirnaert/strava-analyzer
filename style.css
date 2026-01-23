@@ -266,3 +266,31 @@ body, html { height: 100%; width: 100%; overflow: hidden; background: #333; }
     width: 0%;
     transition: width 1s ease-in-out;
 }
+
+/* ... in style.css ... */
+
+/* NIEUW: De container om het vinkje heen (de veilige zone) */
+.checkbox-zone {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 50px; /* Lekker breed klikgebied */
+    height: 100%;
+    cursor: pointer;
+    border-right: 1px solid #eee; /* Licht lijntje ter afscheiding */
+    margin-right: 15px;
+    background: rgba(0,0,0,0.02); /* Heel licht grijs om aan te geven dat het apart is */
+}
+
+.checkbox-zone:hover {
+    background: rgba(0,0,0,0.05);
+}
+
+/* NIEUW: Het vinkje zelf (Groter gemaakt) */
+.list-checkbox {
+    width: 24px;  /* Veel groter */
+    height: 24px; /* Veel groter */
+    cursor: pointer;
+    accent-color: var(--primary);
+    pointer-events: none; /* De klik wordt opgevangen door de .checkbox-zone eromheen */
+}

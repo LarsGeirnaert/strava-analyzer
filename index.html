@@ -85,8 +85,15 @@
                     </div>
                 </div>
 
-                <div class="recent-section">
-                    <h3>📜 Recente Activiteiten</h3>
+               <div class="recent-section">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                        <h3>📜 Recente Activiteiten</h3>
+                        
+                        <button id="delete-btn" class="delete-btn hidden" onclick="deleteSelectedRides()">
+                            🗑️ Verwijder Selectie (<span id="delete-count">0</span>)
+                        </button>
+                    </div>
+
                     <div id="dashboard-list" class="dashboard-list">
                         Laden...
                     </div>

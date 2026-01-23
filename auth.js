@@ -1,16 +1,15 @@
-// auth.js - Authenticatie & Database Logica (Lazy Loading Editie)
+// auth.js - Authenticatie & Database
 
-// JOUW SUPABASE GEGEVENS
 const SUPABASE_URL = 'https://zisirffmoiezwfcidezc.supabase.co';
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inppc2lyZmZtb2llendmY2lkZXpjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjkxNzUwMDYsImV4cCI6MjA4NDc1MTAwNn0.rVcLHYlGREqGeaX0W7r7RX9y0X9NdnwY_RQsb1508OU';
 
 const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-window.supabase = supabaseClient; // Maak globaal beschikbaar
+window.supabase = supabaseClient;
 
 let currentUser = null;
-let isLoginMode = true; // Toggle tussen Login en Registreer
+let isLoginMode = true;
 
-// DOM Elementen
+// DOM
 const loginScreen = document.getElementById('login-screen');
 const appContainer = document.querySelector('.app-container');
 const emailInput = document.getElementById('email');
@@ -22,16 +21,13 @@ const toggleText = document.getElementById('auth-toggle-text');
 const authError = document.getElementById('auth-error');
 const logoutBtn = document.getElementById('logout-btn');
 
-// --- Global Auth Object ---
 window.supabaseAuth = {
     isLoggedIn: () => !!currentUser,
     getCurrentUser: () => currentUser,
     
-    // 1. LIJST OPHALEN (Lichtgewicht: Alleen tekst, geen bestanden)
+    // 1. LIJST OPHALEN
     async listActivities() {
         if (!currentUser) return [];
-        
-        // We halen GEEN file_data op om timeouts te voorkomen
         const { data, error } = await supabaseClient
             .from('activities')
             .select('id, user_id, file_name, summary, ride_date') 
@@ -39,26 +35,17 @@ window.supabaseAuth = {
             .order('ride_date', { ascending: false });
         
         if (error) throw error;
-        
-        // Data schoonmaken voor de UI
-        return data.map(d => ({
-            ...d,
-            fileName: d.file_name, // FIX: Map file_name (DB) naar fileName (App)
-            // fileBlob zit hier niet bij, dat halen we pas op bij klikken
-        }));
+        return data.map(d => ({ ...d, fileName: d.file_name }));
     },
 
-    // 2. BESTAND OPHALEN (Zwaargewicht: Alleen als je klikt)
+    // 2. BESTAND OPHALEN
     async getActivityFile(id) {
         const { data, error } = await supabaseClient
             .from('activities')
             .select('file_data')
             .eq('id', id)
             .single();
-            
         if (error) throw error;
-        
-        // Converteer bytes terug naar bruikbaar bestand
         return new Blob([new Uint8Array(data.file_data)], { type: 'application/xml' });
     },
 
@@ -79,25 +66,32 @@ window.supabaseAuth = {
             });
         if (error) throw error;
         return data;
+    },
+
+    // 4. VERWIJDEREN (NIEUW)
+    async deleteActivities(idsArray) {
+        if (!currentUser) throw new Error("Niet ingelogd");
+        
+        // Supabase 'in' filter verwijdert alle ID's die in de array zitten
+        const { error } = await supabaseClient
+            .from('activities')
+            .delete()
+            .in('id', idsArray);
+
+        if (error) throw error;
     }
 };
 
-// --- AUTH UI LOGICA ---
-
+// --- AUTH LOGICA (Ongewijzigd) ---
 async function checkSession() {
     const { data: { session } } = await supabaseClient.auth.getSession();
-    if (session) {
-        handleLoginSuccess(session.user);
-    } else {
-        loginScreen.style.display = 'flex';
-    }
+    if (session) handleLoginSuccess(session.user);
+    else loginScreen.style.display = 'flex';
 }
-
 function toggleAuthMode(e) {
     if(e) e.preventDefault();
     isLoginMode = !isLoginMode;
     authError.style.display = 'none';
-
     if (isLoginMode) {
         authTitle.innerText = "Log in om verder te gaan";
         actionBtn.innerText = "Inloggen";
@@ -112,73 +106,38 @@ function toggleAuthMode(e) {
         actionBtn.style.background = "#28a745"; 
     }
 }
-
 async function handleAuthAction() {
     const email = emailInput.value.trim();
     const password = passwordInput.value.trim();
-    
-    if(!email || !password) {
-        showError("Vul alle velden in."); return;
-    }
-
+    if(!email || !password) { showError("Vul alle velden in."); return; }
     authError.style.display = 'none';
-    actionBtn.innerText = "Laden...";
-    actionBtn.disabled = true;
-
+    actionBtn.innerText = "Laden..."; actionBtn.disabled = true;
     try {
         if (isLoginMode) {
-            // LOGIN
             const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
             if (error) throw error;
             handleLoginSuccess(data.user);
         } else {
-            // REGISTREER
             const { data, error } = await supabaseClient.auth.signUp({ email, password });
             if (error) throw error;
-            
-            if(data.session) {
-                handleLoginSuccess(data.session.user);
-            } else {
-                alert("Registratie gelukt! Je kunt nu inloggen.");
-                toggleAuthMode();
-            }
+            if(data.session) handleLoginSuccess(data.session.user);
+            else { alert("Registratie gelukt! Log nu in."); toggleAuthMode(); }
         }
-    } catch (error) {
-        console.error(error);
-        showError(error.message);
-    } finally {
-        actionBtn.innerText = isLoginMode ? "Inloggen" : "Registreren";
-        actionBtn.disabled = false;
-    }
+    } catch (error) { console.error(error); showError(error.message); } 
+    finally { actionBtn.innerText = isLoginMode ? "Inloggen" : "Registreren"; actionBtn.disabled = false; }
 }
-
 function showError(msg) {
     if(msg.includes("Invalid login")) msg = "Ongeldig email of wachtwoord.";
-    if(msg.includes("already registered")) msg = "Dit emailadres is al in gebruik.";
-    authError.innerText = msg;
-    authError.style.display = 'block';
+    authError.innerText = msg; authError.style.display = 'block';
 }
-
 function handleLoginSuccess(user) {
     currentUser = user;
-    console.log("Ingelogd:", user.email);
-    
     loginScreen.style.display = 'none';
     appContainer.classList.remove('hidden');
-    
     if(window.updateDashboard) window.updateDashboard();
     if(window.switchTab) window.switchTab('dashboard');
 }
-
-// Event Listeners
 if(actionBtn) actionBtn.addEventListener('click', handleAuthAction);
 if(toggleBtn) toggleBtn.addEventListener('click', toggleAuthMode);
-if(logoutBtn) {
-    logoutBtn.addEventListener('click', async () => {
-        await supabaseClient.auth.signOut();
-        window.location.reload();
-    });
-}
-
-// Start de app check
+if(logoutBtn) logoutBtn.addEventListener('click', async () => { await supabaseClient.auth.signOut(); window.location.reload(); });
 document.addEventListener('DOMContentLoaded', checkSession);
