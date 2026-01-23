@@ -13,23 +13,19 @@
     <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js"></script>
     <script src="https://unpkg.com/topojson-client@3"></script>
 </head>
+<body>
 
     <div id="login-screen" class="login-container">
         <div class="login-box">
             <h1>🚴 Strava 2.0</h1>
-            
             <p id="auth-title">Log in om verder te gaan</p>
-
             <input type="email" id="email" placeholder="Email adres">
             <input type="password" id="password" placeholder="Wachtwoord (min. 6 tekens)">
-            
             <p id="auth-error" style="color: #ff4444; display: none; margin-bottom: 10px; font-size: 0.9rem;"></p>
-            
             <button id="auth-action-btn" class="auth-btn">Inloggen</button>
-
-            <div style="margin-top: 20px; font-size: 0.9rem; color: #666;">
+            <div style="margin-top: 20px; font-size: 0.9rem; color: var(--text-muted);">
                 <span id="auth-toggle-text">Nog geen account?</span>
-                <a href="#" id="toggle-auth-btn" style="color: #fc4c02; font-weight: bold; text-decoration: none;">Maak account</a>
+                <a href="#" id="toggle-auth-btn" style="color: var(--primary); font-weight: bold; text-decoration: none;">Maak account</a>
             </div>
         </div>
     </div>
@@ -41,9 +37,10 @@
             <button class="nav-btn active" data-target="dashboard" title="Dashboard">🏠</button>
             <button class="nav-btn" data-target="analysis" title="Kaart & Analyse">🗺️</button>
             <button class="nav-btn" data-target="rankings" title="Ranglijsten">🏆</button>
-            <button class="nav-btn" data-target="municipalities" title="Gemeente Jager">🇧🇪</button>
+            <button class="nav-btn" data-target="municipalities" title="Wereld Jager">🌍</button>
             
             <div style="margin-top: auto;">
+                <button id="theme-btn" class="nav-btn" title="Thema Wisselen" onclick="toggleTheme()">🌙</button>
                 <button id="logout-btn" class="nav-btn" title="Uitloggen">🚪</button>
             </div>
         </nav>
@@ -76,43 +73,35 @@
                         <div class="dash-info">
                             <h3>Aantal Ritten</h3>
                             <p id="total-rides">0</p>
-                            <small style="font-size:0.7rem; color:#fc4c02;">(Klik voor alles)</small>
+                            <small style="font-size:0.7rem; color:var(--primary);">(Klik voor alles)</small>
                         </div>
                     </div>
-
                     <div class="dash-card action-card" onclick="triggerUpload()">
                         <span class="dash-icon big">📂</span>
                         <h3>Nieuwe Rit Uploaden</h3>
                     </div>
                 </div>
 
-               <div class="recent-section">
+                <div class="recent-section">
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
                         <h3>📜 Recente Activiteiten</h3>
-                        
                         <button id="delete-btn" class="delete-btn hidden" onclick="deleteSelectedRides()">
                             🗑️ Verwijder Selectie (<span id="delete-count">0</span>)
                         </button>
                     </div>
-
-                    <div id="dashboard-list" class="dashboard-list">
-                        Laden...
-                    </div>
+                    <div id="dashboard-list" class="dashboard-list">Laden...</div>
                 </div>
             </div>
 
             <div id="view-analysis" class="view-section hidden">
                 <div class="analysis-layout">
                     <aside class="inner-sidebar">
-                        
                         <div class="upload-section">
                             <input type="file" id="gpxInput" accept=".gpx,.tcx" class="hidden-input" multiple>
                             <label for="gpxInput" class="upload-btn" style="margin-bottom: 10px;">📄 Upload Bestand(en)</label>
-                            
                             <input type="file" id="folderInput" webkitdirectory directory multiple class="hidden-input">
                             <label for="folderInput" class="upload-btn" style="background: #555;">📂 Upload Hele Map</label>
-                            
-                            <div id="bulk-status" style="margin-top:10px; font-size:0.8rem; color:#666; display:none;">Bezig...</div>
+                            <div id="bulk-status" style="margin-top:10px; font-size:0.8rem; color:var(--text-muted); display:none;">Bezig...</div>
                         </div>
                         
                         <div class="stats-container hidden" id="statsPanel">
@@ -149,14 +138,12 @@
                         <h2>🏆 Jouw Records</h2>
                         <p>Vergelijk je prestaties over alle ritten heen</p>
                     </header>
-
                     <div class="ranking-controls">
                         <label style="font-weight:bold; margin-right:10px;">Kies Afstand:</label>
                         <select id="segmentSelector" class="segment-select" onchange="loadRankings(this.value)">
                             <option value="" disabled selected>Laden...</option>
                         </select>
                     </div>
-
                     <div id="ranking-list" class="ranking-list">
                         <p>Kies een afstand om de ranglijst te zien.</p>
                     </div>
@@ -166,21 +153,20 @@
             <div id="view-municipalities" class="view-section hidden">
                 <div class="muni-container">
                     <header class="view-header" style="padding: 20px;">
-                        <h2>🇧🇪 Gemeente Jager</h2>
-                        <p>Verover België, gemeente voor gemeente!</p>
+                        <h2>🌍 Wereld Jager (BE + NL + FR)</h2>
+                        <p>Verover West-Europa!</p>
                         
                         <div class="progress-wrapper">
                             <div class="progress-text">
-                                <span id="muni-count">0</span> / <span id="muni-total">581</span> Gemeentes
+                                <span id="muni-count">0</span> / <span id="muni-total">?</span> Gebieden
                                 <span id="muni-percent" style="float:right; font-weight:bold;">0%</span>
                             </div>
                             <div class="progress-bar-bg">
                                 <div id="muni-progress-fill" class="progress-bar-fill" style="width: 0%"></div>
                             </div>
                         </div>
-                        <p id="muni-loading" style="font-size: 0.8rem; color: #fc4c02; display: none;">⏳ Ritten analyseren en kaart inkleuren...</p>
+                        <p id="muni-loading" style="font-size: 0.8rem; color: var(--primary); display: none;">⏳ Kaart laden...</p>
                     </header>
-
                     <div id="map-municipalities"></div>
                 </div>
             </div>
@@ -190,7 +176,6 @@
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    
     <script src="auth.js"></script>
     <script src="ui.js"></script>
     <script src="app.js"></script>
