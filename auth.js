@@ -1,5 +1,6 @@
-// auth.js - Authenticatie & Database
+// auth.js - Authenticatie, Database & Gemeente Opslag
 
+// JOUW SUPABASE GEGEVENS
 const SUPABASE_URL = 'https://zisirffmoiezwfcidezc.supabase.co';
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inppc2lyZmZtb2llendmY2lkZXpjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjkxNzUwMDYsImV4cCI6MjA4NDc1MTAwNn0.rVcLHYlGREqGeaX0W7r7RX9y0X9NdnwY_RQsb1508OU';
 
@@ -9,7 +10,7 @@ window.supabase = supabaseClient;
 let currentUser = null;
 let isLoginMode = true;
 
-// DOM
+// DOM Elementen
 const loginScreen = document.getElementById('login-screen');
 const appContainer = document.querySelector('.app-container');
 const emailInput = document.getElementById('email');
@@ -25,7 +26,7 @@ window.supabaseAuth = {
     isLoggedIn: () => !!currentUser,
     getCurrentUser: () => currentUser,
     
-    // 1. LIJST OPHALEN
+    // 1. LIJST OPHALEN (Lichtgewicht)
     async listActivities() {
         if (!currentUser) return [];
         const { data, error } = await supabaseClient
@@ -38,18 +39,19 @@ window.supabaseAuth = {
         return data.map(d => ({ ...d, fileName: d.file_name }));
     },
 
-    // 2. BESTAND OPHALEN
+    // 2. BESTAND OPHALEN (Zwaar)
     async getActivityFile(id) {
         const { data, error } = await supabaseClient
             .from('activities')
             .select('file_data')
             .eq('id', id)
             .single();
+            
         if (error) throw error;
         return new Blob([new Uint8Array(data.file_data)], { type: 'application/xml' });
     },
 
-    // 3. OPSLAAN
+    // 3. RIT OPSLAAN
     async saveActivity({ fileBlob, fileName, summary }) {
         if (!currentUser) throw new Error("Niet ingelogd");
         const arrayBuffer = await fileBlob.arrayBuffer();
@@ -63,35 +65,66 @@ window.supabaseAuth = {
                 file_data: fileArray, 
                 summary: summary,
                 ride_date: summary.rideDate || new Date().toISOString()
-            });
+            })
+            .select(); // Return de opgeslagen data (nodig voor ID)
+            
         if (error) throw error;
         return data;
     },
 
-    // 4. VERWIJDEREN (NIEUW)
+    // 4. VERWIJDEREN
     async deleteActivities(idsArray) {
         if (!currentUser) throw new Error("Niet ingelogd");
-        
-        // Supabase 'in' filter verwijdert alle ID's die in de array zitten
         const { error } = await supabaseClient
             .from('activities')
             .delete()
             .in('id', idsArray);
-
         if (error) throw error;
+    },
+
+    // 5. GEMEENTES OPSLAAN (Voor de kaart)
+    async saveConqueredMunicipalities(namesArray) {
+        if (!currentUser || !namesArray || namesArray.length === 0) return;
+
+        // Maak records aan
+        const records = namesArray.map(name => ({
+            user_id: currentUser.id,
+            municipality_name: name
+        }));
+
+        // Upsert: Voeg toe, negeer als al bestaat
+        const { error } = await supabaseClient
+            .from('user_municipalities')
+            .upsert(records, { onConflict: 'user_id, municipality_name', ignoreDuplicates: true });
+
+        if (error) console.error("Fout bij opslaan gemeentes:", error);
+        else console.log(`✅ ${namesArray.length} gemeentes bijgewerkt in DB.`);
+    },
+
+    // 6. GEMEENTES OPHALEN
+    async getConqueredMunicipalities() {
+        if (!currentUser) return [];
+        const { data, error } = await supabaseClient
+            .from('user_municipalities')
+            .select('municipality_name');
+            
+        if (error) { console.error(error); return []; }
+        return data.map(row => row.municipality_name);
     }
 };
 
-// --- AUTH LOGICA (Ongewijzigd) ---
+// --- AUTH UI LOGICA ---
 async function checkSession() {
     const { data: { session } } = await supabaseClient.auth.getSession();
     if (session) handleLoginSuccess(session.user);
     else loginScreen.style.display = 'flex';
 }
+
 function toggleAuthMode(e) {
     if(e) e.preventDefault();
     isLoginMode = !isLoginMode;
     authError.style.display = 'none';
+
     if (isLoginMode) {
         authTitle.innerText = "Log in om verder te gaan";
         actionBtn.innerText = "Inloggen";
@@ -106,12 +139,14 @@ function toggleAuthMode(e) {
         actionBtn.style.background = "#28a745"; 
     }
 }
+
 async function handleAuthAction() {
     const email = emailInput.value.trim();
     const password = passwordInput.value.trim();
     if(!email || !password) { showError("Vul alle velden in."); return; }
     authError.style.display = 'none';
     actionBtn.innerText = "Laden..."; actionBtn.disabled = true;
+
     try {
         if (isLoginMode) {
             const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
@@ -121,15 +156,21 @@ async function handleAuthAction() {
             const { data, error } = await supabaseClient.auth.signUp({ email, password });
             if (error) throw error;
             if(data.session) handleLoginSuccess(data.session.user);
-            else { alert("Registratie gelukt! Log nu in."); toggleAuthMode(); }
+            else { alert("Registratie gelukt! Je kunt nu inloggen."); toggleAuthMode(); }
         }
-    } catch (error) { console.error(error); showError(error.message); } 
-    finally { actionBtn.innerText = isLoginMode ? "Inloggen" : "Registreren"; actionBtn.disabled = false; }
+    } catch (error) {
+        console.error(error); showError(error.message);
+    } finally {
+        actionBtn.innerText = isLoginMode ? "Inloggen" : "Registreren";
+        actionBtn.disabled = false;
+    }
 }
+
 function showError(msg) {
     if(msg.includes("Invalid login")) msg = "Ongeldig email of wachtwoord.";
     authError.innerText = msg; authError.style.display = 'block';
 }
+
 function handleLoginSuccess(user) {
     currentUser = user;
     loginScreen.style.display = 'none';
@@ -137,6 +178,7 @@ function handleLoginSuccess(user) {
     if(window.updateDashboard) window.updateDashboard();
     if(window.switchTab) window.switchTab('dashboard');
 }
+
 if(actionBtn) actionBtn.addEventListener('click', handleAuthAction);
 if(toggleBtn) toggleBtn.addEventListener('click', toggleAuthMode);
 if(logoutBtn) logoutBtn.addEventListener('click', async () => { await supabaseClient.auth.signOut(); window.location.reload(); });
