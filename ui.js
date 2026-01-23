@@ -1,16 +1,18 @@
-// ui.js - Regelt tabs, navigatie, dashboard en ranglijsten
+// ui.js - Dashboard, Tabs, Ranglijsten en Weergave
 
-let allActivitiesCache = null; // Cache om database calls te beperken
+let allActivitiesCache = null; 
+let muniMap = null; 
+let geoJsonLayer = null;
+let conqueredMunis = new Set();
 
 document.addEventListener('DOMContentLoaded', () => {
     setupNavigation();
     setupSegmentSelector();
 });
 
-// 1. Setup Navigatie Knoppen
+// 1. SETUP NAVIGATIE
 function setupNavigation() {
     const navBtns = document.querySelectorAll('.nav-btn[data-target]');
-    
     navBtns.forEach(btn => {
         btn.addEventListener('click', () => {
             switchTab(btn.dataset.target);
@@ -18,39 +20,30 @@ function setupNavigation() {
     });
 }
 
-// 2. Setup Segment Dropdown (5, 10, 15 ... 100 km)
 function setupSegmentSelector() {
     const select = document.getElementById('segmentSelector');
     if (select) {
-        select.innerHTML = ''; // Leegmaken
-        
-        // Loop van 5 tot 100 met stappen van 5
+        select.innerHTML = ''; 
         for (let k = 5; k <= 100; k += 5) {
             const option = document.createElement('option');
             option.value = k;
             option.text = `${k} km`;
             select.appendChild(option);
         }
-        
-        // Selecteer standaard 5km
         select.value = "5";
     }
 }
 
-// 3. Wissel tussen Tabs
+// 2. TAB SWITCHER
 function switchTab(tabName) {
-    // Knoppen updaten
     document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
     const activeBtn = document.querySelector(`.nav-btn[data-target="${tabName}"]`);
     if(activeBtn) activeBtn.classList.add('active');
 
-    // Views wisselen
     document.querySelectorAll('.view-section').forEach(v => v.classList.add('hidden'));
     document.getElementById(`view-${tabName}`).classList.remove('hidden');
 
-    // Specifieke acties per tab
     if(tabName === 'analysis') {
-        // Fix voor Leaflet kaart die grijs blijft
         setTimeout(() => { if(typeof map !== 'undefined') map.invalidateSize(); }, 100);
     }
     
@@ -59,18 +52,23 @@ function switchTab(tabName) {
     }
     
     if(tabName === 'rankings') {
-        // Laad de ranglijst op basis van de huidige dropdown waarde
         const select = document.getElementById('segmentSelector');
         const val = select ? select.value : 5;
         loadRankings(val);
     }
+    
+    if(tabName === 'municipalities') {
+        setTimeout(() => {
+            initMuniMap(); 
+            calculateConqueredMunicipalities();
+        }, 200);
+    }
 }
 
-// 4. Dashboard Logica
+// 3. DASHBOARD LOGICA
 async function updateDashboard() {
     if(!window.supabaseAuth || !window.supabaseAuth.getCurrentUser()) return;
     
-    // Haal data op (uit cache of DB)
     let activities = allActivitiesCache;
     if(!activities) {
         activities = await window.supabaseAuth.listActivities();
@@ -78,10 +76,6 @@ async function updateDashboard() {
     }
 
     let totalDist = 0, totalElev = 0;
-    const list = document.getElementById('dashboard-list');
-    list.innerHTML = '';
-
-    // Bereken totalen
     activities.forEach(act => {
         totalDist += parseFloat(act.summary.distanceKm || 0);
         totalElev += parseFloat(act.summary.elevationGain || 0);
@@ -91,49 +85,66 @@ async function updateDashboard() {
     document.getElementById('total-elev').innerText = totalElev.toFixed(0) + ' m';
     document.getElementById('total-rides').innerText = activities.length;
 
-    // Toon recente ritten (max 5)
-    if(activities.length === 0) {
-        list.innerHTML = '<p style="padding:15px; color:#888">Nog geen ritten. Upload er eentje!</p>';
-    } else {
-        activities.slice(0, 5).forEach(act => {
-            const div = document.createElement('div');
-            div.className = 'dash-list-item';
-            
-            const date = new Date(act.summary.rideDate).toLocaleDateString('nl-NL');
-            const dist = act.summary.distanceKm || '?';
-            const speed = act.summary.avgSpeed || '?';
-
-            div.innerHTML = `
-                <div>
-                    <strong>${act.fileName}</strong><br>
-                    <small style="color:#888">📅 ${date}</small>
-                </div>
-                <div style="text-align:right">
-                    <strong>${dist} km</strong><br>
-                    <small style="color:#888">${speed} km/u</small>
-                </div>
-            `;
-            
-            // Klik om naar analyse te gaan
-            div.onclick = () => { 
-                switchTab('analysis'); 
-                window.openRide(act); 
-            };
-            list.appendChild(div);
-        });
-    }
+    // Standaard: Toon top 5
+    renderActivityList(activities.slice(0, 5), "📜 Recente Activiteiten");
 }
 
-// 5. Ranglijst Logica
+// Wordt aangeroepen door klik op "Aantal Ritten" kaart
+window.showAllActivities = function() {
+    if(allActivitiesCache) {
+        renderActivityList(allActivitiesCache, "📜 Alle Activiteiten (" + allActivitiesCache.length + ")");
+    }
+};
+
+// Helper om de lijst te tekenen
+function renderActivityList(activities, title) {
+    const list = document.getElementById('dashboard-list');
+    
+    // Update titel
+    let titleElem = document.querySelector('.recent-section h3');
+    if(titleElem) titleElem.innerText = title;
+
+    list.innerHTML = ''; // Leegmaken
+
+    if(activities.length === 0) {
+        list.innerHTML = '<p style="padding:15px; color:#888">Nog geen ritten. Upload er eentje!</p>';
+        return;
+    }
+
+    activities.forEach(act => {
+        const div = document.createElement('div');
+        div.className = 'dash-list-item';
+        
+        const date = new Date(act.summary.rideDate).toLocaleDateString('nl-NL');
+        const dist = act.summary.distanceKm || '?';
+        const speed = act.summary.avgSpeed || '?';
+        const name = act.fileName || "Naamloos"; // Gebruikt de gefixte fileName
+
+        div.innerHTML = `
+            <div>
+                <strong>${name}</strong><br>
+                <small style="color:#888">📅 ${date}</small>
+            </div>
+            <div style="text-align:right">
+                <strong>${dist} km</strong><br>
+                <small style="color:#888">${speed} km/u</small>
+            </div>
+        `;
+        
+        div.onclick = () => { 
+            switchTab('analysis'); 
+            window.openRide(act); 
+        };
+        list.appendChild(div);
+    });
+}
+
+// 4. RANGLIJST LOGICA
 window.loadRankings = async function(distanceKm) {
-    // Zorg dat het een getal is
     distanceKm = parseInt(distanceKm);
-    console.log(`🔍 Start Ranglijst voor: ${distanceKm} km`);
-
     const list = document.getElementById('ranking-list');
-    list.innerHTML = '<p style="text-align:center; color:#666;">Gegevens ophalen...</p>';
+    list.innerHTML = '<p style="padding:20px; text-align:center;">Laden...</p>';
 
-    // Data ophalen
     let activities = allActivitiesCache;
     if(!activities) {
         if(!window.supabaseAuth) return;
@@ -141,65 +152,29 @@ window.loadRankings = async function(distanceKm) {
         allActivitiesCache = activities;
     }
 
-    // Filteren en Sorteren
-    // We kijken in de 'summary.segments' array van elke rit
+    // Filteren
     const rankedData = activities.map(act => {
         const segments = act.summary.segments || [];
-        
-        // Zoek of deze rit een record heeft voor de gevraagde afstand
         const match = segments.find(s => s.distance === distanceKm);
-        
-        if (match) {
-            return { 
-                ...match, 
-                fileName: act.fileName, 
-                date: act.summary.rideDate, 
-                activity: act 
-            };
-        } else {
-            return null; // Rit heeft deze afstand niet gehaald
-        }
+        return match ? { ...match, fileName: act.fileName, date: act.summary.rideDate, activity: act } : null;
     })
-    .filter(item => item !== null) // Verwijder nulls
-    .sort((a, b) => b.speed - a.speed); // Sorteer: Snelste bovenaan
+    .filter(item => item !== null)
+    .sort((a, b) => b.speed - a.speed);
 
-    // Renderen
     list.innerHTML = '';
     
     if(rankedData.length === 0) {
-        list.innerHTML = `
-            <div style="text-align:center; padding: 30px; background: white; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.05);">
-                <div style="font-size: 3rem; margin-bottom: 10px;">📉</div>
-                <p><strong>Geen prestaties gevonden voor ${distanceKm} km.</strong></p>
-                <p style="font-size: 0.9rem; color: #666; margin-top:10px;">
-                    Mogelijke oorzaken:<br>
-                    • Je ritten zijn korter dan ${distanceKm} km.<br>
-                    • Dit zijn oude ritten (upload ze opnieuw om segmenten te berekenen).
-                </p>
-            </div>`;
+        list.innerHTML = `<p style="padding:20px; text-align:center;">Geen prestaties gevonden voor ${distanceKm} km.</p>`;
         return;
     }
 
     rankedData.forEach((item, index) => {
         const div = document.createElement('div');
-        let rankClass = '';
-        let medal = '';
+        let rankClass = index === 0 ? 'gold' : index === 1 ? 'silver' : index === 2 ? 'bronze' : '';
+        let medal = index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : `#${index + 1}`;
         
-        // Podium styling
-        if(index === 0) { rankClass = 'gold'; medal = '🥇'; }
-        else if(index === 1) { rankClass = 'silver'; medal = '🥈'; }
-        else if(index === 2) { rankClass = 'bronze'; medal = '🥉'; }
-        else { medal = `#${index + 1}`; }
-
-        // Tijd formatteren
-        const totalSeconds = Math.floor(item.timeMs / 1000);
-        const h = Math.floor(totalSeconds / 3600);
-        const m = Math.floor((totalSeconds % 3600) / 60);
-        const s = totalSeconds % 60;
-        
-        const timeStr = h > 0 
-            ? `${h}:${m.toString().padStart(2,'0')}:${s.toString().padStart(2,'0')}` 
-            : `${m}:${s.toString().padStart(2,'0')}`;
+        const t = Math.floor(item.timeMs / 1000);
+        const timeStr = `${Math.floor(t/3600)}:${Math.floor((t%3600)/60).toString().padStart(2,'0')}:${(t%60).toString().padStart(2,'0')}`;
 
         div.className = `rank-card ${rankClass}`;
         div.innerHTML = `
@@ -207,7 +182,7 @@ window.loadRankings = async function(distanceKm) {
                 <div class="rank-pos">${medal}</div>
                 <div>
                     <strong>${item.fileName}</strong><br>
-                    <small style="color:#666;">${new Date(item.date).toLocaleDateString('nl-NL')}</small>
+                    <small style="color:#666">${new Date(item.date).toLocaleDateString('nl-NL')}</small>
                 </div>
             </div>
             <div style="text-align:right;">
@@ -215,26 +190,31 @@ window.loadRankings = async function(distanceKm) {
                 <small style="color:#666; font-family:monospace;">${timeStr}</small>
             </div>
         `;
-        
-        // Klikbaar maken
         div.style.cursor = 'pointer';
-        div.onclick = () => { 
-            switchTab('analysis'); 
-            window.openRide(item.activity); 
-        };
-        
+        div.onclick = () => { switchTab('analysis'); window.openRide(item.activity); };
         list.appendChild(div);
     });
 };
 
-// Helper: Uploadknop triggeren vanuit Dashboard
-function triggerUpload() {
-    switchTab('analysis');
-    const input = document.getElementById('gpxInput');
-    if(input) input.click();
+// 5. GEMEENTE JAGER (VEILIGE MODUS)
+async function initMuniMap() {
+    if (muniMap) { muniMap.invalidateSize(); return; }
+    muniMap = L.map('map-municipalities').setView([50.8503, 4.3517], 8);
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', { attribution: '© OpenStreetMap' }).addTo(muniMap);
 }
 
-// Global exports (zodat auth.js en index.html ze kunnen vinden)
+async function calculateConqueredMunicipalities() {
+    // We hebben de "Lazy Loading" update gedaan.
+    // Dit betekent dat we niet meer zomaar alle bestanden hebben om te analyseren.
+    // Om crashes te voorkomen, tonen we nu een melding.
+    const loading = document.getElementById('muni-loading');
+    if(loading) {
+        loading.innerHTML = "⚠️ Gemeente analyse vereist server-aanpassing (wegens grote hoeveelheid data).";
+        loading.style.display = 'block';
+    }
+}
+
+// Exports
 window.switchTab = switchTab;
 window.updateDashboard = updateDashboard;
 window.triggerUpload = triggerUpload;

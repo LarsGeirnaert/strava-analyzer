@@ -228,3 +228,41 @@ body, html { height: 100%; width: 100%; overflow: hidden; background: #333; }
     border-color: var(--primary);
     outline: none;
 }
+
+/* ... je bestaande CSS ... */
+
+/* MUNICIPALITY VIEW */
+.muni-container {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+}
+
+#map-municipalities {
+    flex: 1; /* Vult de rest van het scherm */
+    width: 100%;
+    background: #aad3df; /* Zee kleur */
+}
+
+.progress-wrapper {
+    background: white;
+    padding: 15px;
+    border-radius: 8px;
+    margin-top: 10px;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+}
+
+.progress-bar-bg {
+    background: #eee;
+    height: 20px;
+    border-radius: 10px;
+    margin-top: 5px;
+    overflow: hidden;
+}
+
+.progress-bar-fill {
+    background: linear-gradient(90deg, #fc4c02, #ff8c00);
+    height: 100%;
+    width: 0%;
+    transition: width 1s ease-in-out;
+}
