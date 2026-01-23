@@ -185,16 +185,20 @@ async function initMuniMap() {
         loading.style.display = 'none';
     } catch (e) {
         loading.innerHTML = `⚠️ Fout: ${e.message}. Is 'communes.json' lokaal aanwezig?`;
-        // Fallback upload input logic here if needed
     }
 }
 
 function loadFeaturesToMap(features) {
     if(geoJsonLayer) muniMap.removeLayer(geoJsonLayer);
+    
     geoJsonLayer = L.geoJSON({ type: "FeatureCollection", features: features }, {
-        style: { fillColor: '#cccccc', weight: 1, opacity: 1, color: 'white', fillOpacity: 0.5 },
-        onEachFeature: (feature, layer) => { layer.muniName = feature.properties.muniName; layer.bindTooltip(layer.muniName, { sticky: true }); }
+        // STYLE FUNCTIE voor initiële load
+        onEachFeature: (feature, layer) => { 
+            layer.muniName = feature.properties.muniName; 
+            layer.bindTooltip(layer.muniName, { sticky: true }); 
+        }
     }).addTo(muniMap);
+
     document.getElementById('muni-total').innerText = features.length;
     const btn = document.getElementById('scan-btn');
     if(btn) { btn.innerText = "🔄 Scan Alle Ritten"; btn.disabled = false; btn.style.background = "#fc4c02"; btn.style.cursor="pointer"; }
@@ -215,9 +219,27 @@ function updateMuniUI() {
     document.getElementById('muni-count').innerText = count;
     document.getElementById('muni-percent').innerText = ((count/total)*100).toFixed(1) + '%';
     document.getElementById('muni-progress-fill').style.width = ((count/total)*100) + '%';
+    
     geoJsonLayer.eachLayer(layer => {
-        if (conqueredMunis.has(layer.muniName)) { layer.setStyle({ fillColor: '#fc4c02', fillOpacity: 0.7, color: '#d94002', weight: 2 }); layer.bringToFront(); } 
-        else { layer.setStyle({ fillColor: '#cccccc', fillOpacity: 0.5, color: 'white', weight: 1 }); }
+        if (conqueredMunis.has(layer.muniName)) {
+            // VISITED: Altijd Oranje
+            layer.setStyle({ 
+                fillColor: '#fc4c02', 
+                fillOpacity: 0.7, 
+                color: '#d94002', 
+                weight: 2,
+                className: '' 
+            });
+            layer.bringToFront();
+        } else {
+            // UNVISITED: Gebruik CSS class voor dark mode support
+            layer.setStyle({ 
+                fillColor: 'transparent', // CSS regelt dit
+                color: 'transparent',     // CSS regelt dit
+                weight: 0,
+                className: 'region-unvisited' 
+            });
+        }
     });
 }
 
