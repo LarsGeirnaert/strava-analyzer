@@ -133,20 +133,66 @@
             </div>
 
             <div id="view-rankings" class="view-section hidden">
-                <div style="padding: 40px; max-width: 1000px; margin: 0 auto;">
+                <div style="padding: 20px; max-width: 1200px; margin: 0 auto;">
                     <header class="view-header">
-                        <h2>🏆 Jouw Records</h2>
-                        <p>Vergelijk je prestaties over alle ritten heen</p>
+                        <h2>🏆 Records & Statistieken</h2>
+                        <p>Analyseer je topprestaties en vergelijk ritten.</p>
                     </header>
-                    <div class="ranking-controls">
-                        <label style="font-weight:bold; margin-right:10px;">Kies Afstand:</label>
-                        <select id="segmentSelector" class="segment-select" onchange="loadRankings(this.value)">
-                            <option value="" disabled selected>Laden...</option>
-                        </select>
+
+                    <div class="sub-nav-container">
+                        <button class="sub-nav-btn active" onclick="switchRankingTab('segments')">⚡ Snelheid</button>
+                        <button class="sub-nav-btn" onclick="switchRankingTab('distance')">📏 Afstanden</button>
+                        <button class="sub-nav-btn" onclick="switchRankingTab('elevation')">⛰️ Hoogtemeters</button>
+                        <button class="sub-nav-btn" onclick="switchRankingTab('compare')">⚖️ Vergelijken</button>
                     </div>
-                    <div id="ranking-list" class="ranking-list">
-                        <p>Kies een afstand om de ranglijst te zien.</p>
+
+                    <div id="rank-tab-segments" class="rank-tab-content">
+                        <div class="ranking-controls">
+                            <label style="font-weight:bold; margin-right:10px;">Kies Afstand:</label>
+                            <select id="segmentSelector" class="segment-select" onchange="loadRankings(this.value)">
+                                <option value="" disabled selected>Laden...</option>
+                            </select>
+                        </div>
+                        <div id="ranking-list" class="ranking-list">
+                            <p>Kies een afstand om de ranglijst te zien.</p>
+                        </div>
                     </div>
+
+                    <div id="rank-tab-distance" class="rank-tab-content hidden">
+                        <div class="table-container">
+                            <table class="data-table">
+                                <thead><tr><th>#</th><th>Rit</th><th>Datum</th><th>Afstand</th><th>Snelheid</th></tr></thead>
+                                <tbody id="distance-table-body"></tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div id="rank-tab-elevation" class="rank-tab-content hidden">
+                        <div class="table-container">
+                            <table class="data-table">
+                                <thead><tr><th>#</th><th>Rit</th><th>Datum</th><th>Hoogte</th><th>Afstand</th></tr></thead>
+                                <tbody id="elevation-table-body"></tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div id="rank-tab-compare" class="rank-tab-content hidden">
+                        <div class="compare-layout">
+                            <div class="compare-sidebar">
+                                <h3>Selecteer Ritten</h3>
+                                <div id="compare-selection-list" class="compare-list"></div>
+                            </div>
+                            <div class="compare-main">
+                                <h3>Vergelijking</h3>
+                                <div class="table-container">
+                                    <table class="compare-table" id="comparison-table">
+                                        <tbody><tr><td style="padding:20px;">Selecteer links ritten.</td></tr></tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
                 </div>
             </div>
 
