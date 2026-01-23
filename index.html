@@ -99,8 +99,10 @@
                         <div class="upload-section">
                             <input type="file" id="gpxInput" accept=".gpx,.tcx" class="hidden-input" multiple>
                             <label for="gpxInput" class="upload-btn" style="margin-bottom: 10px;">📄 Upload Bestand(en)</label>
+                            
                             <input type="file" id="folderInput" webkitdirectory directory multiple class="hidden-input">
                             <label for="folderInput" class="upload-btn" style="background: #555;">📂 Upload Hele Map</label>
+                            
                             <div id="bulk-status" style="margin-top:10px; font-size:0.8rem; color:var(--text-muted); display:none;">Bezig...</div>
                         </div>
                         
@@ -184,10 +186,29 @@
                             </div>
                             <div class="compare-main">
                                 <h3>Vergelijking</h3>
-                                <div class="table-container">
+                                
+                                <div class="table-container" style="margin-bottom: 30px;">
                                     <table class="compare-table" id="comparison-table">
                                         <tbody><tr><td style="padding:20px;">Selecteer links ritten.</td></tr></tbody>
                                     </table>
+                                </div>
+
+                                <div id="compare-charts-container" class="hidden">
+                                    <h3>📊 Visuele Vergelijking</h3>
+                                    <div class="compare-charts-grid">
+                                        <div class="chart-box">
+                                            <h4>Afstand (km)</h4>
+                                            <canvas id="cmpChartDist"></canvas>
+                                        </div>
+                                        <div class="chart-box">
+                                            <h4>Hoogtemeters (m)</h4>
+                                            <canvas id="cmpChartElev"></canvas>
+                                        </div>
+                                        <div class="chart-box">
+                                            <h4>Snelheid (km/u)</h4>
+                                            <canvas id="cmpChartSpeed"></canvas>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         </div>

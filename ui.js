@@ -1,4 +1,4 @@
-// ui.js - Dashboard, Rankings, Wereld Jager & Dark Mode
+// ui.js - Dashboard, Rankings, Wereld Jager, Compare Charts & Dark Mode
 
 let allActivitiesCache = null; 
 let muniMap = null; 
@@ -6,6 +6,7 @@ let geoJsonLayer = null;
 let conqueredMunis = new Set(); 
 let selectedRides = new Set(); 
 let compareSelection = new Set(); 
+let cmpCharts = {}; // Opslag voor chart instanties
 
 // CONFIGURATIE REGIO'S
 const REGIONS = [
@@ -114,15 +115,31 @@ function renderCompareSelectionList(activities) {
     updateCompareTable();
 }
 
+// --- COMPARE TABLES & CHARTS ---
 async function updateCompareTable() {
     const table = document.getElementById('comparison-table');
-    if(compareSelection.size === 0) { table.innerHTML = '<tbody><tr><td style="padding:20px; color:var(--text-muted);">Vink links minimaal 2 ritten aan.</td></tr></tbody>'; return; }
+    const chartsContainer = document.getElementById('compare-charts-container');
+
+    if(compareSelection.size < 2) { 
+        table.innerHTML = '<tbody><tr><td style="padding:20px; color:var(--text-muted);">Vink links minimaal 2 ritten aan.</td></tr></tbody>'; 
+        chartsContainer.classList.add('hidden');
+        return; 
+    }
+
+    // Toon charts
+    chartsContainer.classList.remove('hidden');
+
     let activities = allActivitiesCache || await window.supabaseAuth.listActivities();
-    const selectedActs = activities.filter(a => compareSelection.has(a.id));
+    const selectedActs = activities.filter(a => compareSelection.has(a.id))
+                                   .sort((a, b) => new Date(a.summary.rideDate) - new Date(b.summary.rideDate)); // Oud naar Nieuw (logisch voor grafiek)
+
+    // Tabel Header
     let html = '<thead><tr><th>Statistiek</th>';
     selectedActs.forEach(act => { html += `<th>${act.fileName}<br><small style="font-weight:normal;">${new Date(act.summary.rideDate).toLocaleDateString()}</small></th>`; });
     html += '</tr></thead><tbody>';
+    
     const rows = [{ label: 'Afstand', key: 'distanceKm', unit: ' km' }, { label: 'Hoogte', key: 'elevationGain', unit: ' m' }, { label: 'Gem. Snelheid', key: 'avgSpeed', unit: ' km/u' }, { label: 'Tijd', key: 'durationSec', unit: '' }];
+    
     rows.forEach(row => {
         html += `<tr><td>${row.label}</td>`;
         let maxVal = -1; selectedActs.forEach(act => { const val = parseFloat(act.summary[row.key]) || 0; if(val > maxVal) maxVal = val; });
@@ -132,13 +149,37 @@ async function updateCompareTable() {
             let style = '';
             if(row.key === 'durationSec') { const h = Math.floor(val / 3600); const m = Math.floor((val % 3600) / 60); display = `${h}u ${m}m`; }
             if(row.key === 'distanceKm' || row.key === 'avgSpeed') display = val.toFixed(1) + row.unit;
-            if(val === maxVal && val > 0) style = 'background: rgba(255, 215, 0, 0.15); border-color: gold;';
+            if(val === maxVal && val > 0 && row.key !== 'durationSec') style = 'background: rgba(255, 215, 0, 0.15); border-color: gold;';
             html += `<td style="${style}">${display}</td>`;
         });
         html += '</tr>';
     });
     html += '</tbody>';
     table.innerHTML = html;
+
+    // Update Grafieken
+    updateCompareCharts(selectedActs);
+}
+
+function updateCompareCharts(rides) {
+    const labels = rides.map(r => `${new Date(r.summary.rideDate).toLocaleDateString().slice(0,5)} ${r.fileName.substring(0,10)}..`);
+    const distData = rides.map(r => parseFloat(r.summary.distanceKm));
+    const elevData = rides.map(r => parseFloat(r.summary.elevationGain));
+    const speedData = rides.map(r => parseFloat(r.summary.avgSpeed));
+
+    const createChart = (id, label, data, color) => {
+        const ctx = document.getElementById(id).getContext('2d');
+        if (cmpCharts[id]) cmpCharts[id].destroy();
+        cmpCharts[id] = new Chart(ctx, {
+            type: 'bar',
+            data: { labels: labels, datasets: [{ label: label, data: data, backgroundColor: color, borderColor: color.replace('0.7','1'), borderWidth: 1, borderRadius: 4 }] },
+            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true }, x: { grid: { display: false } } } }
+        });
+    };
+
+    createChart('cmpChartDist', 'Afstand (km)', distData, 'rgba(54, 162, 235, 0.7)');
+    createChart('cmpChartElev', 'Hoogte (m)', elevData, 'rgba(255, 99, 132, 0.7)');
+    createChart('cmpChartSpeed', 'Snelheid (km/u)', speedData, 'rgba(255, 206, 86, 0.7)');
 }
 
 // --- MAP LOGICA (Multi-Region) ---
@@ -162,7 +203,6 @@ async function initMuniMap() {
         let allFeatures = [];
         const promises = REGIONS.map(async (region) => {
             try {
-                console.log(`Laden: ${region.code.toUpperCase()}...`);
                 const res = await fetch(region.url);
                 if(!res.ok) throw new Error(`HTTP ${res.status}`);
                 let data = await res.json();
@@ -192,7 +232,7 @@ function loadFeaturesToMap(features) {
     if(geoJsonLayer) muniMap.removeLayer(geoJsonLayer);
     
     geoJsonLayer = L.geoJSON({ type: "FeatureCollection", features: features }, {
-        // STYLE FUNCTIE voor initiële load
+        // STYLE FUNCTIE
         onEachFeature: (feature, layer) => { 
             layer.muniName = feature.properties.muniName; 
             layer.bindTooltip(layer.muniName, { sticky: true }); 
@@ -222,23 +262,10 @@ function updateMuniUI() {
     
     geoJsonLayer.eachLayer(layer => {
         if (conqueredMunis.has(layer.muniName)) {
-            // VISITED: Altijd Oranje
-            layer.setStyle({ 
-                fillColor: '#fc4c02', 
-                fillOpacity: 0.7, 
-                color: '#d94002', 
-                weight: 2,
-                className: '' 
-            });
+            layer.setStyle({ fillColor: '#fc4c02', fillOpacity: 0.7, color: '#d94002', weight: 2, className: '' });
             layer.bringToFront();
         } else {
-            // UNVISITED: Gebruik CSS class voor dark mode support
-            layer.setStyle({ 
-                fillColor: 'transparent', // CSS regelt dit
-                color: 'transparent',     // CSS regelt dit
-                weight: 0,
-                className: 'region-unvisited' 
-            });
+            layer.setStyle({ fillColor: 'transparent', color: 'transparent', weight: 0, className: 'region-unvisited' });
         }
     });
 }
