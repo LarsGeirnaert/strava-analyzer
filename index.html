@@ -4,8 +4,11 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Strava 2.0 - Dashboard</title>
+    
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    
     <link rel="stylesheet" href="style.css">
+    
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js"></script>
     <script src="https://unpkg.com/topojson-client@3"></script>
@@ -30,10 +33,12 @@
         <nav class="main-nav">
             <div class="nav-logo">🚴</div>
             <button class="nav-btn active" data-target="dashboard" title="Dashboard">🏠</button>
-            <button class="nav-btn" data-target="analysis" title="Kaart & Analyse">🗺️</button>
+            <button class="nav-btn" data-target="recap" title="Mijn Recap">📊</button>
+            <button class="nav-btn" data-target="analysis" title="Analyse">🗺️</button>
             <button class="nav-btn" data-target="rankings" title="Ranglijsten">🏆</button>
             <button class="nav-btn" data-target="municipalities" title="Wereld Jager">🌍</button>
             <button class="nav-btn" data-target="heatmap" title="Heatmap">🔥</button>
+            
             <div style="margin-top: auto;">
                 <button id="theme-btn" class="nav-btn" onclick="toggleTheme()">🌙</button>
                 <button id="logout-btn" class="nav-btn">🚪</button>
@@ -42,19 +47,67 @@
 
         <div class="content-wrapper">
             <div id="view-dashboard" class="view-section">
-                <header class="view-header"><h2>👋 Dashboard</h2></header>
+                <header class="view-header"><h2>🏠 Dashboard</h2></header>
                 <div class="dashboard-grid">
-                    <div class="dash-card"><div><h3>Afstand</h3><p id="total-dist">0 km</p></div></div>
-                    <div class="dash-card"><div><h3>Hoogte</h3><p id="total-elev">0 m</p></div></div>
-                    <div class="dash-card" onclick="showAllActivities()" style="cursor:pointer;"><div><h3>Ritten</h3><p id="total-rides">0</p></div></div>
-                    <div class="dash-card action-card" onclick="triggerUpload()" style="cursor:pointer;"><h3>📂 Upload</h3></div>
+                    <div class="dash-card stat-total"><div><h3>Totaal Afstand</h3><p id="total-dist">0 km</p></div></div>
+                    <div class="dash-card stat-total"><div><h3>Totaal Hoogte</h3><p id="total-elev">0 m</p></div></div>
+                    <div class="dash-card stat-total" onclick="showAllActivities()" style="cursor:pointer;"><div><h3>Ritten</h3><p id="total-rides">0</p></div></div>
+                    <div class="dash-card action-card" onclick="triggerUpload()"><h3>📂 Uploaden</h3></div>
                 </div>
                 <div class="recent-section">
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
-                        <h3>📜 Activiteiten</h3>
+                        <h3>📜 Laatste Activiteiten</h3>
                         <button id="delete-btn" class="delete-btn hidden" onclick="deleteSelectedRides()">🗑️ Verwijder</button>
                     </div>
                     <div id="dashboard-list" class="dashboard-list">Laden...</div>
+                </div>
+            </div>
+
+            <div id="view-recap" class="view-section hidden">
+                <div style="padding: 20px; max-width: 1000px; margin: 0 auto;">
+                    <header class="view-header" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:15px;">
+                        <h2>📊 Statistieken Overzicht</h2>
+                        <div style="display:flex; gap:10px;">
+                            <select id="recap-month-select" class="small-select" onchange="updateRecapView()">
+                                <option value="all">Hele Jaar</option>
+                                <option value="0">Januari</option><option value="1">Februari</option>
+                                <option value="2">Maart</option><option value="3">April</option>
+                                <option value="4">Mei</option><option value="5">Juni</option>
+                                <option value="6">Juli</option><option value="7">Augustus</option>
+                                <option value="8">September</option><option value="9">Oktober</option>
+                                <option value="10">November</option><option value="11">December</option>
+                            </select>
+                            <select id="recap-year-select" class="small-select" onchange="updateRecapView()">
+                                <option value="2026">2026</option><option value="2025">2025</option><option value="2024">2024</option>
+                            </select>
+                        </div>
+                    </header>
+
+                    <div class="recap-hero">
+                        <div class="recap-main-stat">
+                            <h4 id="recap-period-title">Selectie</h4>
+                            <h1 id="recap-dist">0.0 km</h1>
+                            <p>Totaal deze periode</p>
+                        </div>
+                        <div class="recap-sub-stats">
+                            <div class="sub-stat-box"><h3>⛰️ Klimmen</h3><p id="recap-elev">0 m</p></div>
+                            <div class="sub-stat-box"><h3>🚴 Activiteiten</h3><p id="recap-count">0</p></div>
+                            <div class="sub-stat-box"><h3>⚡ Snelheid</h3><p id="recap-speed">0 km/u</p></div>
+                        </div>
+                    </div>
+
+                    <div class="progress-section" style="margin-top:25px; background:var(--bg-card); padding:20px; border-radius:12px;">
+                        <div style="display:flex; justify-content:space-between; margin-bottom:10px;">
+                            <strong>Jaardoel (5000km)</strong>
+                            <span id="recap-goal-percent">0%</span>
+                        </div>
+                        <div class="progress-bar-bg" style="height:15px;"><div id="recap-goal-fill" class="progress-bar-fill"></div></div>
+                    </div>
+                    
+                    <div style="margin-top:30px;">
+                        <h3>🏆 Top Ritten in deze periode</h3>
+                        <div id="recap-best-list" class="ranking-list"></div>
+                    </div>
                 </div>
             </div>
 
@@ -63,64 +116,79 @@
                     <aside class="inner-sidebar">
                         <div class="upload-section">
                             <input type="file" id="gpxInput" multiple class="hidden-input">
-                            <label for="gpxInput" class="upload-btn">📄 Bestanden</label>
+                            <label for="gpxInput" class="upload-btn">📄 Bestand Kiezen</label>
                         </div>
-                        <div class="stats-grid hidden" id="statsPanel">
-                            <div class="stat-widget"><span class="stat-icon">📏</span><span class="stat-label">Afstand</span><span class="stat-value"><span id="statDist">0</span> <small>km</small></span></div>
-                            <div class="stat-widget"><span class="stat-icon">⏱️</span><span class="stat-label">Tijd</span><span class="stat-value" id="statTime">0:00</span></div>
-                            <div class="stat-widget"><span class="stat-icon">⚡</span><span class="stat-label">Km/u</span><span class="stat-value"><span id="statSpeed">0</span> <small>km/u</small></span></div>
-                            <div class="stat-widget"><span class="stat-icon">⛰️</span><span class="stat-label">Hoogte</span><span class="stat-value"><span id="statElev">0</span> <small>m</small></span></div>
+                        <div class="stats-grid" id="statsPanel">
+                            <div class="stat-widget"><span class="stat-label">Afstand</span><span class="stat-value"><span id="statDist">0</span> <small>km</small></span></div>
+                            <div class="stat-widget"><span class="stat-label">Tijd</span><span class="stat-value" id="statTime">0:00</span></div>
+                            <div class="stat-widget"><span class="stat-label">Km/u</span><span class="stat-value"><span id="statSpeed">0</span></span></div>
+                            <div class="stat-widget"><span class="stat-label">Hoogte</span><span class="stat-value"><span id="statElev">0</span> <small>m</small></span></div>
                         </div>
-                        <div id="save-section" class="hidden"><button id="save-cloud-btn" class="save-btn">💾 Opslaan</button></div>
-                        <div id="current-segments-section" class="hidden"><h3>⚡ Segmenten</h3><div id="segments-list" class="segments-list"></div></div>
+                        <div id="save-section" class="hidden"><button id="save-cloud-btn" class="save-btn">💾 Rit Opslaan</button></div>
+                        <div id="current-segments-section" class="hidden"><h3>⚡ Snelste Segmenten</h3><div id="segments-list"></div></div>
                     </aside>
                     <main class="inner-main">
                         <div id="map"></div>
-                        <div class="charts-view hidden" id="chartsPanel"><div class="chart-container"><canvas id="elevationChart"></canvas></div></div>
+                        <div class="charts-view hidden" id="chartsPanel"><canvas id="elevationChart"></canvas></div>
                     </main>
                 </div>
             </div>
 
             <div id="view-rankings" class="view-section hidden">
                 <div style="padding: 20px; max-width: 1200px; margin: 0 auto;">
-                    <header class="view-header"><h2>🏆 Records & Trends</h2></header>
+                    <header class="view-header"><h2>🏆 Ranglijsten & Trends</h2></header>
                     <div class="sub-nav-container">
                         <button class="sub-nav-btn active" onclick="switchRankingTab('segments')">⚡ Records</button>
                         <button class="sub-nav-btn" onclick="switchRankingTab('distance')">📏 Afstanden</button>
                         <button class="sub-nav-btn" onclick="switchRankingTab('elevation')">⛰️ Hoogte</button>
-                        <button class="sub-nav-btn" onclick="switchRankingTab('compare')">⚖️ Vergelijken</button>
                     </div>
 
                     <div id="rank-tab-segments" class="rank-tab-content">
-                        <div class="ranking-controls" style="display:flex; gap:10px; flex-wrap:wrap; background:var(--bg-card); padding:15px; border-radius:8px; margin-bottom:20px;">
+                        <div class="ranking-controls" style="display:flex; gap:10px; background:var(--bg-card); padding:15px; border-radius:8px; margin-bottom:20px;">
                             <select id="segmentSelector" class="segment-select" onchange="loadRankings(this.value)"></select>
                             <input type="number" id="segmentMaxElev" class="small-input" placeholder="Max Klim (m)" oninput="loadRankings(document.getElementById('segmentSelector').value)">
-                            <select id="segmentTopFilter" class="segment-select" onchange="loadRankings(document.getElementById('segmentSelector').value)">
-                                <option value="all">Alles</option>
-                                <option value="5">Top 5</option>
-                                <option value="10">Top 10</option>
-                            </select>
                         </div>
-                        <div id="segment-progression-container" class="chart-box wide" style="height:300px; margin-bottom:20px; display:none;"><canvas id="segmentProgressionChart"></canvas></div>
+                        <div id="segment-progression-container" class="chart-box wide" style="height:300px; margin-bottom: 20px; display:none;">
+                            <canvas id="segmentProgressionChart"></canvas>
+                        </div>
                         <div id="ranking-list" class="ranking-list"></div>
                     </div>
 
                     <div id="rank-tab-distance" class="rank-tab-content hidden">
-                        <div class="ranking-controls"><select id="distanceTopFilter" class="segment-select" onchange="switchRankingTab('distance')"><option value="all">Alles</option><option value="5">Top 5</option><option value="10">Top 10</option></select></div>
-                        <div class="chart-box wide" style="height:300px; margin-bottom:20px;"><canvas id="distanceTrendChart"></canvas></div>
-                        <div class="table-container"><table class="data-table"><thead><tr><th>#</th><th>Naam</th><th>Datum</th><th>Afstand</th></tr></thead><tbody id="distance-table-body"></tbody></table></div>
+                        <div class="ranking-controls">
+                            <select id="distanceTopFilter" class="segment-select" onchange="switchRankingTab('distance')">
+                                <option value="all">Alle ritten</option>
+                                <option value="5">Top 5 Langste</option>
+                                <option value="10">Top 10 Langste</option>
+                            </select>
+                        </div>
+                        <div class="chart-box wide" style="height: 300px; margin-bottom: 20px;">
+                            <canvas id="distanceTrendChart"></canvas>
+                        </div>
+                        <div class="table-container">
+                            <table class="data-table">
+                                <thead><tr><th>#</th><th>Naam</th><th>Datum</th><th>Afstand</th></tr></thead>
+                                <tbody id="distance-table-body"></tbody>
+                            </table>
+                        </div>
                     </div>
 
                     <div id="rank-tab-elevation" class="rank-tab-content hidden">
-                        <div class="ranking-controls"><select id="elevationTopFilter" class="segment-select" onchange="switchRankingTab('elevation')"><option value="all">Alles</option><option value="5">Top 5</option><option value="10">Top 10</option></select></div>
-                        <div class="chart-box wide" style="height:300px; margin-bottom:20px;"><canvas id="elevationTrendChart"></canvas></div>
-                        <div class="table-container"><table class="data-table"><thead><tr><th>#</th><th>Naam</th><th>Datum</th><th>Hoogte</th></tr></thead><tbody id="elevation-table-body"></tbody></table></div>
-                    </div>
-
-                    <div id="rank-tab-compare" class="rank-tab-content hidden">
-                        <div class="compare-layout">
-                            <div class="compare-sidebar"><input type="text" id="filter-text" placeholder="Zoek ritten..." class="search-bar"><div id="compare-selection-list" class="compare-list"></div></div>
-                            <div class="compare-main"><div class="table-container"><table class="compare-table" id="comparison-table"></table></div><div id="compare-charts-container" class="hidden"><div class="chart-box wide"><h4>⛰️ Hoogte</h4><canvas id="cmpChartElev"></canvas></div><div class="chart-box wide"><h4>⚡ Snelheid</h4><canvas id="cmpChartSpeed"></canvas></div></div></div>
+                        <div class="ranking-controls">
+                            <select id="elevationTopFilter" class="segment-select" onchange="switchRankingTab('elevation')">
+                                <option value="all">Alle ritten</option>
+                                <option value="5">Top 5 Meeste Klim</option>
+                                <option value="10">Top 10 Meeste Klim</option>
+                            </select>
+                        </div>
+                        <div class="chart-box wide" style="height: 300px; margin-bottom: 20px;">
+                            <canvas id="elevationTrendChart"></canvas>
+                        </div>
+                        <div class="table-container">
+                            <table class="data-table">
+                                <thead><tr><th>#</th><th>Naam</th><th>Datum</th><th>Klim</th></tr></thead>
+                                <tbody id="elevation-table-body"></tbody>
+                            </table>
                         </div>
                     </div>
                 </div>
@@ -128,12 +196,16 @@
 
             <div id="view-municipalities" class="view-section hidden">
                 <div class="muni-container">
-                    <header class="view-header" style="padding:20px;">
+                    <header class="view-header" style="padding: 20px;">
                         <h2>🌍 Wereld Jager</h2>
                         <div class="progress-wrapper">
-                            <div class="progress-text"><span id="muni-count">0</span> / <span id="muni-total">?</span> <span id="muni-percent" style="float:right;">0%</span></div>
+                            <div class="progress-text">
+                                <span id="muni-count">0</span> / <span id="muni-total">?</span> 
+                                <span id="muni-percent" style="float:right;">0%</span>
+                            </div>
                             <div class="progress-bar-bg"><div id="muni-progress-fill" class="progress-bar-fill"></div></div>
                         </div>
+                        <p id="muni-loading" style="display:none; color:var(--primary); margin-top:10px;">⏳ Kaarten laden...</p>
                     </header>
                     <div id="map-municipalities"></div>
                 </div>
@@ -144,12 +216,10 @@
                     <header class="view-header" style="padding: 20px; position: absolute; z-index: 1000; pointer-events: none;">
                         <div style="background: var(--bg-card); padding: 15px; border-radius: 8px; border: 1px solid var(--border-color); pointer-events: auto;">
                             <h2>🔥 Heatmap</h2>
-                            <p style="font-size:0.8rem; margin-bottom:5px; color:var(--text-muted);">Klik op een weg voor rit-details</p>
+                            <p style="font-size:0.8rem; margin-bottom:5px; color:var(--text-muted);">Klik op de kaart om ritten te bekijken</p>
                             <button id="load-heatmap-btn" class="upload-btn" onclick="generateHeatmap()">🚀 Start</button>
                             <button class="upload-btn" style="background:#555; margin-top:5px;" onclick="clearHeatmapCache()">🗑️ Wis Cache</button>
-                            <div id="heatmap-progress" style="display:none; margin-top:10px;">
-                                <div class="progress-bar-bg"><div id="heatmap-bar" class="progress-bar-fill"></div></div>
-                            </div>
+                            <div id="heatmap-progress" style="display:none; margin-top:10px;"><div id="heatmap-bar" class="progress-bar-fill"></div></div>
                         </div>
                     </header>
                     <div id="map-heatmap"></div>
