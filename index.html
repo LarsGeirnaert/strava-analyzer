@@ -66,36 +66,62 @@
 
             <div id="view-recap" class="view-section hidden">
                 <div style="padding: 20px; max-width: 1000px; margin: 0 auto;">
+                    
                     <header class="view-header" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:15px;">
-                        <h2>📊 Statistieken Overzicht</h2>
+                        <h2>📊 Statistieken & Vergelijking</h2>
                         <div style="display:flex; gap:10px;">
-                            <select id="recap-month-select" class="small-select" onchange="updateRecapView()">
-                                <option value="all">Hele Jaar</option>
-                                <option value="0">Januari</option><option value="1">Februari</option>
-                                <option value="2">Maart</option><option value="3">April</option>
-                                <option value="4">Mei</option><option value="5">Juni</option>
-                                <option value="6">Juli</option><option value="7">Augustus</option>
-                                <option value="8">September</option><option value="9">Oktober</option>
-                                <option value="10">November</option><option value="11">December</option>
+                            <select id="recap-month-select" class="recap-select" onchange="updateRecapView()">
+                                <option value="all">📅 Hele Jaar</option> <option value="0">Januari</option>
+                                <option value="1">Februari</option>
+                                <option value="2">Maart</option>
+                                <option value="3">April</option>
+                                <option value="4">Mei</option>
+                                <option value="5">Juni</option>
+                                <option value="6">Juli</option>
+                                <option value="7">Augustus</option>
+                                <option value="8">September</option>
+                                <option value="9">Oktober</option>
+                                <option value="10">November</option>
+                                <option value="11">December</option>
                             </select>
-                            <select id="recap-year-select" class="small-select" onchange="updateRecapView()">
-                                <option value="2026">2026</option><option value="2025">2025</option><option value="2024">2024</option>
+
+                            <select id="recap-year-select" class="recap-select" onchange="updateRecapView()">
+                                <option value="2026">2026</option>
+                                <option value="2025">2025</option>
+                                <option value="2024">2024</option>
                             </select>
                         </div>
                     </header>
+
                     <div class="recap-hero">
-                        <div class="recap-main-stat"><h4 id="recap-period-title">Selectie</h4><h1 id="recap-dist">0.0 km</h1><p>Totaal deze periode</p></div>
+                        <div class="recap-main-stat">
+                            <h4 id="recap-period-title">Jaaroverzicht</h4>
+                            <h1 id="recap-dist">0.0 km</h1>
+                            <p>Totaal in selectie</p>
+                        </div>
                         <div class="recap-sub-stats">
-                            <div class="sub-stat-box"><h3>⛰️ Klimmen</h3><p id="recap-elev">0 m</p></div>
+                            <div class="sub-stat-box"><h3>⛰️ Hoogte</h3><p id="recap-elev">0 m</p></div>
                             <div class="sub-stat-box"><h3>🚴 Ritten</h3><p id="recap-count">0</p></div>
-                            <div class="sub-stat-box"><h3>⚡ Gemiddeld</h3><p id="recap-speed">0 km/u</p></div>
+                            <div class="sub-stat-box"><h3>⚡ Gem.</h3><p id="recap-speed">0 km/u</p></div>
                         </div>
                     </div>
+
+                    <div class="chart-box wide" style="margin-top:25px; height: 300px;">
+                        <canvas id="recapComparisonChart"></canvas>
+                    </div>
+
                     <div class="progress-section" style="margin-top:25px; background:var(--bg-card); padding:20px; border-radius:12px;">
-                        <div style="display:flex; justify-content:space-between; margin-bottom:10px;"><strong>Jaardoel (5000km)</strong><span id="recap-goal-percent">0%</span></div>
+                        <div style="display:flex; justify-content:space-between; margin-bottom:10px;">
+                            <strong>Jaardoel (5000km)</strong>
+                            <span id="recap-goal-percent">0%</span>
+                        </div>
                         <div class="progress-bar-bg" style="height:15px;"><div id="recap-goal-fill" class="progress-bar-fill"></div></div>
                     </div>
-                    <div style="margin-top:30px;"><h3>🏆 Top Ritten</h3><div id="recap-best-list" class="ranking-list"></div></div>
+                    
+                    <div style="margin-top:30px;">
+                        <h3>🏆 Beste ritten in selectie</h3>
+                        <div id="recap-best-list" class="ranking-list"></div>
+                    </div>
                 </div>
             </div>
 

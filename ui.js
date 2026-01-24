@@ -279,32 +279,134 @@ async function updateDashboard() {
     renderActivityList(realRides.slice(0, 8));
 }
 
+// --- VERVANG DEZE FUNCTIE IN UI.JS ---
+
 async function updateRecapView() {
     if(!allActivitiesCache) allActivitiesCache = await window.supabaseAuth.listActivities();
-    const selM = document.getElementById('recap-month-select').value;
-    const selY = parseInt(document.getElementById('recap-year-select').value);
+    
+    const selMonth = document.getElementById('recap-month-select').value;
+    const selYear = parseInt(document.getElementById('recap-year-select').value);
+    
+    // FILTER: Filter op jaar EN (optioneel) maand
     const filtered = allActivitiesCache.filter(act => {
-        if (act.summary.type === 'route') return false; 
+        if (act.summary.type === 'route') return false; // Negeer geplande routes
         const d = new Date(act.summary.rideDate);
-        return d.getFullYear() === selY && (selM === 'all' || d.getMonth() === parseInt(selM));
+        const matchYear = d.getFullYear() === selYear;
+        // Als 'all' is gekozen, match elke maand, anders match specifieke maand
+        const matchMonth = selMonth === 'all' || d.getMonth() === parseInt(selMonth);
+        return matchYear && matchMonth;
     });
+
+    // Bereken totalen
     let d=0, e=0, s=0;
-    filtered.forEach(act => { d += parseFloat(act.summary.distanceKm); e += act.summary.elevationGain; s += parseFloat(act.summary.avgSpeed); });
+    filtered.forEach(act => { 
+        d += parseFloat(act.summary.distanceKm); 
+        e += parseFloat(act.summary.elevationGain); 
+        s += parseFloat(act.summary.avgSpeed); 
+    });
+
     const avgS = filtered.length > 0 ? (s / filtered.length).toFixed(1) : 0;
+    
+    // Update Tekst
+    let title = selMonth === 'all' ? `Jaaroverzicht ${selYear}` : `${document.getElementById('recap-month-select').options[document.getElementById('recap-month-select').selectedIndex].text} ${selYear}`;
+    document.getElementById('recap-period-title').innerText = title;
     document.getElementById('recap-dist').innerText = d.toFixed(1) + ' km';
     document.getElementById('recap-elev').innerText = e.toFixed(0) + ' m';
     document.getElementById('recap-count').innerText = filtered.length;
     document.getElementById('recap-speed').innerText = avgS + ' km/u';
-    const yearDist = allActivitiesCache.filter(act => act.summary.type !== 'route' && new Date(act.summary.rideDate).getFullYear() === selY).reduce((acc, a) => acc + parseFloat(a.summary.distanceKm), 0);
-    const goalPercent = Math.min(100, (yearDist / 5000) * 100).toFixed(1);
+
+    // Update Progressie balk (altijd op basis van jaar totaal)
+    const yearTotal = allActivitiesCache.filter(act => act.summary.type !== 'route' && new Date(act.summary.rideDate).getFullYear() === selYear).reduce((acc, a) => acc + parseFloat(a.summary.distanceKm), 0);
+    const goalPercent = Math.min(100, (yearTotal / 5000) * 100).toFixed(1);
     document.getElementById('recap-goal-percent').innerText = goalPercent + '%';
     document.getElementById('recap-goal-fill').style.width = goalPercent + '%';
+
+    // Update Lijst Top Ritten
     const sorted = [...filtered].sort((a,b) => b.summary.distanceKm - a.summary.distanceKm).slice(0, 3);
-    document.getElementById('recap-best-list').innerHTML = sorted.map(act => `
-        <div class="rank-card" onclick="switchTab('analysis'); window.openRide(${JSON.stringify(act).replace(/"/g, '&quot;')})">
+    document.getElementById('recap-best-list').innerHTML = sorted.map((act, i) => `
+        <div class="rank-card" style="border-left: 4px solid ${i===0?'gold':i===1?'silver':'#cd7f32'}" onclick="switchTab('analysis'); window.openRide(${JSON.stringify(act).replace(/"/g, '&quot;')})">
             <div><strong>${act.fileName}</strong><br><small>${new Date(act.summary.rideDate).toLocaleDateString()}</small></div>
-            <div style="text-align:right"><strong>${act.summary.distanceKm} km</strong></div>
-        </div>`).join('') || '<p style="text-align:center;">Geen ritten gevonden.</p>';
+            <div style="text-align:right"><strong>${parseFloat(act.summary.distanceKm).toFixed(1)} km</strong></div>
+        </div>`).join('') || '<p style="text-align:center; color:var(--text-muted);">Geen ritten in deze periode.</p>';
+
+    // NIEUW: Teken de vergelijkingsgrafiek
+    renderRecapChart(filtered, selMonth, selYear);
+}
+
+// --- VOEG DEZE NIEUWE FUNCTIE TOE AAN UI.JS ---
+
+function renderRecapChart(activities, monthMode, year) {
+    const ctx = document.getElementById('recapComparisonChart').getContext('2d');
+    
+    // Verwijder oude grafiek indien aanwezig
+    if (activeCharts['recap']) activeCharts['recap'].destroy();
+
+    let labels = [];
+    let dataPoints = [];
+    let labelText = "";
+    let chartType = 'bar';
+
+    if (monthMode === 'all') {
+        // MODUS: JAAROVERZICHT (Vergelijk maanden)
+        labelText = `Afstand per maand in ${year}`;
+        labels = ['Jan', 'Feb', 'Mrt', 'Apr', 'Mei', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dec'];
+        dataPoints = new Array(12).fill(0);
+        
+        activities.forEach(act => {
+            const m = new Date(act.summary.rideDate).getMonth();
+            dataPoints[m] += parseFloat(act.summary.distanceKm);
+        });
+
+    } else {
+        // MODUS: MAANDOVERZICHT (Dagelijkse progressie)
+        labelText = `Afstand per dag`;
+        chartType = 'line'; // Lijn is mooier voor dagen
+        
+        // Sorteer op datum
+        activities.sort((a,b) => new Date(a.summary.rideDate) - new Date(b.summary.rideDate));
+        
+        // Groepeer per dag
+        const daysInMonth = new Date(year, parseInt(monthMode) + 1, 0).getDate();
+        const dailyData = new Array(daysInMonth).fill(0);
+        
+        activities.forEach(act => {
+            const d = new Date(act.summary.rideDate).getDate();
+            dailyData[d-1] += parseFloat(act.summary.distanceKm);
+        });
+
+        // Maak labels 1..31
+        labels = Array.from({length: daysInMonth}, (_, i) => i + 1);
+        dataPoints = dailyData;
+    }
+
+    // Teken grafiek
+    activeCharts['recap'] = new Chart(ctx, {
+        type: chartType,
+        data: {
+            labels: labels,
+            datasets: [{
+                label: labelText,
+                data: dataPoints,
+                backgroundColor: 'rgba(252, 76, 2, 0.5)', // Strava Oranje
+                borderColor: '#fc4c02',
+                borderWidth: 2,
+                borderRadius: 4,
+                tension: 0.3, // Voor vloeiende lijnen bij maandweergave
+                fill: monthMode !== 'all' // Alleen vullen bij lijngrafiek
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                y: { beginAtZero: true, grid: { color: 'rgba(200,200,200,0.1)' } },
+                x: { grid: { display: false } }
+            },
+            plugins: {
+                legend: { display: true, labels: { color: 'var(--text-main)' } }
+            }
+        }
+    });
 }
 
 async function initMuniMap() {
