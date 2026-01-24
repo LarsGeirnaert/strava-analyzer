@@ -1,25 +1,32 @@
-// ui.js - Volledige motor voor Dashboard, Recap, Rankings, Heatmap & Wereld Jager Fix
+// ui.js - Dashboard, Recap, Rankings, Heatmap & ROUTE PLANNER (V2)
 
 let allActivitiesCache = null; 
 let muniMap = null; 
 let heatmapMap = null; 
+let routeMap = null; // Nieuwe kaart specifiek voor route planner
 let geoJsonLayer = null; 
 let conqueredMunis = new Set(); 
 let selectedRides = new Set(); 
 let activeCharts = {}; 
 
+// Route Planner variabelen
+let waypoints = []; // De markers die je zet
+let routePolyline = null; // De lijn die de weg volgt
+let routeSegments = []; // Cache van de wegdelen
+
 const REGIONS = [
     { code: 'be', url: 'communes.json', type: 'topojson', nameFields: ['Gemeente', 'name', 'NAME_4', 'Name'] },
-    { code: 'nl', url: 'https://cartomap.github.io/nl/wgs84/gemeente_2023.geojson', type: 'geojson', nameFields: ['statnaam'] },
-    { code: 'fr', url: 'https://raw.githubusercontent.com/gregoiredavid/france-geojson/master/departements.geojson', type: 'geojson', nameFields: ['nom'] }
+    { code: 'nl', url: 'https://cartomap.github.io/nl/wgs84/gemeente_2023.geojson', type: 'geojson', nameFields: ['statnaam'] }
 ];
 
 document.addEventListener('DOMContentLoaded', () => {
     setupNavigation();
     setupSegmentSelector();
     const now = new Date();
-    document.getElementById('recap-month-select').value = now.getMonth();
-    document.getElementById('recap-year-select').value = now.getFullYear();
+    const ms = document.getElementById('recap-month-select');
+    const ys = document.getElementById('recap-year-select');
+    if(ms) ms.value = now.getMonth();
+    if(ys) ys.value = now.getFullYear();
 });
 
 function setupNavigation() {
@@ -40,7 +47,7 @@ function setupSegmentSelector() {
     }
 }
 
-// --- TRENDLIJN BEREKENING ---
+// --- TRENDLIJNEN ---
 function calculateTrendLine(data) {
     const n = data.length;
     if (n < 2) return data;
@@ -53,17 +60,19 @@ function calculateTrendLine(data) {
     return data.map((_, i) => slope * i + intercept);
 }
 
-// --- NAVIGATIE & KAART FIX ---
+// --- TAB NAVIGATIE ---
 function switchTab(tabName) {
     document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
     const activeBtn = document.querySelector(`.nav-btn[data-target="${tabName}"]`);
     if(activeBtn) activeBtn.classList.add('active');
 
     document.querySelectorAll('.view-section').forEach(v => v.classList.add('hidden'));
-    document.getElementById(`view-${tabName}`).classList.remove('hidden');
+    const target = document.getElementById(`view-${tabName}`);
+    if(target) target.classList.remove('hidden');
 
     setTimeout(() => {
         if(tabName === 'analysis' && typeof map !== 'undefined' && map) map.invalidateSize();
+        if(tabName === 'routes') initRouteMap(); // Start route kaart
         if(tabName === 'municipalities' && muniMap) muniMap.invalidateSize();
         if(tabName === 'heatmap' && heatmapMap) heatmapMap.invalidateSize();
     }, 150);
@@ -75,66 +84,224 @@ function switchTab(tabName) {
     if(tabName === 'rankings') switchRankingTab('segments');
 }
 
-// --- DASHBOARD LOGICA ---
+// --- NIEUW: ROUTE PLANNER LOGICA ---
+function initRouteMap() {
+    if (routeMap) { routeMap.invalidateSize(); return; }
+    routeMap = L.map('map-routes').setView([50.85, 4.35], 8); // Start centraal
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap' }).addTo(routeMap);
+    
+    // Klik event om punten toe te voegen
+    routeMap.on('click', handleRouteMapClick);
+}
+
+async function handleRouteMapClick(e) {
+    const latlng = e.latlng;
+    addRouteWaypoint(latlng);
+}
+
+async function addRouteWaypoint(latlng) {
+    // Voeg marker toe (versleepbaar!)
+    const marker = L.marker(latlng, {draggable: true}).addTo(routeMap);
+    const index = waypoints.length;
+    
+    marker.on('dragend', async (e) => {
+        // Update positie na slepen
+        waypoints[index].latlng = e.target.getLatLng();
+        await recalculateFullRoute();
+    });
+
+    waypoints.push({ marker: marker, latlng: latlng });
+
+    // Als er meer dan 1 punt is, bereken route vanaf vorige punt
+    if (waypoints.length > 1) {
+        const prev = waypoints[waypoints.length - 2].latlng;
+        const current = latlng;
+        await calculateRouteSegment(prev, current);
+    }
+}
+
+async function calculateRouteSegment(start, end) {
+    // Gebruik BIKE router
+    const url = `https://routing.openstreetmap.de/routed-bike/route/v1/driving/${start.lng},${start.lat};${end.lng},${end.lat}?overview=full&geometries=geojson`;
+    
+    try {
+        const res = await fetch(url);
+        const data = await res.json();
+        
+        let segmentCoords = [];
+        if (data.routes && data.routes.length > 0) {
+            // Converteer [lon, lat] naar [lat, lon]
+            segmentCoords = data.routes[0].geometry.coordinates.map(c => [c[1], c[0]]);
+        } else {
+            // Fallback rechte lijn
+            segmentCoords = [[start.lat, start.lng], [end.lat, end.lng]];
+        }
+        
+        routeSegments.push(segmentCoords);
+        drawFullRoute();
+        
+    } catch (e) {
+        console.error("Routing error", e);
+        // Fallback bij error
+        routeSegments.push([[start.lat, start.lng], [end.lat, end.lng]]);
+        drawFullRoute();
+    }
+}
+
+async function recalculateFullRoute() {
+    // Wordt aangeroepen na slepen: herbereken ALLES
+    routeSegments = [];
+    for (let i = 1; i < waypoints.length; i++) {
+        const start = waypoints[i-1].latlng;
+        const end = waypoints[i].latlng;
+        // Zelfde logica als hierboven, maar sequentieel
+        const url = `https://routing.openstreetmap.de/routed-bike/route/v1/driving/${start.lng},${start.lat};${end.lng},${end.lat}?overview=full&geometries=geojson`;
+        try {
+            const res = await fetch(url);
+            const data = await res.json();
+            if (data.routes && data.routes.length > 0) {
+                routeSegments.push(data.routes[0].geometry.coordinates.map(c => [c[1], c[0]]));
+            } else {
+                routeSegments.push([[start.lat, start.lng], [end.lat, end.lng]]);
+            }
+        } catch(e) { routeSegments.push([[start.lat, start.lng], [end.lat, end.lng]]); }
+    }
+    drawFullRoute();
+}
+
+function drawFullRoute() {
+    if (routePolyline) routeMap.removeLayer(routePolyline);
+    
+    // Voeg alle segmenten samen tot één lijn
+    const fullPath = routeSegments.flat();
+    routePolyline = L.polyline(fullPath, {color: '#fc4c02', weight: 5}).addTo(routeMap);
+    
+    updateRouteStats(fullPath);
+}
+
+function updateRouteStats(latlngs) {
+    let totalDist = 0;
+    for(let i=1; i<latlngs.length; i++) {
+        totalDist += routeMap.distance(latlngs[i-1], latlngs[i]);
+    }
+    const km = (totalDist/1000).toFixed(2);
+    document.getElementById('routeDist').innerText = km;
+    
+    // Tijd schatting (22 km/u)
+    const hours = (totalDist/1000) / 22;
+    const h = Math.floor(hours);
+    const m = Math.floor((hours%1)*60).toString().padStart(2,'0');
+    document.getElementById('routeTime').innerText = `${h}:${m}`;
+}
+
+window.undoLastRoutePoint = function() {
+    if (waypoints.length === 0) return;
+    
+    // Verwijder laatste marker
+    const lastPoint = waypoints.pop();
+    routeMap.removeLayer(lastPoint.marker);
+    
+    // Verwijder laatste segment
+    if (routeSegments.length > 0) {
+        routeSegments.pop();
+    }
+    
+    drawFullRoute();
+    if(waypoints.length === 0) {
+        document.getElementById('routeDist').innerText = "0";
+        document.getElementById('routeTime').innerText = "0:00";
+    }
+};
+
+window.clearRoute = function() {
+    waypoints.forEach(w => routeMap.removeLayer(w.marker));
+    waypoints = [];
+    routeSegments = [];
+    if(routePolyline) routeMap.removeLayer(routePolyline);
+    document.getElementById('routeDist').innerText = "0";
+    document.getElementById('routeTime').innerText = "0:00";
+};
+
+window.saveCreatedRoute = async function() {
+    if (waypoints.length < 2) { alert("Teken eerst een route!"); return; }
+    
+    const name = document.getElementById('route-name-input').value || "Mijn Geplande Route";
+    const btn = document.getElementById('save-route-btn');
+    btn.innerText = "Opslaan..."; btn.disabled = true;
+
+    // Maak XML string voor Supabase
+    const flatCoords = routeSegments.flat();
+    let gpxContent = `<?xml version="1.0" encoding="UTF-8"?><gpx version="1.1"><trk><name>${name}</name><trkseg>`;
+    flatCoords.forEach(c => {
+        gpxContent += `<trkpt lat="${c[0]}" lon="${c[1]}"></trkpt>`;
+    });
+    gpxContent += `</trkseg></trk></gpx>`;
+    
+    // Maak Blob
+    const blob = new Blob([gpxContent], {type: 'application/xml'});
+    
+    try {
+        await window.supabaseAuth.saveActivity({
+            fileBlob: blob,
+            fileName: name,
+            summary: {
+                distanceKm: parseFloat(document.getElementById('routeDist').innerText),
+                elevationGain: 0,
+                avgSpeed: 22.0,
+                rideDate: new Date().toISOString(),
+                segments: []
+            }
+        });
+        alert("Route opgeslagen!");
+        btn.innerText = "💾 Route Opslaan";
+        btn.disabled = false;
+        clearRoute(); // Reset na opslaan
+    } catch(e) {
+        console.error(e);
+        alert("Fout bij opslaan: " + e.message);
+        btn.innerText = "💾 Route Opslaan";
+        btn.disabled = false;
+    }
+};
+
+// --- DASHBOARD LOGICA (REST VAN DE APP) ---
 async function updateDashboard() {
     if(!window.supabaseAuth.getCurrentUser()) return;
     allActivitiesCache = await window.supabaseAuth.listActivities();
     let d=0, e=0; 
     allActivitiesCache.forEach(a => { d += parseFloat(a.summary.distanceKm||0); e += parseFloat(a.summary.elevationGain||0); });
-    
-    document.getElementById('total-dist').innerText = d.toFixed(0) + ' km';
-    document.getElementById('total-elev').innerText = e.toFixed(0) + ' m';
-    document.getElementById('total-rides').innerText = allActivitiesCache.length;
+    const u = (id, v) => { if(document.getElementById(id)) document.getElementById(id).innerText = v; };
+    u('total-dist', d.toFixed(0) + ' km'); u('total-elev', e.toFixed(0) + ' m'); u('total-rides', allActivitiesCache.length);
     renderActivityList(allActivitiesCache.slice(0, 8));
 }
 
-// --- RECAP LOGICA (JAAROVERZICHT) ---
 async function updateRecapView() {
     if(!allActivitiesCache) allActivitiesCache = await window.supabaseAuth.listActivities();
-    
-    const selMonth = document.getElementById('recap-month-select').value;
-    const selYear = parseInt(document.getElementById('recap-year-select').value);
-    
+    const selM = document.getElementById('recap-month-select').value;
+    const selY = parseInt(document.getElementById('recap-year-select').value);
     const filtered = allActivitiesCache.filter(act => {
         const d = new Date(act.summary.rideDate);
-        const matchYear = d.getFullYear() === selYear;
-        const matchMonth = selMonth === 'all' || d.getMonth() === parseInt(selMonth);
-        return matchYear && matchMonth;
+        return d.getFullYear() === selY && (selM === 'all' || d.getMonth() === parseInt(selM));
     });
-
     let d=0, e=0, s=0;
-    filtered.forEach(act => { 
-        d += parseFloat(act.summary.distanceKm || 0); 
-        e += parseFloat(act.summary.elevationGain || 0); 
-        s += parseFloat(act.summary.avgSpeed || 0); 
-    });
-
-    const avgSpeed = filtered.length > 0 ? (s / filtered.length).toFixed(1) : 0;
-    const title = selMonth === 'all' ? `Jaaroverzicht ${selYear}` : `${document.getElementById('recap-month-select').options[document.getElementById('recap-month-select').selectedIndex].text} ${selYear}`;
-
-    document.getElementById('recap-period-title').innerText = title;
+    filtered.forEach(act => { d += parseFloat(act.summary.distanceKm); e += act.summary.elevationGain; s += parseFloat(act.summary.avgSpeed); });
+    const avgS = filtered.length > 0 ? (s / filtered.length).toFixed(1) : 0;
     document.getElementById('recap-dist').innerText = d.toFixed(1) + ' km';
     document.getElementById('recap-elev').innerText = e.toFixed(0) + ' m';
     document.getElementById('recap-count').innerText = filtered.length;
-    document.getElementById('recap-speed').innerText = avgSpeed + ' km/u';
-
-    // Jaardoel progressie
-    const yearDist = allActivitiesCache.filter(act => new Date(act.summary.rideDate).getFullYear() === selYear).reduce((acc, a) => acc + a.summary.distanceKm, 0);
+    document.getElementById('recap-speed').innerText = avgS + ' km/u';
+    const yearDist = allActivitiesCache.filter(act => new Date(act.summary.rideDate).getFullYear() === selY).reduce((acc, a) => acc + parseFloat(a.summary.distanceKm), 0);
     const goalPercent = Math.min(100, (yearDist / 5000) * 100).toFixed(1);
     document.getElementById('recap-goal-percent').innerText = goalPercent + '%';
     document.getElementById('recap-goal-fill').style.width = goalPercent + '%';
-
-    // Top prestaties
     const sorted = [...filtered].sort((a,b) => b.summary.distanceKm - a.summary.distanceKm).slice(0, 3);
     document.getElementById('recap-best-list').innerHTML = sorted.map(act => `
         <div class="rank-card" onclick="switchTab('analysis'); window.openRide(${JSON.stringify(act).replace(/"/g, '&quot;')})">
             <div><strong>${act.fileName}</strong><br><small>${new Date(act.summary.rideDate).toLocaleDateString()}</small></div>
             <div style="text-align:right"><strong>${act.summary.distanceKm} km</strong></div>
-        </div>
-    `).join('') || '<p style="text-align:center;">Geen ritten in deze periode.</p>';
+        </div>`).join('') || '<p style="text-align:center;">Geen ritten gevonden.</p>';
 }
 
-// --- WERELD JAGER (FIXED) ---
 async function initMuniMap() {
     if (muniMap) { muniMap.invalidateSize(); return; }
     muniMap = L.map('map-municipalities').setView([50.85, 4.35], 8);
@@ -143,271 +310,162 @@ async function initMuniMap() {
 }
 
 async function loadFeatures() {
-    let allFeatures = [];
-    const loadingEl = document.getElementById('muni-loading');
-    if(loadingEl) loadingEl.style.display = 'block';
-    
-    for(const region of REGIONS) {
+    let allF = [];
+    document.getElementById('muni-loading').style.display = 'block';
+    for(const r of REGIONS) {
         try {
-            const res = await fetch(region.url);
+            const res = await fetch(r.url);
             let data = await res.json();
-            if (region.type === 'topojson') data = topojson.feature(data, data.objects[Object.keys(data.objects)[0]]);
+            if (r.type === 'topojson') data = topojson.feature(data, data.objects[Object.keys(data.objects)[0]]);
             data.features.forEach(f => {
-                let name = "Onbekend";
-                for(const field of region.nameFields) { if(f.properties[field]) { name = f.properties[field]; break; } }
-                f.properties.muniName = `${name} (${region.code.toUpperCase()})`; 
+                let n = "Onbekend";
+                for(const field of r.nameFields) { if(f.properties[field]) { n = f.properties[field]; break; } }
+                f.properties.muniName = `${n} (${r.code.toUpperCase()})`; 
             });
-            allFeatures.push(...data.features);
-        } catch (err) { console.error("Laden regio mislukt:", region.code); }
+            allF.push(...data.features);
+        } catch (e) {}
     }
-
     if(geoJsonLayer && muniMap) muniMap.removeLayer(geoJsonLayer);
-    
-    geoJsonLayer = L.geoJSON({ type: "FeatureCollection", features: allFeatures }, {
-        onEachFeature: (feature, layer) => { 
-            layer.muniName = feature.properties.muniName; 
-            layer.bindTooltip(layer.muniName, { sticky: true }); 
-        }
+    geoJsonLayer = L.geoJSON({ type: "FeatureCollection", features: allF }, {
+        onEachFeature: (f, l) => { l.muniName = f.properties.muniName; l.bindTooltip(l.muniName, { sticky: true }); }
     }).addTo(muniMap);
-
-    // FIX: Wacht tot kaartlagen er zijn voor teller-update
     const names = await window.supabaseAuth.getConqueredMunicipalities();
     conqueredMunis = new Set(names);
-    
-    updateMuniUI(); 
-    if(loadingEl) loadingEl.style.display = 'none';
+    updateMuniUI();
+    document.getElementById('muni-loading').style.display = 'none';
 }
 
 function updateMuniUI() {
     if(!geoJsonLayer) return;
     const total = geoJsonLayer.getLayers().length;
-    const count = conqueredMunis.size;
-    const percent = total > 0 ? ((count / total) * 100).toFixed(1) : 0;
-
-    const countEl = document.getElementById('muni-count');
-    const totalEl = document.getElementById('muni-total');
-    const percentEl = document.getElementById('muni-percent');
-    const fillEl = document.getElementById('muni-progress-fill');
-
-    if(countEl) countEl.innerText = count;
-    if(totalEl) totalEl.innerText = total;
-    if(percentEl) percentEl.innerText = percent + '%';
-    if(fillEl) fillEl.style.width = percent + '%';
-
+    document.getElementById('muni-count').innerText = conqueredMunis.size;
+    document.getElementById('muni-total').innerText = total;
+    const p = (conqueredMunis.size / total * 100).toFixed(1);
+    document.getElementById('muni-percent').innerText = p + '%';
+    document.getElementById('muni-progress-fill').style.width = p + '%';
     geoJsonLayer.eachLayer(l => {
-        if (conqueredMunis.has(l.muniName)) {
-            l.setStyle({ fillColor: '#fc4c02', fillOpacity: 0.7, color: '#d94002', weight: 2 });
-        } else {
-            l.setStyle({ fillColor: 'transparent', color: 'transparent', weight: 0 });
-        }
+        if (conqueredMunis.has(l.muniName)) l.setStyle({ fillColor: '#fc4c02', fillOpacity: 0.7, color: '#d94002', weight: 2 });
+        else l.setStyle({ fillColor: 'transparent', color: 'transparent', weight: 0 });
     });
 }
 
-// --- HEATMAP & CACHE ---
 async function initHeatmapMap() {
     if (heatmapMap) { heatmapMap.invalidateSize(); return; }
     heatmapMap = L.map('map-heatmap', { zoomControl: true, attributionControl: false }).setView([50.85, 4.35], 7);
     L.tileLayer('https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png').addTo(heatmapMap);
-
     heatmapMap.on('click', async (e) => {
         const user = window.supabaseAuth.getCurrentUser();
         const cacheKey = `heatmap_coords_${user.id}`;
-        let cachedData = JSON.parse(localStorage.getItem(cacheKey) || "{}");
+        let cached = JSON.parse(localStorage.getItem(cacheKey) || "{}");
         const matches = [];
-
-        for (const actId in cachedData) {
-            const coords = cachedData[actId];
-            const isNear = coords.some(c => e.latlng.distanceTo(L.latLng(c[0], c[1])) < 45);
-            if (isNear) {
-                const act = allActivitiesCache.find(a => a.id === actId);
+        for (const id in cached) {
+            if (cached[id].some(c => e.latlng.distanceTo(L.latLng(c[0], c[1])) < 45)) {
+                const act = allActivitiesCache.find(a => a.id === id);
                 if (act) matches.push(act);
             }
         }
-
         if (matches.length > 0) {
-            matches.sort((a,b) => new Date(b.summary.rideDate) - new Date(a.summary.rideDate));
-            const html = `
-                <div style="min-width:180px;">
-                    <strong style="color:var(--primary);">🔥 ${matches.length} ritten hier</strong>
-                    <div style="margin-top:8px; max-height:150px; overflow-y:auto; border-top:1px solid #eee; padding-top:5px;">
-                        ${matches.map(m => `
-                            <div style="margin-bottom:8px; cursor:pointer;" onclick='window.openRideFromHeatmap(${JSON.stringify({id: m.id, fileName: m.fileName, summary: m.summary}).replace(/"/g, "&quot;")})'>
-                                <span style="color:#007bff; font-weight:bold; font-size:0.9rem; text-decoration:underline;">${m.fileName}</span><br>
-                                <small style="color:#666;">${new Date(m.summary.rideDate).toLocaleDateString()}</small>
-                            </div>
-                        `).join('')}
-                    </div>
-                </div>`;
+            const html = `<div style="min-width:180px;"><strong>🔥 ${matches.length} ritten hier</strong><div style="margin-top:8px; max-height:150px; overflow-y:auto;">${matches.map(m => `<div style="margin-bottom:8px; cursor:pointer; color:#007bff;" onclick='window.openRideFromHeatmap(${JSON.stringify(m).replace(/"/g, "&quot;")})'>${m.fileName}</div>`).join('')}</div></div>`;
             L.popup().setLatLng(e.latlng).setContent(html).openOn(heatmapMap);
         }
     });
 }
 
-window.openRideFromHeatmap = function(act) { 
-    heatmapMap.closePopup(); switchTab('analysis'); window.openRide(act); 
-};
+window.openRideFromHeatmap = function(act) { heatmapMap.closePopup(); switchTab('analysis'); window.openRide(act); };
 
 window.generateHeatmap = async function() {
     const bar = document.getElementById('heatmap-bar');
     document.getElementById('heatmap-progress').style.display = "block";
     let acts = allActivitiesCache || await window.supabaseAuth.listActivities();
     heatmapMap.eachLayer(l => { if (l instanceof L.Polyline) heatmapMap.removeLayer(l); });
-
     const user = window.supabaseAuth.getCurrentUser();
     const cacheKey = `heatmap_coords_${user.id}`;
-    let cachedData = JSON.parse(localStorage.getItem(cacheKey) || "{}");
-
+    let cached = JSON.parse(localStorage.getItem(cacheKey) || "{}");
     for (let i = 0; i < acts.length; i++) {
-        const act = acts[i];
         bar.style.width = Math.round(((i + 1) / acts.length) * 100) + "%";
-        let latlngs = cachedData[act.id];
-        if (!latlngs) {
+        let pts = cached[acts[i].id];
+        if (!pts) {
             try {
-                const blob = await window.supabaseAuth.getActivityFile(act.id);
-                const text = await blob.text();
-                const regex = /lat="([\d\.-]+)"\s+lon="([\d\.-]+)"/g;
-                let m; const coords = [];
-                while ((m = regex.exec(text)) !== null) coords.push([parseFloat(m[1]), parseFloat(m[2])]);
-                latlngs = coords.filter((_, idx) => idx % 10 === 0);
-                cachedData[act.id] = latlngs;
+                const b = await window.supabaseAuth.getActivityFile(acts[i].id);
+                const t = await b.text();
+                const c = []; const r = /lat="([\d\.-]+)"\s+lon="([\d\.-]+)"/g; let m;
+                while ((m = r.exec(t)) !== null) c.push([parseFloat(m[1]), parseFloat(m[2])]);
+                pts = c.filter((_, idx) => idx % 10 === 0);
+                cached[acts[i].id] = pts;
             } catch (e) {}
         }
-        if (latlngs) L.polyline(latlngs, { color: '#fc4c02', opacity: 0.35, weight: 2.5, interactive: false }).addTo(heatmapMap);
+        if (pts) L.polyline(pts, { color: '#fc4c02', opacity: 0.35, weight: 2.5 }).addTo(heatmapMap);
     }
-    localStorage.setItem(cacheKey, JSON.stringify(cachedData));
+    localStorage.setItem(cacheKey, JSON.stringify(cached));
     setTimeout(() => document.getElementById('heatmap-progress').style.display = "none", 1000);
 };
 
 window.clearHeatmapCache = function() {
-    const user = window.supabaseAuth.getCurrentUser();
-    localStorage.removeItem(`heatmap_coords_${user.id}`);
+    const u = window.supabaseAuth.getCurrentUser();
+    localStorage.removeItem(`heatmap_coords_${u.id}`);
     location.reload();
 };
 
-// --- RANGLIJSTEN & TRENDS LOGICA ---
-window.switchRankingTab = async function(subTab) {
-    document.querySelectorAll('.sub-nav-btn').forEach(b => b.classList.remove('active'));
-    document.querySelectorAll(`.sub-nav-btn[onclick*="${subTab}"]`).forEach(b => b.classList.add('active'));
-    document.querySelectorAll('.rank-tab-content').forEach(d => d.classList.add('hidden'));
-    document.getElementById(`rank-tab-${subTab}`).classList.remove('hidden');
-
+window.switchRankingTab = async function(tab) {
+    document.querySelectorAll('.sub-nav-btn').forEach(b => b.classList.toggle('active', b.onclick.toString().includes(tab)));
+    document.querySelectorAll('.rank-tab-content').forEach(c => c.classList.toggle('hidden', !c.id.includes(tab)));
     if(!allActivitiesCache) allActivitiesCache = await window.supabaseAuth.listActivities();
-
-    if(subTab === 'segments') {
-        loadRankings(document.getElementById('segmentSelector').value);
-    } else if(subTab === 'distance') {
-        renderTrendGraph(allActivitiesCache, 'distanceKm', 'distance-table-body', 'distanceTrendChart', 'distanceTopFilter', 'Afstand (km)');
-    } else if(subTab === 'elevation') {
-        renderTrendGraph(allActivitiesCache, 'elevationGain', 'elevation-table-body', 'elevationTrendChart', 'elevationTopFilter', 'Hoogte (m)');
-    }
+    if(tab === 'segments') loadRankings(document.getElementById('segmentSelector').value);
+    else if(tab === 'distance') renderTrendGraph(allActivitiesCache, 'distanceKm', 'distance-table-body', 'distanceTrendChart', 'distanceTopFilter', 'Afstand (km)');
+    else if(tab === 'elevation') renderTrendGraph(allActivitiesCache, 'elevationGain', 'elevation-table-body', 'elevationTrendChart', 'elevationTopFilter', 'Hoogte (m)');
 };
 
 function renderTrendGraph(activities, key, tableId, chartId, filterId, label) {
-    const filterVal = document.getElementById(filterId).value;
-    
-    // Sorteer voor tabel (hoogste eerst)
-    let ranked = [...activities].sort((a, b) => (parseFloat(b.summary[key])||0) - (parseFloat(a.summary[key])||0));
-    if(filterVal !== 'all') ranked = ranked.slice(0, parseInt(filterVal));
-    
-    // Sorteer chronologisch voor grafiek
-    const chrono = [...ranked].sort((a,b) => new Date(a.summary.rideDate) - new Date(b.summary.rideDate));
-    const values = chrono.map(a => parseFloat(a.summary[key]) || 0);
-    const trend = calculateTrendLine(values);
-    
+    const fv = document.getElementById(filterId).value;
+    let r = [...activities].sort((a, b) => (parseFloat(b.summary[key])||0) - (parseFloat(a.summary[key])||0));
+    if(fv !== 'all') r = r.slice(0, parseInt(fv));
+    const ch = [...r].sort((a,b) => new Date(a.summary.rideDate) - new Date(b.summary.rideDate));
+    const v = ch.map(a => parseFloat(a.summary[key]) || 0);
+    const tr = calculateTrendLine(v);
     const ctx = document.getElementById(chartId).getContext('2d');
     if(activeCharts[chartId]) activeCharts[chartId].destroy();
-    
     activeCharts[chartId] = new Chart(ctx, {
         type: 'line',
         data: {
-            labels: chrono.map(a => new Date(a.summary.rideDate).toLocaleDateString()),
-            datasets: [
-                { label: label, data: values, borderColor: '#fc4c02', backgroundColor: 'rgba(252, 76, 2, 0.1)', fill: true, tension: 0.2, pointRadius: 4 },
-                { label: 'Trendlijn', data: trend, borderColor: '#333', borderDash: [5,5], pointRadius: 0, fill: false }
-            ]
+            labels: ch.map(a => new Date(a.summary.rideDate).toLocaleDateString()),
+            datasets: [{ label: label, data: v, borderColor: '#fc4c02', fill: true, tension: 0.2 }, { label: 'Trend', data: tr, borderColor: '#333', borderDash: [5,5], fill: false }]
         },
         options: { responsive: true, maintainAspectRatio: false }
     });
-
-    document.getElementById(tableId).innerHTML = ranked.map((act, i) => `
-        <tr style="cursor:pointer;" onclick="switchTab('analysis'); window.openRide(${JSON.stringify(act).replace(/"/g, '&quot;')})">
-            <td>#${i+1}</td>
-            <td>${act.fileName}</td>
-            <td>${new Date(act.summary.rideDate).toLocaleDateString()}</td>
-            <td><strong>${parseFloat(act.summary[key]).toFixed(1)}</strong></td>
-        </tr>`).join('');
+    document.getElementById(tableId).innerHTML = r.map((act, i) => `<tr onclick="switchTab('analysis'); window.openRide(${JSON.stringify(act).replace(/"/g, '&quot;')})"><td>#${i+1}</td><td>${act.fileName}</td><td>${new Date(act.summary.rideDate).toLocaleDateString()}</td><td><strong>${parseFloat(act.summary[key]).toFixed(1)}</strong></td></tr>`).join('');
 }
 
-window.loadRankings = async function(distanceKm) {
-    if(!allActivitiesCache) allActivitiesCache = await window.supabaseAuth.listActivities();
+window.loadRankings = async function(dist) {
+    const me = parseFloat(document.getElementById('segmentMaxElev').value) || 99999;
+    const d = allActivitiesCache.map(act => {
+        const s = (act.summary.segments || []).find(s => s.distance === parseInt(dist));
+        return s ? { ...s, activity: act, elev: act.summary.elevationGain } : null;
+    }).filter(i => i && i.elev <= me).sort((a,b) => b.speed - a.speed);
     
-    distanceKm = parseInt(distanceKm);
-    const maxElev = parseFloat(document.getElementById('segmentMaxElev').value) || 99999;
-    
-    let data = allActivitiesCache.map(act => {
-        const seg = (act.summary.segments || []).find(s => s.distance === distanceKm);
-        if(seg) return { ...seg, fileName: act.fileName, date: act.summary.rideDate, activity: act, elev: act.summary.elevationGain };
-        return null;
-    }).filter(i => i && i.elev <= maxElev);
-    
-    data.sort((a, b) => b.speed - a.speed);
-    
-    const list = document.getElementById('ranking-list');
-    if(!list) return;
-
-    if(data.length === 0) {
-        list.innerHTML = '<p style="text-align:center; padding:20px;">Geen data gevonden voor dit segment.</p>';
-        document.getElementById('segment-progression-container').style.display = 'none';
-        return;
+    if(d.length > 0) {
+        document.getElementById('segment-progression-container').style.display = 'block';
+        const speeds = [...d].sort((a,b) => new Date(a.activity.summary.rideDate) - new Date(b.activity.summary.rideDate)).map(i => i.speed);
+        const tr = calculateTrendLine(speeds);
+        const ctx = document.getElementById('segmentProgressionChart').getContext('2d');
+        if(activeCharts['segChart']) activeCharts['segChart'].destroy();
+        activeCharts['segChart'] = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: d.map(i => new Date(i.activity.summary.rideDate).toLocaleDateString()),
+                datasets: [{label: 'Snelheid (km/u)', data: speeds, borderColor: '#28a745', fill: true}, {label: 'Trend', data: tr, borderColor: '#fc4c02', borderDash:[5,5]}]
+            }
+        });
     }
-
-    // Progressie grafiek voor records
-    document.getElementById('segment-progression-container').style.display = 'block';
-    const progression = [...data].sort((a, b) => new Date(a.date) - new Date(b.date));
-    const speeds = progression.map(d => parseFloat(d.speed.toFixed(2)));
-    const trend = calculateTrendLine(speeds);
-
-    const ctx = document.getElementById('segmentProgressionChart').getContext('2d');
-    if(activeCharts['segChart']) activeCharts['segChart'].destroy();
-    activeCharts['segChart'] = new Chart(ctx, {
-        type: 'line',
-        data: {
-            labels: progression.map(d => new Date(d.date).toLocaleDateString()),
-            datasets: [
-                { label: 'Snelheid (km/u)', data: speeds, borderColor: '#28a745', fill: true, tension: 0.1, pointRadius: 5 },
-                { label: 'Trendlijn', data: trend, borderColor: '#fc4c02', borderDash: [10,5], pointRadius: 0, fill: false, borderWidth: 2 }
-            ]
-        },
-        options: { responsive: true, maintainAspectRatio: false }
-    });
-
-    list.innerHTML = data.map((item, index) => `
-        <div class="rank-card" onclick="switchTab('analysis'); window.openRide(${JSON.stringify(item.activity).replace(/"/g, '&quot;')})">
-            <div><strong>#${index+1} ${item.fileName}</strong><br><small>${new Date(item.date).toLocaleDateString()} (⛰️ ${item.elev}m)</small></div>
-            <div style="text-align:right"><div class="rank-speed">${item.speed.toFixed(1)} <small>km/u</small></div></div>
-        </div>`).join('');
+    document.getElementById('ranking-list').innerHTML = d.map((item, i) => `<div class="rank-card" onclick="switchTab('analysis'); window.openRide(${JSON.stringify(item.activity).replace(/"/g, '&quot;')})"><div><strong>#${i+1} ${item.activity.fileName}</strong><br><small>⛰️ ${item.elev}m</small></div><div style="text-align:right"><strong>${item.speed.toFixed(1)} km/u</strong></div></div>`).join('');
 };
 
 function renderActivityList(acts) {
     const list = document.getElementById('dashboard-list');
     if(!list) return;
-    list.innerHTML = acts.map(act => `
-        <div class="dash-list-item">
-            <input type="checkbox" onchange="toggleSelection('${act.id}')" ${selectedRides.has(act.id)?'checked':''}>
-            <div style="flex:1; display:flex; justify-content:space-between; margin-left:10px;" onclick="switchTab('analysis'); window.openRide(${JSON.stringify(act).replace(/"/g, '&quot;')})">
-                <strong>${act.fileName}</strong><span>${act.summary.distanceKm} km</span>
-            </div>
-        </div>`).join('');
+    list.innerHTML = acts.map(act => `<div class="dash-list-item"><input type="checkbox" onchange="toggleSelection('${act.id}')" ${selectedRides.has(act.id)?'checked':''}><div style="flex:1; display:flex; justify-content:space-between; margin-left:10px;" onclick="switchTab('analysis'); window.openRide(${JSON.stringify(act).replace(/"/g, '&quot;')})"><strong>${act.fileName}</strong><span>${act.summary.distanceKm} km</span></div></div>`).join('');
 }
 
-window.toggleSelection = (id) => { 
-    if(selectedRides.has(id)) selectedRides.delete(id); else selectedRides.add(id); 
-    document.getElementById('delete-btn').classList.toggle('hidden', selectedRides.size === 0); 
-};
-
-window.deleteSelectedRides = async function() {
-    if(confirm("Verwijderen?")) { await window.supabaseAuth.deleteActivities(Array.from(selectedRides)); selectedRides.clear(); updateDashboard(); }
-};
-
+window.toggleSelection = (id) => { if(selectedRides.has(id)) selectedRides.delete(id); else selectedRides.add(id); document.getElementById('delete-btn').classList.toggle('hidden', selectedRides.size === 0); };
+window.deleteSelectedRides = async function() { if(confirm("Verwijderen?")) { await window.supabaseAuth.deleteActivities(Array.from(selectedRides)); selectedRides.clear(); updateDashboard(); } };
 window.triggerUpload = () => document.getElementById('gpxInput').click();
 window.toggleTheme = () => { document.body.classList.toggle('dark-mode'); localStorage.setItem('theme', document.body.classList.contains('dark-mode') ? 'dark' : 'light'); };
