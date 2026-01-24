@@ -38,6 +38,7 @@
             <button class="nav-btn" data-target="analysis" title="Kaart & Analyse">🗺️</button>
             <button class="nav-btn" data-target="rankings" title="Ranglijsten">🏆</button>
             <button class="nav-btn" data-target="municipalities" title="Wereld Jager">🌍</button>
+            <button class="nav-btn" data-target="heatmap" title="Heatmap">🔥</button>
             
             <div style="margin-top: auto;">
                 <button id="theme-btn" class="nav-btn" title="Thema Wisselen" onclick="toggleTheme()">🌙</button>
@@ -98,7 +99,7 @@
                     <aside class="inner-sidebar">
                         <div class="upload-section">
                             <input type="file" id="gpxInput" accept=".gpx,.tcx" class="hidden-input" multiple>
-                            <label for="gpxInput" class="upload-btn" style="margin-bottom: 10px;">📄 Upload Bestand(en)</label>
+                            <label for="gpxInput" class="upload-btn">📄 Upload Bestand(en)</label>
                             
                             <input type="file" id="folderInput" webkitdirectory directory multiple class="hidden-input">
                             <label for="folderInput" class="upload-btn" style="background: #555;">📂 Upload Hele Map</label>
@@ -185,7 +186,6 @@
                                 
                                 <div class="filter-box">
                                     <input type="text" id="filter-text" placeholder="🔍 Zoek op naam..." class="search-bar">
-                                    
                                     <button class="filter-toggle-btn" onclick="document.getElementById('advanced-filters').classList.toggle('hidden')">
                                         🌪️ Filters (Afstand, Hoogte...)
                                     </button>
@@ -198,7 +198,6 @@
                                                 <input type="number" id="filter-dist-max" placeholder="Max" class="small-input">
                                             </div>
                                         </div>
-
                                         <div class="filter-row">
                                             <label>Hoogte (m):</label>
                                             <div class="filter-inputs">
@@ -206,7 +205,6 @@
                                                 <input type="number" id="filter-elev-max" placeholder="Max" class="small-input">
                                             </div>
                                         </div>
-
                                         <div class="filter-row">
                                             <label>Snelheid (km/u):</label>
                                             <div class="filter-inputs">
@@ -214,39 +212,33 @@
                                                 <input type="number" id="filter-speed-max" placeholder="Max" class="small-input">
                                             </div>
                                         </div>
-
                                         <div class="filter-row">
                                             <label>Jaar:</label>
                                             <select id="filter-year" class="search-bar" style="margin-bottom:0;">
                                                 <option value="">Alle Jaren</option>
+                                                <option value="2026">2026</option>
                                                 <option value="2025">2025</option>
                                                 <option value="2024">2024</option>
                                                 <option value="2023">2023</option>
-                                                <option value="2022">2022</option>
-                                                <option value="2021">2021</option>
                                             </select>
                                         </div>
-                                        
                                         <button class="reset-link" onclick="resetFilters()">Reset Filters</button>
                                     </div>
                                 </div>
                                 
-                                <div id="compare-selection-list" class="compare-list">
-                                    </div>
+                                <div id="compare-selection-list" class="compare-list"></div>
                             </div>
+
                             <div class="compare-main">
                                 <h3>Vergelijking</h3>
-                                
                                 <div class="table-container" style="margin-bottom: 30px;">
                                     <table class="compare-table" id="comparison-table">
-                                        <tbody><tr><td style="padding:20px;">Selecteer links ritten.</td></tr></tbody>
+                                        <tbody><tr><td style="padding:20px;">Selecteer links ritten om te vergelijken.</td></tr></tbody>
                                     </table>
                                 </div>
 
                                 <div id="compare-charts-container" class="hidden">
-                                    <h3 style="margin-top:20px;">📊 Rit Profielen (0% - 100%)</h3>
-                                    <p style="font-size:0.9rem; color:var(--text-muted); margin-bottom:15px;">Vergelijk het verloop van je ritten.</p>
-                                    
+                                    <h3 style="margin-top:20px;">📊 Rit Profielen (2% - 98%)</h3>
                                     <div class="compare-charts-col">
                                         <div class="chart-box wide">
                                             <h4>⛰️ Hoogteprofiel</h4>
@@ -257,12 +249,11 @@
                                             <canvas id="cmpChartSpeed"></canvas>
                                         </div>
                                     </div>
-                                    <div id="compare-loading" style="display:none; text-align:center; color:var(--primary); margin-top:10px;">⏳ Data ophalen en analyseren...</div>
+                                    <div id="compare-loading" style="display:none; text-align:center; color:var(--primary); margin-top:10px;">⏳ Analyseren...</div>
                                 </div>
                             </div>
                         </div>
                     </div>
-
                 </div>
             </div>
 
@@ -270,8 +261,6 @@
                 <div class="muni-container">
                     <header class="view-header" style="padding: 20px;">
                         <h2>🌍 Wereld Jager (BE + NL + FR)</h2>
-                        <p>Verover West-Europa!</p>
-                        
                         <div class="progress-wrapper">
                             <div class="progress-text">
                                 <span id="muni-count">0</span> / <span id="muni-total">?</span> Gebieden
@@ -284,6 +273,22 @@
                         <p id="muni-loading" style="font-size: 0.8rem; color: var(--primary); display: none;">⏳ Kaart laden...</p>
                     </header>
                     <div id="map-municipalities"></div>
+                </div>
+            </div>
+
+            <div id="view-heatmap" class="view-section hidden">
+                <div class="muni-container">
+                    <header class="view-header" style="padding: 20px; position: absolute; top: 0; left: 0; z-index: 1000; width: 100%; pointer-events: none;">
+                        <div style="background: var(--bg-card); padding: 15px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); display: inline-block; pointer-events: auto; border: 1px solid var(--border-color);">
+                            <h2 style="margin:0; font-size:1.2rem;">🔥 Jouw Heatmap</h2>
+                            <button id="load-heatmap-btn" class="upload-btn" onclick="generateHeatmap()" style="margin-top:10px; font-size:0.9rem; padding:8px 15px;">🚀 Genereer Heatmap</button>
+                            <div id="heatmap-progress" style="display:none; margin-top:10px;">
+                                <div class="progress-bar-bg" style="height:10px;"><div id="heatmap-bar" class="progress-bar-fill" style="width: 0%"></div></div>
+                                <small id="heatmap-status" style="display:block; margin-top:5px; color:var(--text-muted);">0/0</small>
+                            </div>
+                        </div>
+                    </header>
+                    <div id="map-heatmap"></div>
                 </div>
             </div>
 

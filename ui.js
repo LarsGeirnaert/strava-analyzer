@@ -1,7 +1,8 @@
-// ui.js - Dashboard, Rankings, Wereld Jager, Compare Charts & Advanced Filters
+// ui.js - Dashboard, Rankings, Wereld Jager, Compare Charts, Heatmap & Dark Mode
 
 let allActivitiesCache = null; 
 let muniMap = null; 
+let heatmapMap = null; // NIEUW
 let geoJsonLayer = null; 
 let conqueredMunis = new Set(); 
 let selectedRides = new Set(); 
@@ -17,7 +18,6 @@ const REGIONS = [
 document.addEventListener('DOMContentLoaded', () => {
     setupNavigation();
     setupSegmentSelector();
-    setupFilterListeners(); // NIEUW
 });
 
 // --- NAVIGATIE ---
@@ -26,23 +26,6 @@ function setupNavigation() {
         btn.addEventListener('click', () => switchTab(btn.dataset.target))
     );
 }
-
-// NIEUW: Luister naar alle filter velden
-function setupFilterListeners() {
-    const inputs = document.querySelectorAll('#filter-text, .small-input, #filter-year');
-    inputs.forEach(input => {
-        input.addEventListener('input', () => {
-            if(allActivitiesCache) renderCompareSelectionList(allActivitiesCache);
-        });
-    });
-}
-
-// NIEUW: Reset knop
-window.resetFilters = function() {
-    document.querySelectorAll('#filter-text, .small-input').forEach(i => i.value = '');
-    document.getElementById('filter-year').value = '';
-    if(allActivitiesCache) renderCompareSelectionList(allActivitiesCache);
-};
 
 function setupSegmentSelector() {
     const select = document.getElementById('segmentSelector');
@@ -68,6 +51,7 @@ function switchTab(tabName) {
     if(tabName === 'dashboard') { selectedRides.clear(); updateDeleteButton(); updateDashboard(); }
     
     if(tabName === 'municipalities') setTimeout(() => initMuniMap(), 200);
+    if(tabName === 'heatmap') setTimeout(() => initHeatmapMap(), 200); // NIEUW
 
     if(tabName === 'rankings') {
         if(!document.querySelector('.sub-nav-btn.active')) switchRankingTab('segments');
@@ -116,46 +100,10 @@ function renderGeneralRanking(activities, sortKey, tableId) {
     });
 }
 
-// --- FILTER & RENDER LIST ---
 function renderCompareSelectionList(activities) {
     const list = document.getElementById('compare-selection-list');
     list.innerHTML = '';
-
-    // Haal alle filter waardes op
-    const fText = document.getElementById('filter-text').value.toLowerCase();
-    const fDistMin = parseFloat(document.getElementById('filter-dist-min').value) || 0;
-    const fDistMax = parseFloat(document.getElementById('filter-dist-max').value) || 99999;
-    const fElevMin = parseFloat(document.getElementById('filter-elev-min').value) || 0;
-    const fElevMax = parseFloat(document.getElementById('filter-elev-max').value) || 99999;
-    const fSpeedMin = parseFloat(document.getElementById('filter-speed-min').value) || 0;
-    const fSpeedMax = parseFloat(document.getElementById('filter-speed-max').value) || 999;
-    const fYear = document.getElementById('filter-year').value;
-
-    // Filter Logic
-    const filtered = activities.filter(act => {
-        const dist = parseFloat(act.summary.distanceKm) || 0;
-        const elev = parseFloat(act.summary.elevationGain) || 0;
-        const speed = parseFloat(act.summary.avgSpeed) || 0;
-        const date = new Date(act.summary.rideDate);
-        const year = date.getFullYear().toString();
-
-        if (!act.fileName.toLowerCase().includes(fText)) return false;
-        if (dist < fDistMin || dist > fDistMax) return false;
-        if (elev < fElevMin || elev > fElevMax) return false;
-        if (speed < fSpeedMin || speed > fSpeedMax) return false;
-        if (fYear !== "" && year !== fYear) return false;
-
-        return true;
-    });
-
-    const sorted = filtered.sort((a, b) => new Date(b.summary.rideDate) - new Date(a.summary.rideDate));
-
-    if(sorted.length === 0) {
-        list.innerHTML = '<p style="padding:10px; color:var(--text-muted); text-align:center;">Geen ritten gevonden die aan de filters voldoen.</p>';
-        return;
-    }
-
-    // Render Items
+    const sorted = [...activities].sort((a, b) => new Date(b.summary.rideDate) - new Date(a.summary.rideDate));
     sorted.forEach(act => {
         const div = document.createElement('div');
         div.className = 'compare-item';
@@ -163,6 +111,7 @@ function renderCompareSelectionList(activities) {
         div.querySelector('input').addEventListener('change', (e) => { if(e.target.checked) compareSelection.add(act.id); else compareSelection.delete(act.id); updateCompareTable(); });
         list.appendChild(div);
     });
+    updateCompareTable();
 }
 
 // --- COMPARE TABLES & CHARTS ---
@@ -245,67 +194,138 @@ function normalizeRideData(rideData, steps) {
     
     for(let i=0; i<=steps; i++) {
         const targetDist = (i / steps) * totalDist;
-        
         let idx = rawDist.findIndex(d => d >= targetDist);
         if(idx === -1) idx = rawDist.length - 1;
-        
         elevProfile.push(rawElev[idx]);
-        
         let speed = rawSpeeds[idx] || 0;
         if(i > 0) { const prev = speedProfile[i-1]; speed = (speed + prev) / 2; }
-        
         speedProfile.push(speed);
     }
-    
     return { elev: elevProfile, speed: speedProfile };
 }
 
 function updateCompareCharts(datasets) {
-    const startIdx = 2;
-    const endIdx = 99; 
+    const startIdx = 2; const endIdx = 99; 
     const fullLabels = Array.from({length: 101}, (_, i) => `${i}%`); 
     const labels = fullLabels.slice(startIdx, endIdx); 
 
     const createChart = (id, title, metricKey, yLabel) => {
         const ctx = document.getElementById(id).getContext('2d');
         if (cmpCharts[id]) cmpCharts[id].destroy();
-        
         cmpCharts[id] = new Chart(ctx, {
             type: 'line', 
-            data: { 
-                labels: labels, 
-                datasets: datasets.map(d => ({
-                    label: d.label, 
-                    data: d[metricKey].slice(startIdx, endIdx), 
-                    borderColor: d.color,
-                    backgroundColor: 'transparent',
-                    borderWidth: 2, 
-                    pointRadius: 0, 
-                    pointHoverRadius: 4,
-                    tension: 0.4 
-                })) 
-            },
-            options: { 
-                responsive: true, 
-                maintainAspectRatio: false, 
-                interaction: { mode: 'index', intersect: false },
-                plugins: { 
-                    title: { display: true, text: title },
-                    tooltip: { callbacks: { label: (ctx) => `${ctx.dataset.label}: ${ctx.raw.toFixed(1)} ${yLabel}` } }
-                }, 
-                scales: { 
-                    y: { beginAtZero: true, title: { display: true, text: yLabel }, grid: { color: 'rgba(200,200,200,0.1)' } }, 
-                    x: { grid: { display: false }, ticks: { maxTicksLimit: 11 } } 
-                } 
-            }
+            data: { labels: labels, datasets: datasets.map(d => ({ label: d.label, data: d[metricKey].slice(startIdx, endIdx), borderColor: d.color, backgroundColor: 'transparent', borderWidth: 2, pointRadius: 0, pointHoverRadius: 4, tension: 0.4 })) },
+            options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false }, plugins: { title: { display: true, text: title }, tooltip: { callbacks: { label: (ctx) => `${ctx.dataset.label}: ${ctx.raw.toFixed(1)} ${yLabel}` } } }, scales: { y: { beginAtZero: true, title: { display: true, text: yLabel }, grid: { color: 'rgba(200,200,200,0.1)' } }, x: { grid: { display: false }, ticks: { maxTicksLimit: 11 } } } }
         });
     };
-
     createChart('cmpChartElev', 'Hoogteprofiel', 'elev', 'meters');
     createChart('cmpChartSpeed', 'Snelheidsprofiel', 'speed', 'km/u');
 }
 
-// --- MAP LOGICA (Multi-Region) ---
+async function initHeatmapMap() {
+    if (heatmapMap) { heatmapMap.invalidateSize(); return; }
+    
+    heatmapMap = L.map('map-heatmap', {
+        zoomControl: true,
+        attributionControl: false
+    }).setView([50.8503, 4.3517], 8); 
+
+    // We gebruiken de 'Positron' laag van CartoDB: deze is zeer rustig en grijs/wit
+    const positron = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png', {
+        attribution: '©OpenStreetMap ©CARTO',
+        subdomains: 'abcd',
+        maxZoom: 20
+    }).addTo(heatmapMap);
+
+    // Optioneel: voeg alleen de plaatsnamen toe op de achtergrond
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/light_only_labels/{z}/{x}/{y}{r}.png', {
+        subdomains: 'abcd',
+        opacity: 0.3 // Heel zachtjes de namen van steden tonen
+    }).addTo(heatmapMap);
+}
+
+window.generateHeatmap = async function() {
+    if(!heatmapMap) return;
+    const btn = document.getElementById('load-heatmap-btn');
+    const progressDiv = document.getElementById('heatmap-progress');
+    const bar = document.getElementById('heatmap-bar');
+    const status = document.getElementById('heatmap-status');
+
+    btn.disabled = true; btn.style.opacity = "0.5";
+    progressDiv.style.display = "block";
+
+    try {
+        let activities = allActivitiesCache || await window.supabaseAuth.listActivities();
+        allActivitiesCache = activities;
+        
+        let count = 0;
+        const total = activities.length;
+
+        // Wis alles behalve de kaart zelf
+        heatmapMap.eachLayer(layer => {
+            if (layer instanceof L.Polyline) heatmapMap.removeLayer(layer);
+        });
+
+        for (const act of activities) {
+            count++;
+            const pct = Math.round((count / total) * 100);
+            bar.style.width = pct + "%";
+            status.innerText = `${count} / ${total} ritten`;
+
+            try {
+                const blob = await window.supabaseAuth.getActivityFile(act.id);
+                const text = await blob.text();
+                const latlngs = quickParseGPX(text);
+                
+                if (latlngs.length > 0) {
+                    L.polyline(latlngs, {
+                        color: '#fc4c02', // Strava Oranje
+                        opacity: 0.12,    // Iets feller (0.15 ipv 0.08) voor witte achtergrond
+                        weight: 1.5,      // Iets dunnere lijnen voor meer detail
+                        interactive: false
+                    }).addTo(heatmapMap);
+                }
+            } catch (e) { console.warn(e); }
+            
+            if(count % 8 === 0) await new Promise(r => setTimeout(r, 5));
+        }
+
+        btn.innerText = "✅ Heatmap Klaar";
+        setTimeout(() => { 
+            progressDiv.style.display = 'none'; 
+            btn.disabled = false; btn.style.opacity = "1";
+        }, 2000);
+
+    } catch (e) {
+        console.error(e);
+        btn.disabled = false;
+    }
+};
+
+// Veel snellere parser die alleen coordinaten pakt
+function quickParseGPX(xmlString) {
+    const coords = [];
+    // Regex is sneller dan DOMParser voor simpele extractie
+    const regex = /lat="([\d\.-]+)"\s+lon="([\d\.-]+)"/g;
+    let match;
+    while ((match = regex.exec(xmlString)) !== null) {
+        coords.push([parseFloat(match[1]), parseFloat(match[2])]);
+    }
+    // Als regex faalt (bijv TCX), fallback naar trage parser
+    if (coords.length === 0) {
+        const parser = new DOMParser();
+        const xmlDoc = parser.parseFromString(xmlString, "text/xml");
+        const trkpts = xmlDoc.getElementsByTagName('Trackpoint'); // TCX
+        for(let i=0; i<trkpts.length; i+=5) { // Downsample voor snelheid
+            const lat = trkpts[i].getElementsByTagName('LatitudeDegrees')[0]?.textContent;
+            const lon = trkpts[i].getElementsByTagName('LongitudeDegrees')[0]?.textContent;
+            if(lat && lon) coords.push([parseFloat(lat), parseFloat(lon)]);
+        }
+    }
+    return coords;
+}
+
+// --- MAP LOGICA (MUNICIPALITIES) ---
 async function initMuniMap() {
     if (muniMap) { muniMap.invalidateSize(); return; }
     muniMap = L.map('map-municipalities').setView([50.0, 4.5], 6); 

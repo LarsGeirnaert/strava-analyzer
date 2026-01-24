@@ -331,3 +331,30 @@ path.region-visited { stroke-width: 2px; }
     text-align: center;
     margin-top: 5px;
 }
+
+/* --- HEATMAP --- */
+#map-heatmap {
+    flex: 1;
+    width: 100%;
+    background: var(--map-bg);
+}
+
+/* Zorg dat de header boven de kaart zweeft */
+#view-heatmap .view-header {
+    background: transparent;
+}
+
+/* Maak de kaartlaag in de heatmap tab heel licht en contrastarm */
+#map-heatmap .leaflet-tile-container {
+    filter: grayscale(100%) brightness(110%) opacity(0.5);
+}
+
+/* De heatmap lijnen zelf moeten juist GEEN filter krijgen */
+#map-heatmap .leaflet-overlay-pane {
+    filter: none !important;
+}
+
+#view-heatmap {
+    background: #f8f9fa; /* Net niet wit */
+}
+
