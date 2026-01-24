@@ -1,4 +1,4 @@
-// ui.js - Dashboard, Rankings, Trends, Heatmap (Interactive) & Wereld Jager
+// ui.js - Dashboard, Rankings, Trends, Heatmap (Interactive & Linkable) & Wereld Jager
 
 let allActivitiesCache = null; 
 let muniMap = null; 
@@ -77,7 +77,6 @@ function switchTab(tabName) {
     if(tabName === 'rankings') switchRankingTab('segments');
 }
 
-// --- RANGLIJSTEN & RECORDS ---
 window.switchRankingTab = async function(subTab) {
     document.querySelectorAll('.sub-nav-btn').forEach(b => b.classList.remove('active'));
     document.querySelectorAll(`.sub-nav-btn[onclick*="${subTab}"]`).forEach(b => b.classList.add('active'));
@@ -150,13 +149,12 @@ window.loadRankings = async function(distanceKm) {
     list.innerHTML = data.map((item, index) => `<div class="rank-card" onclick='window.openRide(${JSON.stringify(item.activity).replace(/"/g, "&quot;")})'><div><strong>#${index+1} ${item.fileName}</strong><br><small>${new Date(item.date).toLocaleDateString()} (⛰️ ${item.elev}m)</small></div><div style="text-align:right"><div class="rank-speed">${item.speed.toFixed(1)} km/u</div></div></div>`).join('');
 };
 
-// --- HEATMAP (INTERACTIEF) ---
+// --- HEATMAP (INTERACTIEF & ROBUUST) ---
 async function initHeatmapMap() {
     if (heatmapMap) { heatmapMap.invalidateSize(); return; }
     heatmapMap = L.map('map-heatmap', { zoomControl: true, attributionControl: false }).setView([50.85, 4.35], 7);
     L.tileLayer('https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png', { subdomains: 'abcd', maxZoom: 20 }).addTo(heatmapMap);
 
-    // Koppel klik-event voor rit-detectie
     heatmapMap.on('click', async (e) => {
         const user = window.supabaseAuth.getCurrentUser();
         const cacheKey = `heatmap_coords_${user.id}`;
@@ -165,13 +163,10 @@ async function initHeatmapMap() {
         const clickedLatLng = e.latlng;
         const matches = [];
 
-        // Zoek ritten die in de buurt van de klik liggen
         for (const actId in cachedData) {
             const coords = cachedData[actId];
-            const isNear = coords.some(c => {
-                const dist = clickedLatLng.distanceTo(L.latLng(c[0], c[1]));
-                return dist < 35; // 35 meter straal
-            });
+            // Gebruik een iets grotere buffer (45m) om GPS ruis op te vangen
+            const isNear = coords.some(c => clickedLatLng.distanceTo(L.latLng(c[0], c[1])) < 45);
 
             if (isNear) {
                 const act = allActivitiesCache.find(a => a.id === actId);
@@ -180,18 +175,34 @@ async function initHeatmapMap() {
         }
 
         if (matches.length > 0) {
+            // Sorteer op datum (nieuwste eerst)
+            matches.sort((a,b) => new Date(b.summary.rideDate) - new Date(a.summary.rideDate));
+
+            // Maak de lijst klikbaar met een onclick die window.openRide aanroept
             const html = `
-                <div style="min-width:150px;">
-                    <strong>🔥 ${matches.length} ritten hier:</strong><br>
-                    <ul style="padding-left:15px; margin-top:5px; max-height:100px; overflow-y:auto;">
-                        ${matches.map(m => `<li>${m.fileName}<br><small>${new Date(m.summary.rideDate).toLocaleDateString()}</small></li>`).join('')}
-                    </ul>
+                <div style="min-width:180px;">
+                    <strong style="color:var(--primary);">🔥 ${matches.length} ritten op dit punt</strong>
+                    <div style="margin-top:8px; max-height:150px; overflow-y:auto; border-top:1px solid #eee; padding-top:5px;">
+                        ${matches.map(m => `
+                            <div style="margin-bottom:8px; cursor:pointer;" onclick='window.openRideFromHeatmap(${JSON.stringify({id: m.id, fileName: m.fileName, summary: m.summary}).replace(/"/g, "&quot;")})'>
+                                <span style="color:#007bff; font-weight:bold; font-size:0.9rem; text-decoration:underline;">${m.fileName}</span><br>
+                                <small style="color:#666;">${new Date(m.summary.rideDate).toLocaleDateString()}</small>
+                            </div>
+                        `).join('')}
+                    </div>
                 </div>
             `;
             L.popup().setLatLng(clickedLatLng).setContent(html).openOn(heatmapMap);
         }
     });
 }
+
+// Helper om vanuit de popup naar analyse te springen
+window.openRideFromHeatmap = function(act) {
+    heatmapMap.closePopup();
+    switchTab('analysis');
+    window.openRide(act);
+};
 
 window.generateHeatmap = async function() {
     const bar = document.getElementById('heatmap-bar');
@@ -289,7 +300,7 @@ function updateMuniUI() {
     });
 }
 
-// --- DASHBOARD & UTILS ---
+// --- DASHBOARD LOGICA ---
 async function updateDashboard() {
     if(!window.supabaseAuth.getCurrentUser()) return;
     allActivitiesCache = await window.supabaseAuth.listActivities();
