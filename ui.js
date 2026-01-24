@@ -1,18 +1,18 @@
-// ui.js - Dashboard, Recap, Rankings, Heatmap & ROUTE PLANNER (V2)
+// ui.js - Dashboard, Recap, Rankings, ROUTE PLANNER (Apart) & Heatmap Interactie
 
 let allActivitiesCache = null; 
 let muniMap = null; 
 let heatmapMap = null; 
-let routeMap = null; // Nieuwe kaart specifiek voor route planner
+let routeMap = null; 
 let geoJsonLayer = null; 
 let conqueredMunis = new Set(); 
 let selectedRides = new Set(); 
 let activeCharts = {}; 
 
-// Route Planner variabelen
-let waypoints = []; // De markers die je zet
-let routePolyline = null; // De lijn die de weg volgt
-let routeSegments = []; // Cache van de wegdelen
+// Route Planner variabelen (GECORRIGEERD)
+let waypoints = []; 
+let routePolyline = null; 
+let routeSegments = []; 
 
 const REGIONS = [
     { code: 'be', url: 'communes.json', type: 'topojson', nameFields: ['Gemeente', 'name', 'NAME_4', 'Name'] },
@@ -47,20 +47,16 @@ function setupSegmentSelector() {
     }
 }
 
-// --- TRENDLIJNEN ---
 function calculateTrendLine(data) {
     const n = data.length;
     if (n < 2) return data;
     let sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0;
-    for (let i = 0; i < n; i++) {
-        sumX += i; sumY += data[i]; sumXY += i * data[i]; sumX2 += i * i;
-    }
+    for (let i = 0; i < n; i++) { sumX += i; sumY += data[i]; sumXY += i * data[i]; sumX2 += i * i; }
     const slope = (n * sumXY - sumX * sumY) / (n * sumX2 - sumX * sumX);
     const intercept = (sumY - slope * sumX) / n;
     return data.map((_, i) => slope * i + intercept);
 }
 
-// --- TAB NAVIGATIE ---
 function switchTab(tabName) {
     document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
     const activeBtn = document.querySelector(`.nav-btn[data-target="${tabName}"]`);
@@ -72,7 +68,7 @@ function switchTab(tabName) {
 
     setTimeout(() => {
         if(tabName === 'analysis' && typeof map !== 'undefined' && map) map.invalidateSize();
-        if(tabName === 'routes') initRouteMap(); // Start route kaart
+        if(tabName === 'routes') { initRouteMap(); updateSavedRoutesList(); } 
         if(tabName === 'municipalities' && muniMap) muniMap.invalidateSize();
         if(tabName === 'heatmap' && heatmapMap) heatmapMap.invalidateSize();
     }, 150);
@@ -84,77 +80,57 @@ function switchTab(tabName) {
     if(tabName === 'rankings') switchRankingTab('segments');
 }
 
-// --- NIEUW: ROUTE PLANNER LOGICA ---
+// --- ROUTE PLANNER LOGICA ---
 function initRouteMap() {
     if (routeMap) { routeMap.invalidateSize(); return; }
-    routeMap = L.map('map-routes').setView([50.85, 4.35], 8); // Start centraal
+    routeMap = L.map('map-routes').setView([50.85, 4.35], 8);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap' }).addTo(routeMap);
-    
-    // Klik event om punten toe te voegen
     routeMap.on('click', handleRouteMapClick);
 }
 
 async function handleRouteMapClick(e) {
-    const latlng = e.latlng;
-    addRouteWaypoint(latlng);
+    addRouteWaypoint(e.latlng);
 }
 
 async function addRouteWaypoint(latlng) {
-    // Voeg marker toe (versleepbaar!)
     const marker = L.marker(latlng, {draggable: true}).addTo(routeMap);
     const index = waypoints.length;
     
     marker.on('dragend', async (e) => {
-        // Update positie na slepen
         waypoints[index].latlng = e.target.getLatLng();
         await recalculateFullRoute();
     });
 
     waypoints.push({ marker: marker, latlng: latlng });
 
-    // Als er meer dan 1 punt is, bereken route vanaf vorige punt
     if (waypoints.length > 1) {
         const prev = waypoints[waypoints.length - 2].latlng;
-        const current = latlng;
-        await calculateRouteSegment(prev, current);
+        await calculateRouteSegment(prev, latlng);
     }
 }
 
 async function calculateRouteSegment(start, end) {
-    // Gebruik BIKE router
     const url = `https://routing.openstreetmap.de/routed-bike/route/v1/driving/${start.lng},${start.lat};${end.lng},${end.lat}?overview=full&geometries=geojson`;
-    
     try {
         const res = await fetch(url);
         const data = await res.json();
-        
-        let segmentCoords = [];
         if (data.routes && data.routes.length > 0) {
-            // Converteer [lon, lat] naar [lat, lon]
-            segmentCoords = data.routes[0].geometry.coordinates.map(c => [c[1], c[0]]);
+            routeSegments.push(data.routes[0].geometry.coordinates.map(c => [c[1], c[0]]));
         } else {
-            // Fallback rechte lijn
-            segmentCoords = [[start.lat, start.lng], [end.lat, end.lng]];
+            routeSegments.push([[start.lat, start.lng], [end.lat, end.lng]]);
         }
-        
-        routeSegments.push(segmentCoords);
         drawFullRoute();
-        
     } catch (e) {
-        console.error("Routing error", e);
-        // Fallback bij error
         routeSegments.push([[start.lat, start.lng], [end.lat, end.lng]]);
         drawFullRoute();
     }
 }
 
 async function recalculateFullRoute() {
-    // Wordt aangeroepen na slepen: herbereken ALLES
     routeSegments = [];
     for (let i = 1; i < waypoints.length; i++) {
         const start = waypoints[i-1].latlng;
         const end = waypoints[i].latlng;
-        // Zelfde logica als hierboven, maar sequentieel
         const url = `https://routing.openstreetmap.de/routed-bike/route/v1/driving/${start.lng},${start.lat};${end.lng},${end.lat}?overview=full&geometries=geojson`;
         try {
             const res = await fetch(url);
@@ -171,11 +147,8 @@ async function recalculateFullRoute() {
 
 function drawFullRoute() {
     if (routePolyline) routeMap.removeLayer(routePolyline);
-    
-    // Voeg alle segmenten samen tot één lijn
     const fullPath = routeSegments.flat();
     routePolyline = L.polyline(fullPath, {color: '#fc4c02', weight: 5}).addTo(routeMap);
-    
     updateRouteStats(fullPath);
 }
 
@@ -186,8 +159,6 @@ function updateRouteStats(latlngs) {
     }
     const km = (totalDist/1000).toFixed(2);
     document.getElementById('routeDist').innerText = km;
-    
-    // Tijd schatting (22 km/u)
     const hours = (totalDist/1000) / 22;
     const h = Math.floor(hours);
     const m = Math.floor((hours%1)*60).toString().padStart(2,'0');
@@ -196,16 +167,9 @@ function updateRouteStats(latlngs) {
 
 window.undoLastRoutePoint = function() {
     if (waypoints.length === 0) return;
-    
-    // Verwijder laatste marker
     const lastPoint = waypoints.pop();
     routeMap.removeLayer(lastPoint.marker);
-    
-    // Verwijder laatste segment
-    if (routeSegments.length > 0) {
-        routeSegments.pop();
-    }
-    
+    if (routeSegments.length > 0) routeSegments.pop();
     drawFullRoute();
     if(waypoints.length === 0) {
         document.getElementById('routeDist').innerText = "0";
@@ -220,24 +184,21 @@ window.clearRoute = function() {
     if(routePolyline) routeMap.removeLayer(routePolyline);
     document.getElementById('routeDist').innerText = "0";
     document.getElementById('routeTime').innerText = "0:00";
+    document.getElementById('route-name-input').value = "";
 };
 
 window.saveCreatedRoute = async function() {
     if (waypoints.length < 2) { alert("Teken eerst een route!"); return; }
     
-    const name = document.getElementById('route-name-input').value || "Mijn Geplande Route";
+    const name = document.getElementById('route-name-input').value || "Mijn Route";
     const btn = document.getElementById('save-route-btn');
     btn.innerText = "Opslaan..."; btn.disabled = true;
 
-    // Maak XML string voor Supabase
     const flatCoords = routeSegments.flat();
     let gpxContent = `<?xml version="1.0" encoding="UTF-8"?><gpx version="1.1"><trk><name>${name}</name><trkseg>`;
-    flatCoords.forEach(c => {
-        gpxContent += `<trkpt lat="${c[0]}" lon="${c[1]}"></trkpt>`;
-    });
+    flatCoords.forEach(c => { gpxContent += `<trkpt lat="${c[0]}" lon="${c[1]}"></trkpt>`; });
     gpxContent += `</trkseg></trk></gpx>`;
     
-    // Maak Blob
     const blob = new Blob([gpxContent], {type: 'application/xml'});
     
     try {
@@ -249,30 +210,73 @@ window.saveCreatedRoute = async function() {
                 elevationGain: 0,
                 avgSpeed: 22.0,
                 rideDate: new Date().toISOString(),
-                segments: []
+                segments: [],
+                type: 'route' 
             }
         });
         alert("Route opgeslagen!");
-        btn.innerText = "💾 Route Opslaan";
-        btn.disabled = false;
-        clearRoute(); // Reset na opslaan
+        btn.innerText = "💾 Route Opslaan"; btn.disabled = false;
+        clearRoute();
+        updateSavedRoutesList(); 
+        if(window.updateDashboard) window.updateDashboard(); 
     } catch(e) {
         console.error(e);
         alert("Fout bij opslaan: " + e.message);
-        btn.innerText = "💾 Route Opslaan";
-        btn.disabled = false;
+        btn.innerText = "💾 Route Opslaan"; btn.disabled = false;
     }
 };
 
-// --- DASHBOARD LOGICA (REST VAN DE APP) ---
+async function updateSavedRoutesList() {
+    const list = document.getElementById('saved-routes-list');
+    if(!list) return;
+    if(!allActivitiesCache) allActivitiesCache = await window.supabaseAuth.listActivities();
+    const routes = allActivitiesCache.filter(a => a.summary.type === 'route');
+    if(routes.length === 0) { list.innerHTML = '<small style="color:var(--text-muted); padding:10px;">Nog geen routes.</small>'; return; }
+    list.innerHTML = routes.map(r => `
+        <div class="dash-list-item" style="flex-direction:column; align-items:flex-start;">
+            <div style="display:flex; justify-content:space-between; width:100%; align-items:center;">
+                <strong>${r.fileName}</strong>
+                <button class="delete-btn" style="padding:2px 6px; font-size:0.7rem;" onclick="deleteRoute('${r.id}')">🗑️</button>
+            </div>
+            <div style="font-size:0.8rem; color:var(--text-muted); display:flex; justify-content:space-between; width:100%; margin-top:5px;">
+                <span>${parseFloat(r.summary.distanceKm).toFixed(1)} km</span>
+                <span style="color:var(--primary); cursor:pointer;" onclick="loadSavedRoute('${r.id}')">👁️ Kaart</span>
+            </div>
+        </div>`).join('');
+}
+
+window.loadSavedRoute = async function(id) {
+    clearRoute();
+    try {
+        const blob = await window.supabaseAuth.getActivityFile(id);
+        const text = await blob.text();
+        const regex = /lat="([\d\.-]+)"\s+lon="([\d\.-]+)"/g;
+        let m; const coords = [];
+        while ((m = regex.exec(text)) !== null) { coords.push([parseFloat(m[1]), parseFloat(m[2])]); }
+        if (coords.length > 0) {
+            routePolyline = L.polyline(coords, {color: '#28a745', weight: 5, dashArray: '10, 10'}).addTo(routeMap);
+            routeMap.fitBounds(routePolyline.getBounds());
+        }
+    } catch(e) { console.error(e); }
+};
+
+window.deleteRoute = async function(id) {
+    if(confirm("Route definitief verwijderen?")) {
+        await window.supabaseAuth.deleteActivities([id]);
+        allActivitiesCache = null; 
+        updateSavedRoutesList(); 
+    }
+};
+
 async function updateDashboard() {
     if(!window.supabaseAuth.getCurrentUser()) return;
     allActivitiesCache = await window.supabaseAuth.listActivities();
+    const realRides = allActivitiesCache.filter(a => a.summary.type !== 'route');
     let d=0, e=0; 
-    allActivitiesCache.forEach(a => { d += parseFloat(a.summary.distanceKm||0); e += parseFloat(a.summary.elevationGain||0); });
+    realRides.forEach(a => { d += parseFloat(a.summary.distanceKm||0); e += parseFloat(a.summary.elevationGain||0); });
     const u = (id, v) => { if(document.getElementById(id)) document.getElementById(id).innerText = v; };
-    u('total-dist', d.toFixed(0) + ' km'); u('total-elev', e.toFixed(0) + ' m'); u('total-rides', allActivitiesCache.length);
-    renderActivityList(allActivitiesCache.slice(0, 8));
+    u('total-dist', d.toFixed(0) + ' km'); u('total-elev', e.toFixed(0) + ' m'); u('total-rides', realRides.length);
+    renderActivityList(realRides.slice(0, 8));
 }
 
 async function updateRecapView() {
@@ -280,6 +284,7 @@ async function updateRecapView() {
     const selM = document.getElementById('recap-month-select').value;
     const selY = parseInt(document.getElementById('recap-year-select').value);
     const filtered = allActivitiesCache.filter(act => {
+        if (act.summary.type === 'route') return false; 
         const d = new Date(act.summary.rideDate);
         return d.getFullYear() === selY && (selM === 'all' || d.getMonth() === parseInt(selM));
     });
@@ -290,7 +295,7 @@ async function updateRecapView() {
     document.getElementById('recap-elev').innerText = e.toFixed(0) + ' m';
     document.getElementById('recap-count').innerText = filtered.length;
     document.getElementById('recap-speed').innerText = avgS + ' km/u';
-    const yearDist = allActivitiesCache.filter(act => new Date(act.summary.rideDate).getFullYear() === selY).reduce((acc, a) => acc + parseFloat(a.summary.distanceKm), 0);
+    const yearDist = allActivitiesCache.filter(act => act.summary.type !== 'route' && new Date(act.summary.rideDate).getFullYear() === selY).reduce((acc, a) => acc + parseFloat(a.summary.distanceKm), 0);
     const goalPercent = Math.min(100, (yearDist / 5000) * 100).toFixed(1);
     document.getElementById('recap-goal-percent').innerText = goalPercent + '%';
     document.getElementById('recap-goal-fill').style.width = goalPercent + '%';
@@ -311,7 +316,8 @@ async function initMuniMap() {
 
 async function loadFeatures() {
     let allF = [];
-    document.getElementById('muni-loading').style.display = 'block';
+    const loading = document.getElementById('muni-loading');
+    if(loading) loading.style.display = 'block';
     for(const r of REGIONS) {
         try {
             const res = await fetch(r.url);
@@ -332,7 +338,7 @@ async function loadFeatures() {
     const names = await window.supabaseAuth.getConqueredMunicipalities();
     conqueredMunis = new Set(names);
     updateMuniUI();
-    document.getElementById('muni-loading').style.display = 'none';
+    if(loading) loading.style.display = 'none';
 }
 
 function updateMuniUI() {
@@ -340,7 +346,7 @@ function updateMuniUI() {
     const total = geoJsonLayer.getLayers().length;
     document.getElementById('muni-count').innerText = conqueredMunis.size;
     document.getElementById('muni-total').innerText = total;
-    const p = (conqueredMunis.size / total * 100).toFixed(1);
+    const p = total > 0 ? (conqueredMunis.size / total * 100).toFixed(1) : 0;
     document.getElementById('muni-percent').innerText = p + '%';
     document.getElementById('muni-progress-fill').style.width = p + '%';
     geoJsonLayer.eachLayer(l => {
@@ -377,6 +383,7 @@ window.generateHeatmap = async function() {
     const bar = document.getElementById('heatmap-bar');
     document.getElementById('heatmap-progress').style.display = "block";
     let acts = allActivitiesCache || await window.supabaseAuth.listActivities();
+    acts = acts.filter(a => a.summary.type !== 'route'); 
     heatmapMap.eachLayer(l => { if (l instanceof L.Polyline) heatmapMap.removeLayer(l); });
     const user = window.supabaseAuth.getCurrentUser();
     const cacheKey = `heatmap_coords_${user.id}`;
@@ -416,8 +423,8 @@ window.switchRankingTab = async function(tab) {
 };
 
 function renderTrendGraph(activities, key, tableId, chartId, filterId, label) {
-    const fv = document.getElementById(filterId).value;
-    let r = [...activities].sort((a, b) => (parseFloat(b.summary[key])||0) - (parseFloat(a.summary[key])||0));
+    const fv = document.getElementById(filterId)?.value || 'all';
+    let r = [...activities.filter(a => a.summary.type !== 'route')].sort((a, b) => (parseFloat(b.summary[key])||0) - (parseFloat(a.summary[key])||0));
     if(fv !== 'all') r = r.slice(0, parseInt(fv));
     const ch = [...r].sort((a,b) => new Date(a.summary.rideDate) - new Date(b.summary.rideDate));
     const v = ch.map(a => parseFloat(a.summary[key]) || 0);
@@ -432,12 +439,13 @@ function renderTrendGraph(activities, key, tableId, chartId, filterId, label) {
         },
         options: { responsive: true, maintainAspectRatio: false }
     });
-    document.getElementById(tableId).innerHTML = r.map((act, i) => `<tr onclick="switchTab('analysis'); window.openRide(${JSON.stringify(act).replace(/"/g, '&quot;')})"><td>#${i+1}</td><td>${act.fileName}</td><td>${new Date(act.summary.rideDate).toLocaleDateString()}</td><td><strong>${parseFloat(act.summary[key]).toFixed(1)}</strong></td></tr>`).join('');
+    const tb = document.getElementById(tableId);
+    if(tb) tb.innerHTML = `<div class="table-container"><table class="data-table"><thead><tr><th>#</th><th>Naam</th><th>Datum</th><th>${label}</th></tr></thead><tbody>${r.map((act, i) => `<tr onclick="switchTab('analysis'); window.openRide(${JSON.stringify(act).replace(/"/g, '&quot;')})"><td>#${i+1}</td><td>${act.fileName}</td><td>${new Date(act.summary.rideDate).toLocaleDateString()}</td><td><strong>${parseFloat(act.summary[key]).toFixed(1)}</strong></td></tr>`).join('')}</tbody></table></div>`;
 }
 
 window.loadRankings = async function(dist) {
     const me = parseFloat(document.getElementById('segmentMaxElev').value) || 99999;
-    const d = allActivitiesCache.map(act => {
+    const d = allActivitiesCache.filter(a => a.summary.type !== 'route').map(act => {
         const s = (act.summary.segments || []).find(s => s.distance === parseInt(dist));
         return s ? { ...s, activity: act, elev: act.summary.elevationGain } : null;
     }).filter(i => i && i.elev <= me).sort((a,b) => b.speed - a.speed);
@@ -453,7 +461,8 @@ window.loadRankings = async function(dist) {
             data: {
                 labels: d.map(i => new Date(i.activity.summary.rideDate).toLocaleDateString()),
                 datasets: [{label: 'Snelheid (km/u)', data: speeds, borderColor: '#28a745', fill: true}, {label: 'Trend', data: tr, borderColor: '#fc4c02', borderDash:[5,5]}]
-            }
+            },
+            options: { responsive: true, maintainAspectRatio: false }
         });
     }
     document.getElementById('ranking-list').innerHTML = d.map((item, i) => `<div class="rank-card" onclick="switchTab('analysis'); window.openRide(${JSON.stringify(item.activity).replace(/"/g, '&quot;')})"><div><strong>#${i+1} ${item.activity.fileName}</strong><br><small>⛰️ ${item.elev}m</small></div><div style="text-align:right"><strong>${item.speed.toFixed(1)} km/u</strong></div></div>`).join('');
