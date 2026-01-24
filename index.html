@@ -182,7 +182,57 @@
                         <div class="compare-layout">
                             <div class="compare-sidebar">
                                 <h3>Selecteer Ritten</h3>
-                                <div id="compare-selection-list" class="compare-list"></div>
+                                
+                                <div class="filter-box">
+                                    <input type="text" id="filter-text" placeholder="🔍 Zoek op naam..." class="search-bar">
+                                    
+                                    <button class="filter-toggle-btn" onclick="document.getElementById('advanced-filters').classList.toggle('hidden')">
+                                        🌪️ Filters (Afstand, Hoogte...)
+                                    </button>
+
+                                    <div id="advanced-filters" class="hidden" style="margin-top:10px;">
+                                        <div class="filter-row">
+                                            <label>Afstand (km):</label>
+                                            <div class="filter-inputs">
+                                                <input type="number" id="filter-dist-min" placeholder="Min" class="small-input">
+                                                <input type="number" id="filter-dist-max" placeholder="Max" class="small-input">
+                                            </div>
+                                        </div>
+
+                                        <div class="filter-row">
+                                            <label>Hoogte (m):</label>
+                                            <div class="filter-inputs">
+                                                <input type="number" id="filter-elev-min" placeholder="Min" class="small-input">
+                                                <input type="number" id="filter-elev-max" placeholder="Max" class="small-input">
+                                            </div>
+                                        </div>
+
+                                        <div class="filter-row">
+                                            <label>Snelheid (km/u):</label>
+                                            <div class="filter-inputs">
+                                                <input type="number" id="filter-speed-min" placeholder="Min" class="small-input">
+                                                <input type="number" id="filter-speed-max" placeholder="Max" class="small-input">
+                                            </div>
+                                        </div>
+
+                                        <div class="filter-row">
+                                            <label>Jaar:</label>
+                                            <select id="filter-year" class="search-bar" style="margin-bottom:0;">
+                                                <option value="">Alle Jaren</option>
+                                                <option value="2025">2025</option>
+                                                <option value="2024">2024</option>
+                                                <option value="2023">2023</option>
+                                                <option value="2022">2022</option>
+                                                <option value="2021">2021</option>
+                                            </select>
+                                        </div>
+                                        
+                                        <button class="reset-link" onclick="resetFilters()">Reset Filters</button>
+                                    </div>
+                                </div>
+                                
+                                <div id="compare-selection-list" class="compare-list">
+                                    </div>
                             </div>
                             <div class="compare-main">
                                 <h3>Vergelijking</h3>
@@ -194,21 +244,20 @@
                                 </div>
 
                                 <div id="compare-charts-container" class="hidden">
-                                    <h3>📊 Visuele Vergelijking</h3>
-                                    <div class="compare-charts-grid">
-                                        <div class="chart-box">
-                                            <h4>Afstand (km)</h4>
-                                            <canvas id="cmpChartDist"></canvas>
-                                        </div>
-                                        <div class="chart-box">
-                                            <h4>Hoogtemeters (m)</h4>
+                                    <h3 style="margin-top:20px;">📊 Rit Profielen (0% - 100%)</h3>
+                                    <p style="font-size:0.9rem; color:var(--text-muted); margin-bottom:15px;">Vergelijk het verloop van je ritten.</p>
+                                    
+                                    <div class="compare-charts-col">
+                                        <div class="chart-box wide">
+                                            <h4>⛰️ Hoogteprofiel</h4>
                                             <canvas id="cmpChartElev"></canvas>
                                         </div>
-                                        <div class="chart-box">
-                                            <h4>Snelheid (km/u)</h4>
+                                        <div class="chart-box wide">
+                                            <h4>⚡ Snelheidsprofiel</h4>
                                             <canvas id="cmpChartSpeed"></canvas>
                                         </div>
                                     </div>
+                                    <div id="compare-loading" style="display:none; text-align:center; color:var(--primary); margin-top:10px;">⏳ Data ophalen en analyseren...</div>
                                 </div>
                             </div>
                         </div>

@@ -241,3 +241,93 @@ path.region-visited { stroke-width: 2px; }
     width: 100% !important;
     height: 100% !important;
 }
+
+/* --- COMPARE CHARTS --- */
+.compare-charts-col {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    margin-top: 15px;
+}
+
+.chart-box.wide {
+    width: 100%;
+    height: 300px; /* Lekker hoog voor detail */
+}
+
+/* Styling voor de nieuwe zoekbalk */
+.search-bar {
+    width: 100%;
+    padding: 10px 12px;
+    margin-bottom: 15px;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    background: var(--input-bg);
+    color: var(--text-main);
+    font-size: 0.9rem;
+    outline: none;
+    transition: border 0.2s;
+}
+
+.search-bar:focus {
+    border-color: var(--primary);
+}
+
+/* --- FILTER STYLING --- */
+.filter-box {
+    background: var(--bg-body);
+    padding: 10px;
+    border-radius: 6px;
+    border: 1px solid var(--border-color);
+    margin-bottom: 10px;
+}
+
+.filter-toggle-btn {
+    width: 100%;
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    padding: 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.85rem;
+    color: var(--text-main);
+}
+.filter-toggle-btn:hover { background: var(--hover-bg); }
+
+.filter-row {
+    margin-bottom: 8px;
+}
+
+.filter-row label {
+    display: block;
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    margin-bottom: 2px;
+}
+
+.filter-inputs {
+    display: flex;
+    gap: 5px;
+}
+
+.small-input {
+    width: 50%;
+    padding: 6px;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    background: var(--input-bg);
+    color: var(--text-main);
+    font-size: 0.85rem;
+}
+
+.reset-link {
+    background: none;
+    border: none;
+    color: var(--primary);
+    font-size: 0.8rem;
+    cursor: pointer;
+    text-decoration: underline;
+    width: 100%;
+    text-align: center;
+    margin-top: 5px;
+}

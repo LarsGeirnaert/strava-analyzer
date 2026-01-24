@@ -1,4 +1,4 @@
-// ui.js - Dashboard, Rankings, Wereld Jager, Compare Charts & Dark Mode
+// ui.js - Dashboard, Rankings, Wereld Jager, Compare Charts & Advanced Filters
 
 let allActivitiesCache = null; 
 let muniMap = null; 
@@ -6,9 +6,8 @@ let geoJsonLayer = null;
 let conqueredMunis = new Set(); 
 let selectedRides = new Set(); 
 let compareSelection = new Set(); 
-let cmpCharts = {}; // Opslag voor chart instanties
+let cmpCharts = {}; 
 
-// CONFIGURATIE REGIO'S
 const REGIONS = [
     { code: 'be', url: 'communes.json', type: 'topojson', nameFields: ['Gemeente', 'name', 'NAME_4', 'Name'] },
     { code: 'nl', url: 'https://cartomap.github.io/nl/wgs84/gemeente_2023.geojson', type: 'geojson', nameFields: ['statnaam'] },
@@ -18,6 +17,7 @@ const REGIONS = [
 document.addEventListener('DOMContentLoaded', () => {
     setupNavigation();
     setupSegmentSelector();
+    setupFilterListeners(); // NIEUW
 });
 
 // --- NAVIGATIE ---
@@ -26,6 +26,23 @@ function setupNavigation() {
         btn.addEventListener('click', () => switchTab(btn.dataset.target))
     );
 }
+
+// NIEUW: Luister naar alle filter velden
+function setupFilterListeners() {
+    const inputs = document.querySelectorAll('#filter-text, .small-input, #filter-year');
+    inputs.forEach(input => {
+        input.addEventListener('input', () => {
+            if(allActivitiesCache) renderCompareSelectionList(allActivitiesCache);
+        });
+    });
+}
+
+// NIEUW: Reset knop
+window.resetFilters = function() {
+    document.querySelectorAll('#filter-text, .small-input').forEach(i => i.value = '');
+    document.getElementById('filter-year').value = '';
+    if(allActivitiesCache) renderCompareSelectionList(allActivitiesCache);
+};
 
 function setupSegmentSelector() {
     const select = document.getElementById('segmentSelector');
@@ -50,10 +67,8 @@ function switchTab(tabName) {
     if(tabName === 'analysis') setTimeout(() => { if(typeof map !== 'undefined') map.invalidateSize(); }, 100);
     if(tabName === 'dashboard') { selectedRides.clear(); updateDeleteButton(); updateDashboard(); }
     
-    // GEMEENTE TAB
     if(tabName === 'municipalities') setTimeout(() => initMuniMap(), 200);
 
-    // RANGLIJSTEN UPDATE
     if(tabName === 'rankings') {
         if(!document.querySelector('.sub-nav-btn.active')) switchRankingTab('segments');
         else {
@@ -101,10 +116,46 @@ function renderGeneralRanking(activities, sortKey, tableId) {
     });
 }
 
+// --- FILTER & RENDER LIST ---
 function renderCompareSelectionList(activities) {
     const list = document.getElementById('compare-selection-list');
     list.innerHTML = '';
-    const sorted = [...activities].sort((a, b) => new Date(b.summary.rideDate) - new Date(a.summary.rideDate));
+
+    // Haal alle filter waardes op
+    const fText = document.getElementById('filter-text').value.toLowerCase();
+    const fDistMin = parseFloat(document.getElementById('filter-dist-min').value) || 0;
+    const fDistMax = parseFloat(document.getElementById('filter-dist-max').value) || 99999;
+    const fElevMin = parseFloat(document.getElementById('filter-elev-min').value) || 0;
+    const fElevMax = parseFloat(document.getElementById('filter-elev-max').value) || 99999;
+    const fSpeedMin = parseFloat(document.getElementById('filter-speed-min').value) || 0;
+    const fSpeedMax = parseFloat(document.getElementById('filter-speed-max').value) || 999;
+    const fYear = document.getElementById('filter-year').value;
+
+    // Filter Logic
+    const filtered = activities.filter(act => {
+        const dist = parseFloat(act.summary.distanceKm) || 0;
+        const elev = parseFloat(act.summary.elevationGain) || 0;
+        const speed = parseFloat(act.summary.avgSpeed) || 0;
+        const date = new Date(act.summary.rideDate);
+        const year = date.getFullYear().toString();
+
+        if (!act.fileName.toLowerCase().includes(fText)) return false;
+        if (dist < fDistMin || dist > fDistMax) return false;
+        if (elev < fElevMin || elev > fElevMax) return false;
+        if (speed < fSpeedMin || speed > fSpeedMax) return false;
+        if (fYear !== "" && year !== fYear) return false;
+
+        return true;
+    });
+
+    const sorted = filtered.sort((a, b) => new Date(b.summary.rideDate) - new Date(a.summary.rideDate));
+
+    if(sorted.length === 0) {
+        list.innerHTML = '<p style="padding:10px; color:var(--text-muted); text-align:center;">Geen ritten gevonden die aan de filters voldoen.</p>';
+        return;
+    }
+
+    // Render Items
     sorted.forEach(act => {
         const div = document.createElement('div');
         div.className = 'compare-item';
@@ -112,13 +163,13 @@ function renderCompareSelectionList(activities) {
         div.querySelector('input').addEventListener('change', (e) => { if(e.target.checked) compareSelection.add(act.id); else compareSelection.delete(act.id); updateCompareTable(); });
         list.appendChild(div);
     });
-    updateCompareTable();
 }
 
 // --- COMPARE TABLES & CHARTS ---
 async function updateCompareTable() {
     const table = document.getElementById('comparison-table');
     const chartsContainer = document.getElementById('compare-charts-container');
+    const loader = document.getElementById('compare-loading');
 
     if(compareSelection.size < 2) { 
         table.innerHTML = '<tbody><tr><td style="padding:20px; color:var(--text-muted);">Vink links minimaal 2 ritten aan.</td></tr></tbody>'; 
@@ -126,20 +177,17 @@ async function updateCompareTable() {
         return; 
     }
 
-    // Toon charts
     chartsContainer.classList.remove('hidden');
+    loader.style.display = 'block'; 
 
     let activities = allActivitiesCache || await window.supabaseAuth.listActivities();
     const selectedActs = activities.filter(a => compareSelection.has(a.id))
-                                   .sort((a, b) => new Date(a.summary.rideDate) - new Date(b.summary.rideDate)); // Oud naar Nieuw (logisch voor grafiek)
+                                   .sort((a, b) => new Date(a.summary.rideDate) - new Date(b.summary.rideDate)); 
 
-    // Tabel Header
     let html = '<thead><tr><th>Statistiek</th>';
     selectedActs.forEach(act => { html += `<th>${act.fileName}<br><small style="font-weight:normal;">${new Date(act.summary.rideDate).toLocaleDateString()}</small></th>`; });
     html += '</tr></thead><tbody>';
-    
     const rows = [{ label: 'Afstand', key: 'distanceKm', unit: ' km' }, { label: 'Hoogte', key: 'elevationGain', unit: ' m' }, { label: 'Gem. Snelheid', key: 'avgSpeed', unit: ' km/u' }, { label: 'Tijd', key: 'durationSec', unit: '' }];
-    
     rows.forEach(row => {
         html += `<tr><td>${row.label}</td>`;
         let maxVal = -1; selectedActs.forEach(act => { const val = parseFloat(act.summary[row.key]) || 0; if(val > maxVal) maxVal = val; });
@@ -157,29 +205,104 @@ async function updateCompareTable() {
     html += '</tbody>';
     table.innerHTML = html;
 
-    // Update Grafieken
-    updateCompareCharts(selectedActs);
+    if(!window.parseGPXData) { console.error("Parser niet gevonden!"); return; }
+
+    const profileData = [];
+    const colors = ['#fc4c02', '#28a745', '#007bff', '#ffc107', '#6610f2', '#e83e8c']; 
+
+    try {
+        for(let i=0; i<selectedActs.length; i++) {
+            const act = selectedActs[i];
+            const blob = await window.supabaseAuth.getActivityFile(act.id);
+            const text = await blob.text();
+            const data = window.parseGPXData(text, act.fileName);
+            
+            const normalized = normalizeRideData(data, 100);
+            profileData.push({
+                label: act.fileName,
+                elev: normalized.elev,
+                speed: normalized.speed,
+                color: colors[i % colors.length]
+            });
+        }
+        updateCompareCharts(profileData);
+    } catch(e) {
+        console.error(e);
+        alert("Fout bij ophalen rit data: " + e.message);
+    } finally {
+        loader.style.display = 'none';
+    }
 }
 
-function updateCompareCharts(rides) {
-    const labels = rides.map(r => `${new Date(r.summary.rideDate).toLocaleDateString().slice(0,5)} ${r.fileName.substring(0,10)}..`);
-    const distData = rides.map(r => parseFloat(r.summary.distanceKm));
-    const elevData = rides.map(r => parseFloat(r.summary.elevationGain));
-    const speedData = rides.map(r => parseFloat(r.summary.avgSpeed));
+function normalizeRideData(rideData, steps) {
+    const rawDist = rideData.uiData.distances; 
+    const rawElev = rideData.uiData.elevations; 
+    const rawSpeeds = rideData.uiData.speeds; 
+    
+    const elevProfile = [];
+    const speedProfile = [];
+    const totalDist = parseFloat(rideData.summary.distanceKm);
+    
+    for(let i=0; i<=steps; i++) {
+        const targetDist = (i / steps) * totalDist;
+        
+        let idx = rawDist.findIndex(d => d >= targetDist);
+        if(idx === -1) idx = rawDist.length - 1;
+        
+        elevProfile.push(rawElev[idx]);
+        
+        let speed = rawSpeeds[idx] || 0;
+        if(i > 0) { const prev = speedProfile[i-1]; speed = (speed + prev) / 2; }
+        
+        speedProfile.push(speed);
+    }
+    
+    return { elev: elevProfile, speed: speedProfile };
+}
 
-    const createChart = (id, label, data, color) => {
+function updateCompareCharts(datasets) {
+    const startIdx = 2;
+    const endIdx = 99; 
+    const fullLabels = Array.from({length: 101}, (_, i) => `${i}%`); 
+    const labels = fullLabels.slice(startIdx, endIdx); 
+
+    const createChart = (id, title, metricKey, yLabel) => {
         const ctx = document.getElementById(id).getContext('2d');
         if (cmpCharts[id]) cmpCharts[id].destroy();
+        
         cmpCharts[id] = new Chart(ctx, {
-            type: 'bar',
-            data: { labels: labels, datasets: [{ label: label, data: data, backgroundColor: color, borderColor: color.replace('0.7','1'), borderWidth: 1, borderRadius: 4 }] },
-            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true }, x: { grid: { display: false } } } }
+            type: 'line', 
+            data: { 
+                labels: labels, 
+                datasets: datasets.map(d => ({
+                    label: d.label, 
+                    data: d[metricKey].slice(startIdx, endIdx), 
+                    borderColor: d.color,
+                    backgroundColor: 'transparent',
+                    borderWidth: 2, 
+                    pointRadius: 0, 
+                    pointHoverRadius: 4,
+                    tension: 0.4 
+                })) 
+            },
+            options: { 
+                responsive: true, 
+                maintainAspectRatio: false, 
+                interaction: { mode: 'index', intersect: false },
+                plugins: { 
+                    title: { display: true, text: title },
+                    tooltip: { callbacks: { label: (ctx) => `${ctx.dataset.label}: ${ctx.raw.toFixed(1)} ${yLabel}` } }
+                }, 
+                scales: { 
+                    y: { beginAtZero: true, title: { display: true, text: yLabel }, grid: { color: 'rgba(200,200,200,0.1)' } }, 
+                    x: { grid: { display: false }, ticks: { maxTicksLimit: 11 } } 
+                } 
+            }
         });
     };
 
-    createChart('cmpChartDist', 'Afstand (km)', distData, 'rgba(54, 162, 235, 0.7)');
-    createChart('cmpChartElev', 'Hoogte (m)', elevData, 'rgba(255, 99, 132, 0.7)');
-    createChart('cmpChartSpeed', 'Snelheid (km/u)', speedData, 'rgba(255, 206, 86, 0.7)');
+    createChart('cmpChartElev', 'Hoogteprofiel', 'elev', 'meters');
+    createChart('cmpChartSpeed', 'Snelheidsprofiel', 'speed', 'km/u');
 }
 
 // --- MAP LOGICA (Multi-Region) ---
@@ -232,7 +355,6 @@ function loadFeaturesToMap(features) {
     if(geoJsonLayer) muniMap.removeLayer(geoJsonLayer);
     
     geoJsonLayer = L.geoJSON({ type: "FeatureCollection", features: features }, {
-        // STYLE FUNCTIE
         onEachFeature: (feature, layer) => { 
             layer.muniName = feature.properties.muniName; 
             layer.bindTooltip(layer.muniName, { sticky: true }); 
