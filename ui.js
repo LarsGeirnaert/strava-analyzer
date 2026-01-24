@@ -160,11 +160,31 @@ window.loadRankings = async function(distanceKm) {
 // --- HEATMAP ---
 async function initHeatmapMap() {
     if (heatmapMap) { heatmapMap.invalidateSize(); return; }
-    heatmapMap = L.map('map-heatmap', { zoomControl: true, attributionControl: false }).setView([50.85, 4.35], 7);
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png').addTo(heatmapMap);
+    
+    // Initialiseer de kaart
+    heatmapMap = L.map('map-heatmap', { 
+        zoomControl: true, 
+        attributionControl: false 
+    }).setView([50.85, 4.35], 7);
+    
+    // Voeg de lichte 'Positron' tilelayer toe die exact lijkt op je voorbeeld (geen wegen)
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png', {
+        attribution: '©OpenStreetMap, ©CartoDB',
+        subdomains: 'abcd',
+        maxZoom: 20
+    }).addTo(heatmapMap);
+
+    // Voeg de landsgrenzen toe via GeoJSON (zodat het overzicht behouden blijft)
     fetch('https://raw.githubusercontent.com/datasets/geo-boundaries-world-110m/master/countries.geojson')
         .then(res => res.json()).then(data => {
-            heatmapBordersLayer = L.geoJson(data, { style: { color: "#bbbbbb", weight: 1.5, fillOpacity: 0, interactive: false } }).addTo(heatmapMap);
+            heatmapBordersLayer = L.geoJson(data, { 
+                style: { 
+                    color: "#d1d1d1", // Lichtgrijze grenzen
+                    weight: 1.5, 
+                    fillOpacity: 0, 
+                    interactive: false 
+                } 
+            }).addTo(heatmapMap);
         });
 }
 

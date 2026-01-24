@@ -401,3 +401,14 @@ path.region-visited { stroke-width: 2px; }
     font-weight: 400;
     color: var(--text-muted);
 }
+
+#map-heatmap {
+    flex: 1;
+    width: 100%;
+    background: #f4f4f4 !important; /* Overeenkomstig met de lichte kaartstijl */
+}
+
+/* Verwijder eventuele filters die de kaart donker maken op dit tabblad */
+#view-heatmap .leaflet-tile-container {
+    filter: none !important;
+}
