@@ -358,3 +358,46 @@ path.region-visited { stroke-width: 2px; }
     background: #f8f9fa; /* Net niet wit */
 }
 
+/* --- STATS WIDGETS --- */
+.stats-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 15px;
+    margin-top: 10px;
+}
+
+.stat-widget {
+    background: var(--bg-body);
+    padding: 12px;
+    border-radius: 10px;
+    border: 1px solid var(--border-color);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+}
+
+.stat-icon {
+    font-size: 1.2rem;
+    margin-bottom: 5px;
+}
+
+.stat-label {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    letter-spacing: 0.5px;
+    margin-bottom: 3px;
+}
+
+.stat-value {
+    font-size: 1.1rem;
+    font-weight: 800;
+    color: var(--text-main);
+}
+
+.stat-value small {
+    font-size: 0.7rem;
+    font-weight: 400;
+    color: var(--text-muted);
+}

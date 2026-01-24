@@ -5,6 +5,7 @@ let segmentLayer = null;
 let currentRideData = null; 
 let calculatedSegments = []; 
 let activeSegment = null; 
+let hoverMarker = null; // Het bolletje op de kaart
 
 document.addEventListener('DOMContentLoaded', () => {
     initMap();
@@ -311,25 +312,95 @@ function updateMap(latlngs) {
 }
 
 function updateStats(dist, timeMs, speed, ele) {
-    document.getElementById('statDist').innerText = typeof dist === 'string' ? dist : dist.toFixed(2);
-    document.getElementById('statElev').innerText = Math.round(ele);
-    document.getElementById('statSpeed').innerText = typeof speed === 'string' ? speed : speed.toFixed(1);
-    const h = Math.floor(timeMs / 3600000); const m = Math.floor((timeMs % 3600000) / 60000);
-    document.getElementById('statTime').innerText = `${h}:${m.toString().padStart(2,'0')}`;
+    const d = document.getElementById('statDist');
+    const t = document.getElementById('statTime');
+    const s = document.getElementById('statSpeed');
+    const e = document.getElementById('statElev');
+
+    if(d) d.innerText = typeof dist === 'string' ? dist : dist.toFixed(2);
+    if(e) e.innerText = Math.round(ele);
+    if(s) s.innerText = typeof speed === 'string' ? speed : speed.toFixed(1);
+    
+    if(t) {
+        const h = Math.floor(timeMs / 3600000); 
+        const m = Math.floor((timeMs % 3600000) / 60000);
+        t.innerText = `${h}:${m.toString().padStart(2,'0')}`;
+    }
 }
 
 function updateChart(labels, dataPoints) {
     const ctx = document.getElementById('elevationChart').getContext('2d');
     const step = Math.ceil(labels.length / 500); 
+    
+    // Gefilterde data voor de grafiek weergave
+    const filteredLabels = labels.filter((_, i) => i % step === 0);
+    const filteredData = dataPoints.filter((_, i) => i % step === 0);
+
     if (elevationChart) elevationChart.destroy();
+    
     elevationChart = new Chart(ctx, {
         type: 'line',
         data: {
-            labels: labels.filter((_,i) => i % step === 0).map(d => d.toFixed(1)),
-            datasets: [{ label: 'Hoogte', data: dataPoints.filter((_,i) => i % step === 0), borderColor: '#fc4c02', backgroundColor: 'rgba(252,76,2,0.1)', fill: true, pointRadius: 0, borderWidth: 2, order: 1 }]
+            labels: filteredLabels.map(d => d.toFixed(1)),
+            datasets: [{ 
+                label: 'Hoogte', 
+                data: filteredData, 
+                borderColor: '#fc4c02', 
+                backgroundColor: 'rgba(252,76,2,0.1)', 
+                fill: true, 
+                pointRadius: 0, 
+                borderWidth: 2 
+            }]
         },
-        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false }, tooltip: { mode: 'index', intersect: false } }, scales: { x: { display: false }, y: { display: true } }, interaction: { mode: 'nearest', axis: 'x', intersect: false } }
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            onHover: (event, chartElements) => {
+                // Als we over de grafiek hoveren
+                if (chartElements.length > 0) {
+                    const index = chartElements[0].index;
+                    // Bereken de werkelijke index in de volledige latlngs array
+                    const realIndex = index * step;
+                    showPointOnMap(realIndex);
+                } else {
+                    hidePointOnMap();
+                }
+            },
+            plugins: {
+                legend: { display: false },
+                tooltip: { mode: 'index', intersect: false }
+            },
+            scales: { x: { display: false }, y: { display: true } },
+            interaction: { mode: 'nearest', axis: 'x', intersect: false }
+        }
     });
+}
+
+// Functie om het punt op de kaart te tonen
+function showPointOnMap(index) {
+    if (!currentRideData || !map) return;
+    const latlng = currentRideData.uiData.latlngs[index];
+    if (!latlng) return;
+
+    if (!hoverMarker) {
+        hoverMarker = L.circleMarker(latlng, {
+            radius: 8,
+            fillColor: "#007bff", // Blauw bolletje
+            color: "#fff",
+            weight: 3,
+            opacity: 1,
+            fillOpacity: 1
+        }).addTo(map);
+    } else {
+        hoverMarker.setLatLng(latlng);
+    }
+}
+
+function hidePointOnMap() {
+    if (hoverMarker && map) {
+        map.removeLayer(hoverMarker);
+        hoverMarker = null;
+    }
 }
 
 function getDistanceFromLatLonInKm(lat1, lon1, lat2, lon2) {
