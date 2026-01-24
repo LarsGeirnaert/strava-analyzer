@@ -1,14 +1,12 @@
-// ui.js - Dashboard, Rankings, Trends (Linear Regression), Heatmap & Wereld Jager
+// ui.js - Dashboard, Rankings, Trends, Heatmap (Interactive) & Wereld Jager
 
 let allActivitiesCache = null; 
 let muniMap = null; 
 let heatmapMap = null; 
 let geoJsonLayer = null; 
-let heatmapBordersLayer = null; 
 let conqueredMunis = new Set(); 
 let selectedRides = new Set(); 
 let compareSelection = new Set(); 
-let cmpCharts = {};
 let activeCharts = {}; 
 
 const REGIONS = [
@@ -47,7 +45,6 @@ function setupSegmentSelector() {
     }
 }
 
-// --- TRENDLIJN WISKUNDE ---
 function calculateTrendLine(data) {
     const n = data.length;
     if (n < 2) return data;
@@ -68,9 +65,8 @@ function switchTab(tabName) {
     document.querySelectorAll('.view-section').forEach(v => v.classList.add('hidden'));
     document.getElementById(`view-${tabName}`).classList.remove('hidden');
 
-    // FIX KAART GLITCH
     setTimeout(() => {
-        if(tabName === 'analysis' && window.map) window.map.invalidateSize();
+        if(tabName === 'analysis' && typeof map !== 'undefined' && map && typeof map.invalidateSize === 'function') map.invalidateSize();
         if(tabName === 'municipalities' && muniMap) muniMap.invalidateSize();
         if(tabName === 'heatmap' && heatmapMap) heatmapMap.invalidateSize();
     }, 150);
@@ -78,10 +74,7 @@ function switchTab(tabName) {
     if(tabName === 'dashboard') updateDashboard();
     if(tabName === 'municipalities') initMuniMap();
     if(tabName === 'heatmap') initHeatmapMap();
-    if(tabName === 'rankings') {
-        const sub = document.querySelector('.sub-nav-btn.active')?.getAttribute('onclick').match(/'([^']+)'/)[1] || 'segments';
-        switchRankingTab(sub);
-    }
+    if(tabName === 'rankings') switchRankingTab('segments');
 }
 
 // --- RANGLIJSTEN & RECORDS ---
@@ -136,7 +129,7 @@ window.loadRankings = async function(distanceKm) {
     data.sort((a, b) => b.speed - a.speed);
     if(topX !== 'all') data = data.slice(0, parseInt(topX));
     const list = document.getElementById('ranking-list');
-    if(data.length === 0) { list.innerHTML = '<p>Geen data gevonden met deze filters.</p>'; document.getElementById('segment-progression-container').style.display = 'none'; return; }
+    if(data.length === 0) { list.innerHTML = '<p>Geen data.</p>'; document.getElementById('segment-progression-container').style.display = 'none'; return; }
     const progression = [...data].sort((a, b) => new Date(a.date) - new Date(b.date));
     const speeds = progression.map(d => parseFloat(d.speed.toFixed(2)));
     const trend = calculateTrendLine(speeds);
@@ -157,55 +150,98 @@ window.loadRankings = async function(distanceKm) {
     list.innerHTML = data.map((item, index) => `<div class="rank-card" onclick='window.openRide(${JSON.stringify(item.activity).replace(/"/g, "&quot;")})'><div><strong>#${index+1} ${item.fileName}</strong><br><small>${new Date(item.date).toLocaleDateString()} (⛰️ ${item.elev}m)</small></div><div style="text-align:right"><div class="rank-speed">${item.speed.toFixed(1)} km/u</div></div></div>`).join('');
 };
 
-// --- HEATMAP ---
+// --- HEATMAP (INTERACTIEF) ---
 async function initHeatmapMap() {
     if (heatmapMap) { heatmapMap.invalidateSize(); return; }
-    
-    // Initialiseer de kaart
-    heatmapMap = L.map('map-heatmap', { 
-        zoomControl: true, 
-        attributionControl: false 
-    }).setView([50.85, 4.35], 7);
-    
-    // Voeg de lichte 'Positron' tilelayer toe die exact lijkt op je voorbeeld (geen wegen)
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png', {
-        attribution: '©OpenStreetMap, ©CartoDB',
-        subdomains: 'abcd',
-        maxZoom: 20
-    }).addTo(heatmapMap);
+    heatmapMap = L.map('map-heatmap', { zoomControl: true, attributionControl: false }).setView([50.85, 4.35], 7);
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png', { subdomains: 'abcd', maxZoom: 20 }).addTo(heatmapMap);
 
-    // Voeg de landsgrenzen toe via GeoJSON (zodat het overzicht behouden blijft)
-    fetch('https://raw.githubusercontent.com/datasets/geo-boundaries-world-110m/master/countries.geojson')
-        .then(res => res.json()).then(data => {
-            heatmapBordersLayer = L.geoJson(data, { 
-                style: { 
-                    color: "#d1d1d1", // Lichtgrijze grenzen
-                    weight: 1.5, 
-                    fillOpacity: 0, 
-                    interactive: false 
-                } 
-            }).addTo(heatmapMap);
-        });
+    // Koppel klik-event voor rit-detectie
+    heatmapMap.on('click', async (e) => {
+        const user = window.supabaseAuth.getCurrentUser();
+        const cacheKey = `heatmap_coords_${user.id}`;
+        const cachedData = JSON.parse(localStorage.getItem(cacheKey) || "{}");
+        
+        const clickedLatLng = e.latlng;
+        const matches = [];
+
+        // Zoek ritten die in de buurt van de klik liggen
+        for (const actId in cachedData) {
+            const coords = cachedData[actId];
+            const isNear = coords.some(c => {
+                const dist = clickedLatLng.distanceTo(L.latLng(c[0], c[1]));
+                return dist < 35; // 35 meter straal
+            });
+
+            if (isNear) {
+                const act = allActivitiesCache.find(a => a.id === actId);
+                if (act) matches.push(act);
+            }
+        }
+
+        if (matches.length > 0) {
+            const html = `
+                <div style="min-width:150px;">
+                    <strong>🔥 ${matches.length} ritten hier:</strong><br>
+                    <ul style="padding-left:15px; margin-top:5px; max-height:100px; overflow-y:auto;">
+                        ${matches.map(m => `<li>${m.fileName}<br><small>${new Date(m.summary.rideDate).toLocaleDateString()}</small></li>`).join('')}
+                    </ul>
+                </div>
+            `;
+            L.popup().setLatLng(clickedLatLng).setContent(html).openOn(heatmapMap);
+        }
+    });
 }
 
 window.generateHeatmap = async function() {
     const bar = document.getElementById('heatmap-bar');
+    const btn = document.getElementById('load-heatmap-btn');
     document.getElementById('heatmap-progress').style.display = "block";
+    btn.disabled = true;
+
     let acts = allActivitiesCache || await window.supabaseAuth.listActivities();
     heatmapMap.eachLayer(l => { if (l instanceof L.Polyline) heatmapMap.removeLayer(l); });
-    for (let i=0; i<acts.length; i++) {
-        bar.style.width = Math.round(((i+1)/acts.length)*100) + "%";
-        try {
-            const blob = await window.supabaseAuth.getActivityFile(acts[i].id);
-            const text = await blob.text();
-            const latlngs = [];
-            const regex = /lat="([\d\.-]+)"\s+lon="([\d\.-]+)"/g;
-            let m; while ((m = regex.exec(text)) !== null) latlngs.push([parseFloat(m[1]), parseFloat(m[2])]);
-            if (latlngs.length > 0) L.polyline(latlngs, { color: '#fc4c02', opacity: 0.15, weight: 1.5, interactive: false }).addTo(heatmapMap);
-        } catch (e) {}
-        if(i % 5 === 0) await new Promise(r => setTimeout(r, 5));
+
+    const user = window.supabaseAuth.getCurrentUser();
+    const cacheKey = `heatmap_coords_${user.id}`;
+    let cachedData = JSON.parse(localStorage.getItem(cacheKey) || "{}");
+
+    for (let i = 0; i < acts.length; i++) {
+        const act = acts[i];
+        bar.style.width = Math.round(((i + 1) / acts.length) * 100) + "%";
+
+        let latlngs = cachedData[act.id];
+        if (!latlngs) {
+            try {
+                const blob = await window.supabaseAuth.getActivityFile(act.id);
+                const text = await blob.text();
+                const fullCoords = [];
+                const regex = /lat="([\d\.-]+)"\s+lon="([\d\.-]+)"/g;
+                let m;
+                while ((m = regex.exec(text)) !== null) fullCoords.push([parseFloat(m[1]), parseFloat(m[2])]);
+                
+                latlngs = fullCoords.filter((_, idx) => idx % 10 === 0);
+                cachedData[act.id] = latlngs;
+            } catch (e) {}
+        }
+
+        if (latlngs && latlngs.length > 0) {
+            L.polyline(latlngs, { color: '#fc4c02', opacity: 0.35, weight: 2.5, interactive: false }).addTo(heatmapMap);
+        }
+        
+        if (i % 20 === 0) { try { localStorage.setItem(cacheKey, JSON.stringify(cachedData)); } catch (e) {} }
+        if (i % 5 === 0) await new Promise(r => setTimeout(r, 1));
     }
+    
+    try { localStorage.setItem(cacheKey, JSON.stringify(cachedData)); } catch (e) {}
+    btn.disabled = false; btn.innerText = "🚀 Vernieuwen";
     setTimeout(() => document.getElementById('heatmap-progress').style.display = "none", 1000);
+};
+
+window.clearHeatmapCache = function() {
+    const user = window.supabaseAuth.getCurrentUser();
+    localStorage.removeItem(`heatmap_coords_${user.id}`);
+    location.reload();
 };
 
 // --- WERELD JAGER ---
@@ -218,7 +254,6 @@ async function initMuniMap() {
 
 async function loadFeatures() {
     let allFeatures = [];
-    document.getElementById('muni-loading').style.display = 'block';
     for(const region of REGIONS) {
         try {
             const res = await fetch(region.url);
@@ -236,18 +271,16 @@ async function loadFeatures() {
     geoJsonLayer = L.geoJSON({ type: "FeatureCollection", features: allFeatures }, {
         onEachFeature: (feature, layer) => { layer.muniName = feature.properties.muniName; layer.bindTooltip(layer.muniName, { sticky: true }); }
     }).addTo(muniMap);
-    document.getElementById('muni-total').innerText = allFeatures.length;
-    document.getElementById('scan-btn').style.display = 'inline-block';
     const names = await window.supabaseAuth.getConqueredMunicipalities();
     conqueredMunis = new Set(names);
     updateMuniUI();
-    document.getElementById('muni-loading').style.display = 'none';
 }
 
 function updateMuniUI() {
     if(!geoJsonLayer) return;
-    const t = parseInt(document.getElementById('muni-total').innerText) || 1;
     document.getElementById('muni-count').innerText = conqueredMunis.size;
+    const t = geoJsonLayer.getLayers().length || 1;
+    document.getElementById('muni-total').innerText = t;
     document.getElementById('muni-percent').innerText = ((conqueredMunis.size/t)*100).toFixed(1) + '%';
     document.getElementById('muni-progress-fill').style.width = (conqueredMunis.size/t)*100 + '%';
     geoJsonLayer.eachLayer(l => {
@@ -256,142 +289,7 @@ function updateMuniUI() {
     });
 }
 
-async function scanOldRides() {
-    if(!confirm("Start scan van alle ritten?")) return;
-    const activities = allActivitiesCache || await window.supabaseAuth.listActivities();
-    const muniLayers = geoJsonLayer.getLayers();
-    for (const act of activities) {
-        const blob = await window.supabaseAuth.getActivityFile(act.id);
-        const text = await blob.text();
-        const found = [];
-        const regex = /lat="([\d\.-]+)"\s+lon="([\d\.-]+)"/g;
-        let m; while ((m = regex.exec(text)) !== null) {
-            const pt = turf.point([parseFloat(m[2]), parseFloat(m[1])]);
-            for (const layer of muniLayers) {
-                if (conqueredMunis.has(layer.muniName)) continue;
-                if (turf.booleanPointInPolygon(pt, layer.feature)) { found.push(layer.muniName); conqueredMunis.add(layer.muniName); }
-            }
-        }
-        if(found.length > 0) await window.supabaseAuth.saveConqueredMunicipalities(found);
-    }
-    updateMuniUI();
-}
-
-// --- COMPARE LOGICA ---
-function renderCompareSelectionList(activities) {
-    const list = document.getElementById('compare-selection-list');
-    const fText = document.getElementById('filter-text').value.toLowerCase();
-    const filtered = activities.filter(act => act.fileName.toLowerCase().includes(fText))
-        .sort((a, b) => new Date(b.summary.rideDate) - new Date(a.summary.rideDate));
-
-    list.innerHTML = filtered.map(act => `
-        <div class="compare-item">
-            <input type="checkbox" id="cmp-${act.id}" ${compareSelection.has(act.id)?'checked':''} onchange="toggleCompare('${act.id}')">
-            <label for="cmp-${act.id}" style="flex:1; cursor:pointer;">
-                <strong>${act.fileName}</strong><br><small>${new Date(act.summary.rideDate).toLocaleDateString()} - ${act.summary.distanceKm}km</small>
-            </label>
-        </div>
-    `).join('');
-}
-
-window.toggleCompare = (id) => { 
-    if(compareSelection.has(id)) compareSelection.delete(id); else compareSelection.add(id);
-    updateCompareTable(); 
-};
-
-async function updateCompareTable() {
-    const table = document.getElementById('comparison-table');
-    const container = document.getElementById('compare-charts-container');
-    const loader = document.getElementById('compare-loading');
-    if(compareSelection.size < 2) { 
-        table.innerHTML = '<tbody><tr><td style="padding:20px; color:var(--text-muted);">Vink minimaal 2 ritten aan.</td></tr></tbody>'; 
-        container.classList.add('hidden'); return; 
-    }
-    container.classList.remove('hidden'); loader.style.display = 'block';
-
-    const acts = allActivitiesCache.filter(a => compareSelection.has(a.id)).sort((a,b) => new Date(a.summary.rideDate) - new Date(b.summary.rideDate));
-    table.innerHTML = '<thead><tr><th>Statistiek</th>' + acts.map(a => `<th>${a.fileName}</th>`).join('') + '</tr></thead>' +
-        '<tbody><tr><td>Afstand</td>' + acts.map(a => `<td>${parseFloat(a.summary.distanceKm).toFixed(1)} km</td>`).join('') + '</tr>' +
-        '<tr><td>Hoogte</td>' + acts.map(a => `<td>${a.summary.elevationGain} m</td>`).join('') + '</tr>' +
-        '<tr><td>Snelheid</td>' + acts.map(a => `<td>${a.summary.avgSpeed} km/u</td>`).join('') + '</tr></tbody>';
-
-    const profiles = [];
-    const colors = ['#fc4c02', '#28a745', '#007bff', '#ffc107', '#6610f2'];
-    for(let i=0; i<acts.length; i++) {
-        const b = await window.supabaseAuth.getActivityFile(acts[i].id);
-        const t = await b.text();
-        const d = window.parseGPXData(t, acts[i].fileName);
-        profiles.push({ label: acts[i].fileName, data: d, color: colors[i % colors.length] });
-    }
-    updateCompareCharts(profiles); loader.style.display = 'none';
-}
-
-function updateCompareCharts(profiles) {
-    const startIdx = 2; const endIdx = 99;
-    const labels = Array.from({length: 101}, (_, i) => `${i}%`).slice(startIdx, endIdx);
-    
-    const render = (id, metricKey, yLabel) => {
-        const ctx = document.getElementById(id).getContext('2d');
-        if (cmpCharts[id]) cmpCharts[id].destroy();
-        
-        const datasets = profiles.map(p => {
-            const normalized = normalizeRideData(p.data, 100);
-            return {
-                label: p.label,
-                data: normalized[metricKey].slice(startIdx, endIdx),
-                borderColor: p.color,
-                backgroundColor: 'transparent',
-                borderWidth: 2,
-                pointRadius: 0,
-                tension: 0.4
-            };
-        });
-
-        cmpCharts[id] = new Chart(ctx, {
-            type: 'line',
-            data: { labels: labels, datasets: datasets },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                onHover: (event, chartElements) => {
-                    if (chartElements.length > 0) {
-                        const pointIndex = chartElements[0].index + startIdx;
-                        // Toon punt op kaart voor de eerste geselecteerde rit als voorbeeld
-                        const firstRideLatLngs = profiles[0].data.uiData.latlngs;
-                        const realIndex = Math.floor((pointIndex / 100) * (firstRideLatLngs.length - 1));
-                        if (window.showPointOnMap) window.showPointOnMap(realIndex);
-                    } else {
-                        if (window.hidePointOnMap) window.hidePointOnMap();
-                    }
-                },
-                interaction: { mode: 'index', intersect: false },
-                scales: { y: { title: { display: true, text: yLabel } } }
-            }
-        });
-    };
-    render('cmpChartElev', 'elev', 'meters');
-    render('cmpChartSpeed', 'speed', 'km/u');
-}
-
-function normalizeRideData(rideData, steps) {
-    const rawDist = rideData.uiData.distances; 
-    const rawElev = rideData.uiData.elevations; 
-    const rawSpeeds = rideData.uiData.speeds; 
-    const elevProfile = []; const speedProfile = [];
-    const totalDist = parseFloat(rideData.summary.distanceKm);
-    for(let i=0; i<=steps; i++) {
-        const targetDist = (i / steps) * totalDist;
-        let idx = rawDist.findIndex(d => d >= targetDist);
-        if(idx === -1) idx = rawDist.length - 1;
-        elevProfile.push(rawElev[idx]);
-        let s = rawSpeeds[idx] || 0;
-        if(i > 0) s = (s + speedProfile[i-1]) / 2;
-        speedProfile.push(s);
-    }
-    return { elev: elevProfile, speed: speedProfile };
-}
-
-// --- DASHBOARD LOGICA ---
+// --- DASHBOARD & UTILS ---
 async function updateDashboard() {
     if(!window.supabaseAuth.getCurrentUser()) return;
     allActivitiesCache = await window.supabaseAuth.listActivities();
@@ -413,10 +311,6 @@ function renderActivityList(acts) {
         </div>`).join('');
 }
 
-window.showAllActivities = () => {
-    if (allActivitiesCache) renderActivityList(allActivitiesCache);
-};
-
 window.toggleSelection = (id) => { 
     if(selectedRides.has(id)) selectedRides.delete(id); else selectedRides.add(id);
     document.getElementById('delete-btn').classList.toggle('hidden', selectedRides.size === 0);
@@ -427,7 +321,6 @@ window.deleteSelectedRides = async function() {
 };
 
 window.triggerUpload = () => document.getElementById('gpxInput').click();
-
 window.toggleTheme = () => {
     document.body.classList.toggle('dark-mode');
     localStorage.setItem('theme', document.body.classList.contains('dark-mode') ? 'dark' : 'light');

@@ -44,10 +44,10 @@
             <div id="view-dashboard" class="view-section">
                 <header class="view-header"><h2>👋 Dashboard</h2></header>
                 <div class="dashboard-grid">
-                    <div class="dash-card"><div><h3>Totale Afstand</h3><p id="total-dist">0 km</p></div></div>
-                    <div class="dash-card"><div><h3>Totale Hoogte</h3><p id="total-elev">0 m</p></div></div>
+                    <div class="dash-card"><div><h3>Afstand</h3><p id="total-dist">0 km</p></div></div>
+                    <div class="dash-card"><div><h3>Hoogte</h3><p id="total-elev">0 m</p></div></div>
                     <div class="dash-card" onclick="showAllActivities()" style="cursor:pointer;"><div><h3>Ritten</h3><p id="total-rides">0</p></div></div>
-                    <div class="dash-card action-card" onclick="triggerUpload()" style="cursor:pointer;"><h3>📂 Uploaden</h3></div>
+                    <div class="dash-card action-card" onclick="triggerUpload()" style="cursor:pointer;"><h3>📂 Upload</h3></div>
                 </div>
                 <div class="recent-section">
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
@@ -63,53 +63,27 @@
                     <aside class="inner-sidebar">
                         <div class="upload-section">
                             <input type="file" id="gpxInput" multiple class="hidden-input">
-                            <label for="gpxInput" class="upload-btn">📄 Nieuw Bestand</label>
+                            <label for="gpxInput" class="upload-btn">📄 Bestanden</label>
                         </div>
-                        
                         <div class="stats-grid hidden" id="statsPanel">
-                            <div class="stat-widget">
-                                <span class="stat-icon">📏</span>
-                                <span class="stat-label">Afstand</span>
-                                <span class="stat-value"><span id="statDist">0</span> <small>km</small></span>
-                            </div>
-                            <div class="stat-widget">
-                                <span class="stat-icon">⏱️</span>
-                                <span class="stat-label">Tijd</span>
-                                <span class="stat-value" id="statTime">0:00</span>
-                            </div>
-                            <div class="stat-widget">
-                                <span class="stat-icon">⚡</span>
-                                <span class="stat-label">Gem. Snelheid</span>
-                                <span class="stat-value"><span id="statSpeed">0</span> <small>km/u</small></span>
-                            </div>
-                            <div class="stat-widget">
-                                <span class="stat-icon">⛰️</span>
-                                <span class="stat-label">Hoogtemeters</span>
-                                <span class="stat-value"><span id="statElev">0</span> <small>m</small></span>
-                            </div>
+                            <div class="stat-widget"><span class="stat-icon">📏</span><span class="stat-label">Afstand</span><span class="stat-value"><span id="statDist">0</span> <small>km</small></span></div>
+                            <div class="stat-widget"><span class="stat-icon">⏱️</span><span class="stat-label">Tijd</span><span class="stat-value" id="statTime">0:00</span></div>
+                            <div class="stat-widget"><span class="stat-icon">⚡</span><span class="stat-label">Km/u</span><span class="stat-value"><span id="statSpeed">0</span> <small>km/u</small></span></div>
+                            <div class="stat-widget"><span class="stat-icon">⛰️</span><span class="stat-label">Hoogte</span><span class="stat-value"><span id="statElev">0</span> <small>m</small></span></div>
                         </div>
-
-                        <div id="save-section" class="hidden" style="margin-top:10px;">
-                            <button id="save-cloud-btn" class="save-btn">💾 Rit Opslaan</button>
-                        </div>
-
-                        <div id="current-segments-section" class="hidden">
-                            <h3>⚡ Snelste Stukken</h3>
-                            <div id="segments-list" class="segments-list"></div>
-                        </div>
+                        <div id="save-section" class="hidden"><button id="save-cloud-btn" class="save-btn">💾 Opslaan</button></div>
+                        <div id="current-segments-section" class="hidden"><h3>⚡ Segmenten</h3><div id="segments-list" class="segments-list"></div></div>
                     </aside>
                     <main class="inner-main">
                         <div id="map"></div>
-                        <div class="charts-view hidden" id="chartsPanel">
-                            <div class="chart-container"><canvas id="elevationChart"></canvas></div>
-                        </div>
+                        <div class="charts-view hidden" id="chartsPanel"><div class="chart-container"><canvas id="elevationChart"></canvas></div></div>
                     </main>
                 </div>
             </div>
 
             <div id="view-rankings" class="view-section hidden">
                 <div style="padding: 20px; max-width: 1200px; margin: 0 auto;">
-                    <header class="view-header"><h2>🏆 Prestaties & Trends</h2></header>
+                    <header class="view-header"><h2>🏆 Records & Trends</h2></header>
                     <div class="sub-nav-container">
                         <button class="sub-nav-btn active" onclick="switchRankingTab('segments')">⚡ Records</button>
                         <button class="sub-nav-btn" onclick="switchRankingTab('distance')">📏 Afstanden</button>
@@ -139,14 +113,14 @@
 
                     <div id="rank-tab-elevation" class="rank-tab-content hidden">
                         <div class="ranking-controls"><select id="elevationTopFilter" class="segment-select" onchange="switchRankingTab('elevation')"><option value="all">Alles</option><option value="5">Top 5</option><option value="10">Top 10</option></select></div>
-                        <div class="chart-box wide" style="height:300px; margin-bottom: 20px;"><canvas id="elevationTrendChart"></canvas></div>
+                        <div class="chart-box wide" style="height:300px; margin-bottom:20px;"><canvas id="elevationTrendChart"></canvas></div>
                         <div class="table-container"><table class="data-table"><thead><tr><th>#</th><th>Naam</th><th>Datum</th><th>Hoogte</th></tr></thead><tbody id="elevation-table-body"></tbody></table></div>
                     </div>
 
                     <div id="rank-tab-compare" class="rank-tab-content hidden">
                         <div class="compare-layout">
                             <div class="compare-sidebar"><input type="text" id="filter-text" placeholder="Zoek ritten..." class="search-bar"><div id="compare-selection-list" class="compare-list"></div></div>
-                            <div class="compare-main"><div class="table-container"><table class="compare-table" id="comparison-table"></table></div><div id="compare-charts-container" class="hidden"><div class="chart-box wide"><h4>⛰️ Hoogte</h4><canvas id="cmpChartElev"></canvas></div><div class="chart-box wide"><h4>⚡ Snelheid</h4><canvas id="cmpChartSpeed"></canvas></div></div><div id="compare-loading" style="display:none; text-align:center; margin-top:10px;">⏳ Analyseren...</div></div>
+                            <div class="compare-main"><div class="table-container"><table class="compare-table" id="comparison-table"></table></div><div id="compare-charts-container" class="hidden"><div class="chart-box wide"><h4>⛰️ Hoogte</h4><canvas id="cmpChartElev"></canvas></div><div class="chart-box wide"><h4>⚡ Snelheid</h4><canvas id="cmpChartSpeed"></canvas></div></div></div>
                         </div>
                     </div>
                 </div>
@@ -154,14 +128,12 @@
 
             <div id="view-municipalities" class="view-section hidden">
                 <div class="muni-container">
-                    <header class="view-header" style="padding: 20px;">
+                    <header class="view-header" style="padding:20px;">
                         <h2>🌍 Wereld Jager</h2>
                         <div class="progress-wrapper">
                             <div class="progress-text"><span id="muni-count">0</span> / <span id="muni-total">?</span> <span id="muni-percent" style="float:right;">0%</span></div>
                             <div class="progress-bar-bg"><div id="muni-progress-fill" class="progress-bar-fill"></div></div>
                         </div>
-                        <p id="muni-loading" style="display:none; color:var(--primary); margin-top:10px;">⏳ Laden...</p>
-                        <button id="scan-btn" class="upload-btn" style="display:none; margin-top:10px; width:auto;" onclick="scanOldRides()">🔄 Scan ritten</button>
                     </header>
                     <div id="map-municipalities"></div>
                 </div>
@@ -171,9 +143,13 @@
                 <div class="muni-container">
                     <header class="view-header" style="padding: 20px; position: absolute; z-index: 1000; pointer-events: none;">
                         <div style="background: var(--bg-card); padding: 15px; border-radius: 8px; border: 1px solid var(--border-color); pointer-events: auto;">
-                            <h2>🔥 Jouw Heatmap</h2>
+                            <h2>🔥 Heatmap</h2>
+                            <p style="font-size:0.8rem; margin-bottom:5px; color:var(--text-muted);">Klik op een weg voor rit-details</p>
                             <button id="load-heatmap-btn" class="upload-btn" onclick="generateHeatmap()">🚀 Start</button>
-                            <div id="heatmap-progress" style="display:none; margin-top:10px;"><div id="heatmap-bar" class="progress-bar-fill"></div></div>
+                            <button class="upload-btn" style="background:#555; margin-top:5px;" onclick="clearHeatmapCache()">🗑️ Wis Cache</button>
+                            <div id="heatmap-progress" style="display:none; margin-top:10px;">
+                                <div class="progress-bar-bg"><div id="heatmap-bar" class="progress-bar-fill"></div></div>
+                            </div>
                         </div>
                     </header>
                     <div id="map-heatmap"></div>
