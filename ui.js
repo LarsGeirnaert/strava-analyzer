@@ -1,13 +1,14 @@
-// ui.js - Dashboard, Rankings, Wereld Jager, Compare Charts, Heatmap & Dark Mode
+// ui.js - Dashboard, Rankings, Wereld Jager, Compare Charts, Heatmap, Progress & Dark Mode
 
 let allActivitiesCache = null; 
 let muniMap = null; 
-let heatmapMap = null; // NIEUW
+let heatmapMap = null; 
 let geoJsonLayer = null; 
 let conqueredMunis = new Set(); 
 let selectedRides = new Set(); 
 let compareSelection = new Set(); 
 let cmpCharts = {}; 
+let progressionChart = null; // Grafiek voor records progressie
 
 const REGIONS = [
     { code: 'be', url: 'communes.json', type: 'topojson', nameFields: ['Gemeente', 'name', 'NAME_4', 'Name'] },
@@ -18,6 +19,7 @@ const REGIONS = [
 document.addEventListener('DOMContentLoaded', () => {
     setupNavigation();
     setupSegmentSelector();
+    setupFilterListeners();
 });
 
 // --- NAVIGATIE ---
@@ -26,6 +28,21 @@ function setupNavigation() {
         btn.addEventListener('click', () => switchTab(btn.dataset.target))
     );
 }
+
+function setupFilterListeners() {
+    const inputs = document.querySelectorAll('#filter-text, .small-input, #filter-year');
+    inputs.forEach(input => {
+        input.addEventListener('input', () => {
+            if(allActivitiesCache) renderCompareSelectionList(allActivitiesCache);
+        });
+    });
+}
+
+window.resetFilters = function() {
+    document.querySelectorAll('#filter-text, .small-input').forEach(i => i.value = '');
+    document.getElementById('filter-year').value = '';
+    if(allActivitiesCache) renderCompareSelectionList(allActivitiesCache);
+};
 
 function setupSegmentSelector() {
     const select = document.getElementById('segmentSelector');
@@ -51,7 +68,7 @@ function switchTab(tabName) {
     if(tabName === 'dashboard') { selectedRides.clear(); updateDeleteButton(); updateDashboard(); }
     
     if(tabName === 'municipalities') setTimeout(() => initMuniMap(), 200);
-    if(tabName === 'heatmap') setTimeout(() => initHeatmapMap(), 200); // NIEUW
+    if(tabName === 'heatmap') setTimeout(() => initHeatmapMap(), 200);
 
     if(tabName === 'rankings') {
         if(!document.querySelector('.sub-nav-btn.active')) switchRankingTab('segments');
@@ -62,7 +79,7 @@ function switchTab(tabName) {
     }
 }
 
-// --- SUB TABS RANGLIJSTEN ---
+// --- RANGLIJSTEN ---
 window.switchRankingTab = async function(subTab) {
     document.querySelectorAll('.sub-nav-btn').forEach(b => b.classList.remove('active'));
     document.querySelectorAll('.sub-nav-btn[onclick*="' + subTab + '"]').forEach(b => b.classList.add('active'));
@@ -103,7 +120,31 @@ function renderGeneralRanking(activities, sortKey, tableId) {
 function renderCompareSelectionList(activities) {
     const list = document.getElementById('compare-selection-list');
     list.innerHTML = '';
-    const sorted = [...activities].sort((a, b) => new Date(b.summary.rideDate) - new Date(a.summary.rideDate));
+    const fText = document.getElementById('filter-text').value.toLowerCase();
+    const fDistMin = parseFloat(document.getElementById('filter-dist-min').value) || 0;
+    const fDistMax = parseFloat(document.getElementById('filter-dist-max').value) || 99999;
+    const fElevMin = parseFloat(document.getElementById('filter-elev-min').value) || 0;
+    const fElevMax = parseFloat(document.getElementById('filter-elev-max').value) || 99999;
+    const fSpeedMin = parseFloat(document.getElementById('filter-speed-min').value) || 0;
+    const fSpeedMax = parseFloat(document.getElementById('filter-speed-max').value) || 999;
+    const fYear = document.getElementById('filter-year').value;
+
+    const filtered = activities.filter(act => {
+        const dist = parseFloat(act.summary.distanceKm) || 0;
+        const elev = parseFloat(act.summary.elevationGain) || 0;
+        const speed = parseFloat(act.summary.avgSpeed) || 0;
+        const year = new Date(act.summary.rideDate).getFullYear().toString();
+        if (!act.fileName.toLowerCase().includes(fText)) return false;
+        if (dist < fDistMin || dist > fDistMax) return false;
+        if (elev < fElevMin || elev > fElevMax) return false;
+        if (speed < fSpeedMin || speed > fSpeedMax) return false;
+        if (fYear !== "" && year !== fYear) return false;
+        return true;
+    });
+
+    const sorted = filtered.sort((a, b) => new Date(b.summary.rideDate) - new Date(a.summary.rideDate));
+    if(sorted.length === 0) { list.innerHTML = '<p style="padding:10px; color:var(--text-muted); text-align:center;">Geen ritten gevonden.</p>'; return; }
+
     sorted.forEach(act => {
         const div = document.createElement('div');
         div.className = 'compare-item';
@@ -111,7 +152,6 @@ function renderCompareSelectionList(activities) {
         div.querySelector('input').addEventListener('change', (e) => { if(e.target.checked) compareSelection.add(act.id); else compareSelection.delete(act.id); updateCompareTable(); });
         list.appendChild(div);
     });
-    updateCompareTable();
 }
 
 // --- COMPARE TABLES & CHARTS ---
@@ -130,8 +170,7 @@ async function updateCompareTable() {
     loader.style.display = 'block'; 
 
     let activities = allActivitiesCache || await window.supabaseAuth.listActivities();
-    const selectedActs = activities.filter(a => compareSelection.has(a.id))
-                                   .sort((a, b) => new Date(a.summary.rideDate) - new Date(b.summary.rideDate)); 
+    const selectedActs = activities.filter(a => compareSelection.has(a.id)).sort((a, b) => new Date(a.summary.rideDate) - new Date(b.summary.rideDate)); 
 
     let html = '<thead><tr><th>Statistiek</th>';
     selectedActs.forEach(act => { html += `<th>${act.fileName}<br><small style="font-weight:normal;">${new Date(act.summary.rideDate).toLocaleDateString()}</small></th>`; });
@@ -154,8 +193,6 @@ async function updateCompareTable() {
     html += '</tbody>';
     table.innerHTML = html;
 
-    if(!window.parseGPXData) { console.error("Parser niet gevonden!"); return; }
-
     const profileData = [];
     const colors = ['#fc4c02', '#28a745', '#007bff', '#ffc107', '#6610f2', '#e83e8c']; 
 
@@ -165,40 +202,26 @@ async function updateCompareTable() {
             const blob = await window.supabaseAuth.getActivityFile(act.id);
             const text = await blob.text();
             const data = window.parseGPXData(text, act.fileName);
-            
             const normalized = normalizeRideData(data, 100);
-            profileData.push({
-                label: act.fileName,
-                elev: normalized.elev,
-                speed: normalized.speed,
-                color: colors[i % colors.length]
-            });
+            profileData.push({ label: act.fileName, elev: normalized.elev, speed: normalized.speed, color: colors[i % colors.length] });
         }
         updateCompareCharts(profileData);
-    } catch(e) {
-        console.error(e);
-        alert("Fout bij ophalen rit data: " + e.message);
-    } finally {
-        loader.style.display = 'none';
-    }
+    } catch(e) { console.error(e); } finally { loader.style.display = 'none'; }
 }
 
 function normalizeRideData(rideData, steps) {
     const rawDist = rideData.uiData.distances; 
     const rawElev = rideData.uiData.elevations; 
     const rawSpeeds = rideData.uiData.speeds; 
-    
-    const elevProfile = [];
-    const speedProfile = [];
+    const elevProfile = []; const speedProfile = [];
     const totalDist = parseFloat(rideData.summary.distanceKm);
-    
     for(let i=0; i<=steps; i++) {
         const targetDist = (i / steps) * totalDist;
         let idx = rawDist.findIndex(d => d >= targetDist);
         if(idx === -1) idx = rawDist.length - 1;
         elevProfile.push(rawElev[idx]);
         let speed = rawSpeeds[idx] || 0;
-        if(i > 0) { const prev = speedProfile[i-1]; speed = (speed + prev) / 2; }
+        if(i > 0) { speed = (speed + speedProfile[i-1]) / 2; }
         speedProfile.push(speed);
     }
     return { elev: elevProfile, speed: speedProfile };
@@ -206,42 +229,32 @@ function normalizeRideData(rideData, steps) {
 
 function updateCompareCharts(datasets) {
     const startIdx = 2; const endIdx = 99; 
-    const fullLabels = Array.from({length: 101}, (_, i) => `${i}%`); 
-    const labels = fullLabels.slice(startIdx, endIdx); 
-
+    const labels = Array.from({length: 101}, (_, i) => `${i}%`).slice(startIdx, endIdx); 
     const createChart = (id, title, metricKey, yLabel) => {
         const ctx = document.getElementById(id).getContext('2d');
         if (cmpCharts[id]) cmpCharts[id].destroy();
         cmpCharts[id] = new Chart(ctx, {
             type: 'line', 
             data: { labels: labels, datasets: datasets.map(d => ({ label: d.label, data: d[metricKey].slice(startIdx, endIdx), borderColor: d.color, backgroundColor: 'transparent', borderWidth: 2, pointRadius: 0, pointHoverRadius: 4, tension: 0.4 })) },
-            options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false }, plugins: { title: { display: true, text: title }, tooltip: { callbacks: { label: (ctx) => `${ctx.dataset.label}: ${ctx.raw.toFixed(1)} ${yLabel}` } } }, scales: { y: { beginAtZero: true, title: { display: true, text: yLabel }, grid: { color: 'rgba(200,200,200,0.1)' } }, x: { grid: { display: false }, ticks: { maxTicksLimit: 11 } } } }
+            options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false }, plugins: { title: { display: true, text: title } }, scales: { y: { beginAtZero: true, title: { display: true, text: yLabel }, grid: { color: 'rgba(200,200,200,0.1)' } }, x: { grid: { display: false }, ticks: { maxTicksLimit: 11 } } } }
         });
     };
     createChart('cmpChartElev', 'Hoogteprofiel', 'elev', 'meters');
     createChart('cmpChartSpeed', 'Snelheidsprofiel', 'speed', 'km/u');
 }
 
+// --- HEATMAP LOGICA (WIT + GRENZEN) ---
 async function initHeatmapMap() {
     if (heatmapMap) { heatmapMap.invalidateSize(); return; }
-    
-    heatmapMap = L.map('map-heatmap', {
-        zoomControl: true,
-        attributionControl: false
-    }).setView([50.8503, 4.3517], 8); 
+    heatmapMap = L.map('map-heatmap', { zoomControl: true, attributionControl: false }).setView([50.8503, 4.3517], 7); 
 
-    // We gebruiken de 'Positron' laag van CartoDB: deze is zeer rustig en grijs/wit
-    const positron = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png', {
-        attribution: '©OpenStreetMap ©CARTO',
-        subdomains: 'abcd',
-        maxZoom: 20
-    }).addTo(heatmapMap);
-
-    // Optioneel: voeg alleen de plaatsnamen toe op de achtergrond
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/light_only_labels/{z}/{x}/{y}{r}.png', {
-        subdomains: 'abcd',
-        opacity: 0.3 // Heel zachtjes de namen van steden tonen
-    }).addTo(heatmapMap);
+    fetch('https://raw.githubusercontent.com/datasets/geo-boundaries-world-110m/master/countries.geojson')
+        .then(res => res.json())
+        .then(data => {
+            L.geoJson(data, {
+                style: { color: "#bbbbbb", weight: 1.5, fillOpacity: 0, interactive: false }
+            }).addTo(heatmapMap);
+        });
 }
 
 window.generateHeatmap = async function() {
@@ -250,140 +263,72 @@ window.generateHeatmap = async function() {
     const progressDiv = document.getElementById('heatmap-progress');
     const bar = document.getElementById('heatmap-bar');
     const status = document.getElementById('heatmap-status');
-
-    btn.disabled = true; btn.style.opacity = "0.5";
-    progressDiv.style.display = "block";
+    btn.disabled = true; progressDiv.style.display = "block";
 
     try {
         let activities = allActivitiesCache || await window.supabaseAuth.listActivities();
-        allActivitiesCache = activities;
-        
-        let count = 0;
-        const total = activities.length;
-
-        // Wis alles behalve de kaart zelf
-        heatmapMap.eachLayer(layer => {
-            if (layer instanceof L.Polyline) heatmapMap.removeLayer(layer);
-        });
+        let count = 0; const total = activities.length;
+        heatmapMap.eachLayer(layer => { if (layer instanceof L.Polyline) heatmapMap.removeLayer(layer); });
 
         for (const act of activities) {
-            count++;
-            const pct = Math.round((count / total) * 100);
-            bar.style.width = pct + "%";
-            status.innerText = `${count} / ${total} ritten`;
-
+            count++; bar.style.width = Math.round((count / total) * 100) + "%"; status.innerText = `${count} / ${total} ritten`;
             try {
                 const blob = await window.supabaseAuth.getActivityFile(act.id);
                 const text = await blob.text();
                 const latlngs = quickParseGPX(text);
-                
                 if (latlngs.length > 0) {
-                    L.polyline(latlngs, {
-                        color: '#fc4c02', // Strava Oranje
-                        opacity: 0.12,    // Iets feller (0.15 ipv 0.08) voor witte achtergrond
-                        weight: 1.5,      // Iets dunnere lijnen voor meer detail
-                        interactive: false
-                    }).addTo(heatmapMap);
+                    L.polyline(latlngs, { color: '#fc4c02', opacity: 0.15, weight: 1.5, interactive: false }).addTo(heatmapMap);
                 }
-            } catch (e) { console.warn(e); }
-            
+            } catch (e) {}
             if(count % 8 === 0) await new Promise(r => setTimeout(r, 5));
         }
-
-        btn.innerText = "✅ Heatmap Klaar";
-        setTimeout(() => { 
-            progressDiv.style.display = 'none'; 
-            btn.disabled = false; btn.style.opacity = "1";
-        }, 2000);
-
-    } catch (e) {
-        console.error(e);
-        btn.disabled = false;
-    }
+        btn.innerText = "✅ Klaar!";
+        setTimeout(() => { progressDiv.style.display = 'none'; btn.disabled = false; btn.innerText = "🚀 Genereer Opnieuw"; }, 2000);
+    } catch (e) { btn.disabled = false; }
 };
 
-// Veel snellere parser die alleen coordinaten pakt
 function quickParseGPX(xmlString) {
     const coords = [];
-    // Regex is sneller dan DOMParser voor simpele extractie
     const regex = /lat="([\d\.-]+)"\s+lon="([\d\.-]+)"/g;
     let match;
     while ((match = regex.exec(xmlString)) !== null) {
         coords.push([parseFloat(match[1]), parseFloat(match[2])]);
     }
-    // Als regex faalt (bijv TCX), fallback naar trage parser
-    if (coords.length === 0) {
-        const parser = new DOMParser();
-        const xmlDoc = parser.parseFromString(xmlString, "text/xml");
-        const trkpts = xmlDoc.getElementsByTagName('Trackpoint'); // TCX
-        for(let i=0; i<trkpts.length; i+=5) { // Downsample voor snelheid
-            const lat = trkpts[i].getElementsByTagName('LatitudeDegrees')[0]?.textContent;
-            const lon = trkpts[i].getElementsByTagName('LongitudeDegrees')[0]?.textContent;
-            if(lat && lon) coords.push([parseFloat(lat), parseFloat(lon)]);
-        }
-    }
     return coords;
 }
 
-// --- MAP LOGICA (MUNICIPALITIES) ---
+// --- GEMEENTE JAGER ---
 async function initMuniMap() {
     if (muniMap) { muniMap.invalidateSize(); return; }
     muniMap = L.map('map-municipalities').setView([50.0, 4.5], 6); 
     L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', { attribution: '© OSM' }).addTo(muniMap);
+    loadFeatures();
+}
 
-    const header = document.querySelector('#view-municipalities .view-header');
-    if(!document.getElementById('scan-btn')) {
-        const btn = document.createElement('button');
-        btn.id = 'scan-btn'; btn.innerText = "⏳ Kaarten laden..."; btn.disabled = true; btn.onclick = scanOldRides;
-        btn.style = "margin-top:10px; padding:8px 15px; background:#ccc; color:white; border:none; border-radius:5px; cursor:not-allowed;";
-        header.appendChild(btn);
+async function loadFeatures() {
+    let allFeatures = [];
+    for(const region of REGIONS) {
+        try {
+            const res = await fetch(region.url);
+            let data = await res.json();
+            if (region.type === 'topojson' && typeof topojson !== 'undefined') data = topojson.feature(data, data.objects[Object.keys(data.objects)[0]]);
+            data.features.forEach(f => {
+                let name = "Onbekend";
+                for(const field of region.nameFields) { if(f.properties[field]) { name = f.properties[field]; break; } }
+                f.properties.muniName = `${name} (${region.code.toUpperCase()})`; 
+            });
+            allFeatures.push(...data.features);
+        } catch (err) {}
     }
-
-    const loading = document.getElementById('muni-loading');
-    loading.style.display = 'block';
-
-    try {
-        let allFeatures = [];
-        const promises = REGIONS.map(async (region) => {
-            try {
-                const res = await fetch(region.url);
-                if(!res.ok) throw new Error(`HTTP ${res.status}`);
-                let data = await res.json();
-                if (region.type === 'topojson' && data.type === 'Topology' && typeof topojson !== 'undefined') {
-                    data = topojson.feature(data, data.objects[Object.keys(data.objects)[0]]);
-                }
-                data.features.forEach(f => {
-                    let name = "Onbekend";
-                    for(const field of region.nameFields) { if(f.properties[field]) { name = f.properties[field]; break; } }
-                    f.properties.muniName = `${name} (${region.code.toUpperCase()})`; 
-                });
-                return data.features;
-            } catch (err) { console.warn(err); return []; }
-        });
-
-        const results = await Promise.all(promises);
-        results.forEach(features => allFeatures.push(...features));
-        if (allFeatures.length === 0) throw new Error("Geen kaarten geladen.");
-        loadFeaturesToMap(allFeatures);
-        loading.style.display = 'none';
-    } catch (e) {
-        loading.innerHTML = `⚠️ Fout: ${e.message}. Is 'communes.json' lokaal aanwezig?`;
-    }
+    loadFeaturesToMap(allFeatures);
 }
 
 function loadFeaturesToMap(features) {
     if(geoJsonLayer) muniMap.removeLayer(geoJsonLayer);
-    
     geoJsonLayer = L.geoJSON({ type: "FeatureCollection", features: features }, {
-        onEachFeature: (feature, layer) => { 
-            layer.muniName = feature.properties.muniName; 
-            layer.bindTooltip(layer.muniName, { sticky: true }); 
-        }
+        onEachFeature: (feature, layer) => { layer.muniName = feature.properties.muniName; layer.bindTooltip(layer.muniName, { sticky: true }); }
     }).addTo(muniMap);
-
     document.getElementById('muni-total').innerText = features.length;
-    const btn = document.getElementById('scan-btn');
-    if(btn) { btn.innerText = "🔄 Scan Alle Ritten"; btn.disabled = false; btn.style.background = "#fc4c02"; btn.style.cursor="pointer"; }
     loadConqueredFromDB();
 }
 
@@ -401,7 +346,6 @@ function updateMuniUI() {
     document.getElementById('muni-count').innerText = count;
     document.getElementById('muni-percent').innerText = ((count/total)*100).toFixed(1) + '%';
     document.getElementById('muni-progress-fill').style.width = ((count/total)*100) + '%';
-    
     geoJsonLayer.eachLayer(layer => {
         if (conqueredMunis.has(layer.muniName)) {
             layer.setStyle({ fillColor: '#fc4c02', fillOpacity: 0.7, color: '#d94002', weight: 2, className: '' });
@@ -412,28 +356,7 @@ function updateMuniUI() {
     });
 }
 
-async function scanOldRides() {
-    if(!geoJsonLayer) return;
-    if(!confirm("Start scan?")) return;
-    const btn = document.getElementById('scan-btn'); const loading = document.getElementById('muni-loading');
-    btn.disabled = true; loading.style.display = 'block'; loading.innerText = "Bezig...";
-    try {
-        let activities = allActivitiesCache || await window.supabaseAuth.listActivities();
-        const muniLayers = geoJsonLayer.getLayers();
-        let totalFound = 0;
-        for (const act of activities) {
-            loading.innerText = `Scan: ${act.fileName}`;
-            const blob = await window.supabaseAuth.getActivityFile(act.id);
-            const text = await blob.text();
-            const found = window.findMunisInGpx(text, muniLayers);
-            if(found.length > 0) { totalFound += found.length; await window.supabaseAuth.saveConqueredMunicipalities(found); found.forEach(n => conqueredMunis.add(n)); }
-        }
-        updateMuniUI(); loading.innerText = `Klaar! ${totalFound} gevonden.`;
-        setTimeout(() => { loading.style.display = 'none'; btn.disabled=false; }, 3000);
-    } catch (e) { console.error(e); loading.innerText = "Fout: " + e.message; btn.disabled = false; }
-}
-
-// --- STANDAARD FUNCTIES ---
+// --- DASHBOARD ---
 async function updateDashboard() {
     if(!window.supabaseAuth || !window.supabaseAuth.getCurrentUser()) return;
     let activities = allActivitiesCache || await window.supabaseAuth.listActivities();
@@ -457,8 +380,7 @@ function renderActivityList(activities, title) {
         const div = document.createElement('div');
         div.className = 'dash-list-item';
         div.style.paddingLeft = "0"; div.style.display = "flex"; div.style.alignItems = "stretch";
-        const name = act.fileName || "Naamloos";
-        div.innerHTML = `<div class="checkbox-zone"><input type="checkbox" class="list-checkbox" value="${act.id}"></div><div class="item-content" style="flex:1; display:flex; justify-content:space-between; align-items:center; padding: 15px 15px 15px 0;"><div><strong>${name}</strong><br><small>${new Date(act.summary.rideDate).toLocaleDateString('nl-NL')}</small></div><div style="text-align:right"><strong>${act.summary.distanceKm} km</strong><br><small>${act.summary.avgSpeed} km/u</small></div></div>`;
+        div.innerHTML = `<div class="checkbox-zone"><input type="checkbox" class="list-checkbox" value="${act.id}"></div><div class="item-content" style="flex:1; display:flex; justify-content:space-between; align-items:center; padding: 15px 15px 15px 0;"><div><strong>${act.fileName}</strong><br><small>${new Date(act.summary.rideDate).toLocaleDateString('nl-NL')}</small></div><div style="text-align:right"><strong>${act.summary.distanceKm} km</strong><br><small>${act.summary.avgSpeed} km/u</small></div></div>`;
         const checkbox = div.querySelector('.list-checkbox');
         div.querySelector('.checkbox-zone').addEventListener('click', (e) => { e.stopPropagation(); toggleSelection(act.id); checkbox.checked = selectedRides.has(act.id); });
         div.querySelector('.item-content').onclick = () => { switchTab('analysis'); window.openRide(act); };
@@ -471,26 +393,64 @@ function toggleSelection(id) { if(selectedRides.has(id)) selectedRides.delete(id
 function updateDeleteButton() { const btn = document.getElementById('delete-btn'); const count = document.getElementById('delete-count'); if(btn && count) { if(selectedRides.size > 0) { btn.classList.remove('hidden'); count.innerText = selectedRides.size; } else btn.classList.add('hidden'); } }
 window.deleteSelectedRides = async function() { if(selectedRides.size === 0 || !confirm("Zeker weten?")) return; try { await window.supabaseAuth.deleteActivities(Array.from(selectedRides)); allActivitiesCache = null; selectedRides.clear(); updateDeleteButton(); updateDashboard(); } catch(e) { alert("Fout: " + e.message); } };
 
+// --- RECORDS & PROGRESSIE ---
 window.loadRankings = async function(distanceKm) {
     distanceKm = parseInt(distanceKm);
     const list = document.getElementById('ranking-list');
+    const chartContainer = document.getElementById('segment-progression-container');
     list.innerHTML = '<p style="padding:20px; text-align:center;">Laden...</p>';
+    
     let activities = allActivitiesCache || await window.supabaseAuth.listActivities();
     allActivitiesCache = activities;
+
     const rankedData = activities.map(act => {
         const segments = act.summary.segments || [];
         const match = segments.find(s => s.distance === distanceKm);
         if(match) return { ...match, fileName: act.fileName, date: act.summary.rideDate, activity: act };
         return null;
-    }).filter(i => i).sort((a, b) => b.speed - a.speed);
+    }).filter(i => i);
+
+    const progressionData = [...rankedData].sort((a, b) => new Date(a.date) - new Date(b.date));
+    rankedData.sort((a, b) => b.speed - a.speed);
+    
     list.innerHTML = '';
-    if(rankedData.length === 0) { list.innerHTML = `<div style="padding:20px; text-align:center; color:var(--text-muted);"><p>Geen prestaties voor ${distanceKm} km.</p></div>`; return; }
+    if(rankedData.length === 0) { 
+        list.innerHTML = `<div style="padding:20px; text-align:center; color:var(--text-muted);"><p>Geen prestaties voor ${distanceKm} km.</p></div>`; 
+        chartContainer.style.display = 'none';
+        return; 
+    }
+
+    chartContainer.style.display = 'block';
+    const ctx = document.getElementById('segmentProgressionChart').getContext('2d');
+    if (progressionChart) progressionChart.destroy();
+    
+    
+
+    progressionChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: progressionData.map(d => new Date(d.date).toLocaleDateString()),
+            datasets: [{
+                label: `Snelheid op ${distanceKm}km`,
+                data: progressionData.map(d => d.speed.toFixed(2)),
+                borderColor: '#fc4c02',
+                backgroundColor: 'rgba(252, 76, 2, 0.1)',
+                fill: true, tension: 0.3, pointRadius: 5
+            }]
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: { y: { beginAtZero: false, title: { display: true, text: 'km/u' } } }
+        }
+    });
+
     rankedData.forEach((item, index) => {
         const div = document.createElement('div');
         let c = index===0?'gold':index===1?'silver':index===2?'bronze':'';
         const timeStr = new Date(item.timeMs).toISOString().substr(11, 8);
         div.className = `rank-card ${c}`;
-        div.innerHTML = `<div style="display:flex;gap:15px;align-items:center;"><div class="rank-pos">#${index+1}</div><div><strong>${item.fileName}</strong><br><small>${new Date(item.date).toLocaleDateString()}</small></div></div><div style="text-align:right"><div class="rank-speed">${item.speed.toFixed(1)} km/u</div><small style="font-family:monospace;">${timeStr}</small></div>`;
+        div.innerHTML = `<div style="display:flex;gap:15px;align-items:center;"><div class="rank-pos">#${index+1}</div><div><strong>${item.fileName}</strong><br><small>${new Date(item.date).toLocaleDateString()}</small></div></div><div style="text-align:right"><div class="rank-speed">${item.speed.toFixed(1)} km/u</div><small>${timeStr}</small></div>`;
         div.onclick = () => { switchTab('analysis'); window.openRide(item.activity); };
         list.appendChild(div);
     });
@@ -499,13 +459,10 @@ window.loadRankings = async function(distanceKm) {
 window.findMunisInGpx = function(xmlString, layers) {
     if(typeof turf === 'undefined') return [];
     const found = new Set();
-    const xmlDoc = new DOMParser().parseFromString(xmlString, "text/xml");
-    const trkpts = xmlDoc.getElementsByTagName('trkpt');
-    for(let i=0; i < trkpts.length; i+=50) {
-        let lat = parseFloat(trkpts[i].getAttribute('lat'));
-        let lon = parseFloat(trkpts[i].getAttribute('lon'));
-        if(isNaN(lat)) continue;
-        const pt = turf.point([lon, lat]);
+    const regex = /lat="([\d\.-]+)"\s+lon="([\d\.-]+)"/g;
+    let match;
+    while ((match = regex.exec(xmlString)) !== null) {
+        const pt = turf.point([parseFloat(match[2]), parseFloat(match[1])]);
         for (const layer of layers) {
             if (found.has(layer.muniName)) continue;
             if (turf.booleanPointInPolygon(pt, layer.feature)) { found.add(layer.muniName); break; }
