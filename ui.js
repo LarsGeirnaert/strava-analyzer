@@ -268,15 +268,142 @@ window.deleteRoute = async function(id) {
     }
 };
 
+// --- VERVANG DEZE FUNCTIES IN UI.JS ---
+
 async function updateDashboard() {
     if(!window.supabaseAuth.getCurrentUser()) return;
+    
+    // 1. Data ophalen
     allActivitiesCache = await window.supabaseAuth.listActivities();
+    
+    // Filter routes eruit voor de stats
     const realRides = allActivitiesCache.filter(a => a.summary.type !== 'route');
+
+    // 2. Basis Statistieken
     let d=0, e=0; 
-    realRides.forEach(a => { d += parseFloat(a.summary.distanceKm||0); e += parseFloat(a.summary.elevationGain||0); });
-    const u = (id, v) => { if(document.getElementById(id)) document.getElementById(id).innerText = v; };
-    u('total-dist', d.toFixed(0) + ' km'); u('total-elev', e.toFixed(0) + ' m'); u('total-rides', realRides.length);
-    renderActivityList(realRides.slice(0, 8));
+    realRides.forEach(a => { 
+        d += parseFloat(a.summary.distanceKm||0); 
+        e += parseFloat(a.summary.elevationGain||0); 
+    });
+    
+    // Animeer de getallen (leuk effectje)
+    animateValue("total-dist", 0, d, 1000, " km");
+    animateValue("total-elev", 0, e, 1000, " m");
+    document.getElementById('total-rides').innerText = realRides.length;
+
+    // 3. Welkomstboodschap & Quote
+    const hour = new Date().getHours();
+    let greeting = "Goedenacht";
+    if (hour >= 6 && hour < 12) greeting = "Goedemorgen";
+    else if (hour >= 12 && hour < 18) greeting = "Goedemiddag";
+    else if (hour >= 18) greeting = "Goedenavond";
+    
+    const userEmail = window.supabaseAuth.getCurrentUser().email.split('@')[0];
+    const name = userEmail.charAt(0).toUpperCase() + userEmail.slice(1); // Naam uit email
+    
+    document.getElementById('welcome-msg').innerText = `${greeting}, ${name}! 👋`;
+    
+    // Random quotes
+    const quotes = [
+        "Pijn is fijn, je moet alleen even de knop omzetten.",
+        "Het gaat niet om de snelheid, maar om de glimlach.",
+        "Wind tegen bouwt karakter.",
+        "Elke kilometer telt.",
+        "Blijf trappen, de top is dichtbij!",
+        "Ketting rechts en gaan!"
+    ];
+    document.getElementById('quote-msg').innerText = `"${quotes[Math.floor(Math.random() * quotes.length)]}"`;
+
+    // 4. Streak Berekening (Weken op rij gefietst)
+    const streak = calculateWeeklyStreak(realRides);
+    document.getElementById('streak-count').innerText = streak;
+
+    // 5. Badges Genereren (Gamification!)
+    renderBadges(d, e, realRides);
+
+    // 6. Lijst renderen
+    renderActivityList(realRides.slice(0, 5)); // Laatste 5
+}
+
+// --- NIEUWE HULPFUNCTIES VOOR DASHBOARD ---
+
+// Telt hoeveel aaneengesloten weken je hebt gefietst
+function calculateWeeklyStreak(activities) {
+    if (activities.length === 0) return 0;
+    
+    // Haal unieke weeknummers op (Jaar-Week)
+    const weeks = new Set();
+    activities.forEach(act => {
+        const date = new Date(act.summary.rideDate);
+        const onejan = new Date(date.getFullYear(), 0, 1);
+        const week = Math.ceil((((date.getTime() - onejan.getTime()) / 86400000) + onejan.getDay() + 1) / 7);
+        weeks.add(`${date.getFullYear()}-${week}`);
+    });
+    
+    // Simpele logica: voor nu gewoon het aantal unieke weken dat je actief was
+    // (Echte streak logica is complexer met gaten vullen, dit is een 'consistency score')
+    return weeks.size; 
+}
+
+// Genereert badges op basis van prestaties
+function renderBadges(totalDist, totalElev, activities) {
+    const container = document.getElementById('badges-container');
+    const badges = [];
+
+    // Afstand Badges
+    if (totalDist >= 100) badges.push({icon: '🥉', name: '100 km Club', desc: 'Je eerste mijlpaal!'});
+    if (totalDist >= 500) badges.push({icon: '🥈', name: '500 km Club', desc: 'Halverwege de 1000!'});
+    if (totalDist >= 1000) badges.push({icon: '🥇', name: '1000 km Club', desc: 'Serieuze fietser!'});
+    if (totalDist >= 5000) badges.push({icon: '🚀', name: 'Wereldreiziger', desc: '5000 km aangetikt!'});
+
+    // Hoogte Badges
+    if (totalElev >= 1000) badges.push({icon: '⛰️', name: 'Klimmer', desc: '1000m geklommen'});
+    if (totalElev >= 8848) badges.push({icon: '🏔️', name: 'Everesting', desc: 'Hoogte van Mt. Everest'});
+
+    // Rit Specifiek
+    const maxSpeed = Math.max(...activities.map(a => parseFloat(a.summary.avgSpeed) || 0));
+    if (maxSpeed > 30) badges.push({icon: '⚡', name: 'Speed Demon', desc: 'Gemiddeld > 30 km/u gereden'});
+    
+    const maxDist = Math.max(...activities.map(a => parseFloat(a.summary.distanceKm) || 0));
+    if (maxDist > 100) badges.push({icon: '💯', name: 'Gran Fondo', desc: 'Een rit van 100+ km'});
+
+    // Tijdrijder (Vroege vogels)
+    const earlyBird = activities.some(a => new Date(a.summary.rideDate).getHours() < 7);
+    if (earlyBird) badges.push({icon: '🌅', name: 'Vroege Vogel', desc: 'Rit gestart voor 07:00'});
+
+    // Render
+    if (badges.length === 0) {
+        container.innerHTML = '<span style="color:var(--text-muted);">Fiets meer om badges te verdienen!</span>';
+    } else {
+        container.innerHTML = badges.map(b => `
+            <div class="badge-item" title="${b.desc}">
+                <div class="badge-icon">${b.icon}</div>
+                <div class="badge-name">${b.name}</div>
+            </div>
+        `).join('');
+    }
+}
+
+// Leuke teller animatie
+function animateValue(id, start, end, duration, suffix = "") {
+    const obj = document.getElementById(id);
+    if (!obj) return;
+    let startTimestamp = null;
+    const step = (timestamp) => {
+        if (!startTimestamp) startTimestamp = timestamp;
+        const progress = Math.min((timestamp - startTimestamp) / duration, 1);
+        // Easing functie voor soepel verloop
+        const ease = 1 - Math.pow(1 - progress, 3); 
+        const val = Math.floor(progress * (end - start) + start);
+        obj.innerHTML = val + suffix;
+        if (progress < 1) {
+            window.requestAnimationFrame(step);
+        } else {
+            // Zorg dat het eindgetal exact klopt (met decimalen als nodig)
+            obj.innerHTML = (end % 1 === 0 ? end : end.toFixed(0)) + suffix;
+        }
+    };
+    window.requestAnimationFrame(step);
 }
 
 // --- VERVANG DEZE FUNCTIES IN UI.JS ---

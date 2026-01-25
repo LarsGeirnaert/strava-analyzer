@@ -48,19 +48,58 @@
         <div class="content-wrapper">
             
             <div id="view-dashboard" class="view-section">
-                <header class="view-header"><h2>🏠 Dashboard</h2></header>
-                <div class="dashboard-grid">
-                    <div class="dash-card stat-total"><div><h3>Totaal Afstand</h3><p id="total-dist">0 km</p></div></div>
-                    <div class="dash-card stat-total"><div><h3>Totaal Hoogte</h3><p id="total-elev">0 m</p></div></div>
-                    <div class="dash-card stat-total" onclick="showAllActivities()" style="cursor:pointer;"><div><h3>Ritten</h3><p id="total-rides">0</p></div></div>
-                    <div class="dash-card action-card" onclick="triggerUpload()"><h3>📂 Uploaden</h3></div>
-                </div>
-                <div class="recent-section">
-                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
-                        <h3>📜 Laatste Ritten</h3>
-                        <button id="delete-btn" class="delete-btn hidden" onclick="deleteSelectedRides()">🗑️ Verwijder</button>
+                <div class="welcome-banner animate-in">
+                    <div style="flex:1;">
+                        <h1 id="welcome-msg">Hoi! 👋</h1>
+                        <p id="quote-msg" style="opacity:0.9; font-style:italic;">"Pijn is fijn, je moet alleen even de knop omzetten."</p>
                     </div>
-                    <div id="dashboard-list" class="dashboard-list">Laden...</div>
+                    <div class="streak-box">
+                        <span style="font-size:2rem;">🔥</span>
+                        <div>
+                            <strong id="streak-count">0</strong>
+                            <small>Weken Streak</small>
+                        </div>
+                    </div>
+                </div>
+
+                <div style="padding: 20px 40px;">
+                    <header class="view-header" style="margin-bottom:20px;">
+                        <h2>📈 Jouw Statistieken</h2>
+                    </header>
+
+                    <div class="dashboard-grid">
+                        <div class="dash-card stat-total pop-in" style="animation-delay: 0.1s;">
+                            <div class="dash-icon" style="background:#e3f2fd; color:#007bff;">📏</div>
+                            <div class="dash-info"><h3>Totaal Afstand</h3><p id="total-dist">0 km</p></div>
+                        </div>
+                        <div class="dash-card stat-total pop-in" style="animation-delay: 0.2s;">
+                            <div class="dash-icon" style="background:#fff3cd; color:#ffc107;">⛰️</div>
+                            <div class="dash-info"><h3>Totaal Hoogte</h3><p id="total-elev">0 m</p></div>
+                        </div>
+                        <div class="dash-card stat-total pop-in" style="animation-delay: 0.3s;" onclick="showAllActivities()">
+                            <div class="dash-icon" style="background:#d4edda; color:#28a745;">🚴</div>
+                            <div class="dash-info"><h3>Ritten</h3><p id="total-rides">0</p></div>
+                        </div>
+                        <div class="dash-card action-card pop-in" style="animation-delay: 0.4s;" onclick="triggerUpload()">
+                            <h3>📂 Uploaden</h3>
+                            <small>Sleep of klik hier</small>
+                        </div>
+                    </div>
+
+                    <div class="badges-section animate-in" style="margin-bottom:40px;">
+                        <h3>🏆 Jouw Prijzenkast</h3>
+                        <div id="badges-container" class="badges-grid">
+                            <span style="color:var(--text-muted); font-style:italic;">Nog geen badges verdiend. Ga fietsen!</span>
+                        </div>
+                    </div>
+
+                    <div class="recent-section animate-in">
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+                            <h3>📜 Laatste Activiteiten</h3>
+                            <button id="delete-btn" class="delete-btn hidden" onclick="deleteSelectedRides()">🗑️ Verwijder</button>
+                        </div>
+                        <div id="dashboard-list" class="dashboard-list">Laden...</div>
+                    </div>
                 </div>
             </div>
 
