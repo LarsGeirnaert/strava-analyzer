@@ -199,15 +199,16 @@
                         <button class="sub-nav-btn" onclick="switchRankingTab('elevation')">⛰️ Hoogte</button>
                     </div>
                     
-                   <div id="rank-tab-segments" class="rank-tab-content">
+                    <div id="rank-tab-segments" class="rank-tab-content">
                         <div class="ranking-controls" style="display:flex; gap:10px; background:var(--bg-card); padding:15px; border-radius:8px; margin-bottom:20px;">
                             
                             <select id="segmentSelector" class="segment-select" onchange="loadRankings()"></select>
                             
-                            <select id="segmentTopFilter" class="segment-select" onchange="loadRankings()">
-                                <option value="all">Alles</option>
-                                <option value="5" selected>Top 5</option>
-                                <option value="10">Top 10</option>
+                            <select id="segmentTrendFilter" class="segment-select" onchange="loadRankings()">
+                                <option value="all">Trend: Alles</option>
+                                <option value="5">Trend: Laatste 5</option>
+                                <option value="10" selected>Trend: Laatste 10</option>
+                                <option value="20">Trend: Laatste 20</option>
                             </select>
 
                             <input type="number" id="segmentMaxElev" class="small-input" placeholder="Max Klim (m)" oninput="loadRankings()">

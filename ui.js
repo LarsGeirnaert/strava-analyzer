@@ -579,6 +579,7 @@ function renderTrendGraph(activities, key, tableId, chartId, filterId, label) {
     if(tb) tb.innerHTML = `<div class="table-container"><table class="data-table"><thead><tr><th>#</th><th>Naam</th><th>Datum</th><th>${label}</th></tr></thead><tbody>${r.map((act, i) => `<tr onclick="switchTab('analysis'); window.openRide(${JSON.stringify(act).replace(/"/g, '&quot;')})"><td>#${i+1}</td><td>${act.fileName}</td><td>${new Date(act.summary.rideDate).toLocaleDateString()}</td><td><strong>${parseFloat(act.summary[key]).toFixed(1)}</strong></td></tr>`).join('')}</tbody></table></div>`;
 }
 
+
 window.loadRankings = async function(distArg) {
     if(!allActivitiesCache) allActivitiesCache = await window.supabaseAuth.listActivities();
 
@@ -587,11 +588,11 @@ window.loadRankings = async function(distArg) {
     const selectedDist = distArg || (selector ? selector.value : "5");
     
     const maxElev = parseFloat(document.getElementById('segmentMaxElev').value) || 99999;
-    const topFilter = document.getElementById('segmentTopFilter').value; // 'all', '5', '10'
+    const trendFilter = document.getElementById('segmentTrendFilter').value; // Alleen nog Trend filter
     const targetDist = parseInt(selectedDist);
 
     // 2. DATA VERZAMELEN
-    let data = allActivitiesCache
+    let baseData = allActivitiesCache
         .filter(act => act.summary.type !== 'route')
         .map(act => {
             const seg = (act.summary.segments || []).find(s => s.distance === targetDist);
@@ -608,23 +609,19 @@ window.loadRankings = async function(distArg) {
         })
         .filter(item => item && item.elev <= maxElev);
 
-    // 3. EERST SORTEREN OP SNELHEID & FILTEREN
-    data.sort((a,b) => b.speed - a.speed); // Snelste eerst
+    // --- DEEL A: DE GRAFIEK (Chronologisch & Laatste X) ---
+    let graphData = [...baseData].sort((a,b) => a.date - b.date); // Oud -> Nieuw
 
-    let filteredData = [...data];
-    if (topFilter !== 'all') {
-        filteredData = filteredData.slice(0, parseInt(topFilter));
+    if (trendFilter !== 'all') {
+        const limit = parseInt(trendFilter);
+        graphData = graphData.slice(-limit); // Pak laatste X
     }
 
-    // 4. GRAFIEK TEKENEN (Op basis van de gefilterde Top X)
-    if(filteredData.length > 0) {
+    if(graphData.length > 0) {
         document.getElementById('segment-progression-container').style.display = 'block';
         
-        // Sorteer de Top X weer op datum voor een logische tijdlijn
-        const timeSorted = [...filteredData].sort((a,b) => a.date - b.date);
-        
-        const speeds = timeSorted.map(i => i.speed);
-        const labels = timeSorted.map(i => i.date.toLocaleDateString());
+        const speeds = graphData.map(i => i.speed);
+        const labels = graphData.map(i => i.date.toLocaleDateString());
         const trend = calculateTrendLine(speeds);
 
         const ctx = document.getElementById('segmentProgressionChart').getContext('2d');
@@ -640,48 +637,36 @@ window.loadRankings = async function(distArg) {
                         data: speeds, 
                         borderColor: '#28a745', 
                         backgroundColor: 'rgba(40, 167, 69, 0.1)',
-                        fill: true, 
-                        tension: 0.3, 
-                        pointRadius: 5,
-                        pointHoverRadius: 7
+                        fill: true, tension: 0.3, pointRadius: 5, pointHoverRadius: 7
                     }, 
                     {
                         label: 'Trend', 
                         data: trend, 
                         borderColor: '#fc4c02', 
                         borderDash: [5,5], 
-                        pointRadius: 0, 
-                        fill: false
-                        // "hidden" attribuut is hier verwijderd, dus hij toont nu altijd!
+                        pointRadius: 0, fill: false
                     }
                 ]
             },
             options: {
-                responsive: true, 
-                maintainAspectRatio: false,
-                plugins: { 
-                    tooltip: { 
-                        callbacks: { 
-                            afterLabel: (c) => timeSorted[c.dataIndex].activity.fileName 
-                        } 
-                    }
-                },
-                scales: {
-                    y: { title: { display: true, text: 'Km/u' } }
-                }
+                responsive: true, maintainAspectRatio: false,
+                plugins: { tooltip: { callbacks: { afterLabel: (c) => graphData[c.dataIndex].activity.fileName } } },
+                scales: { y: { title: { display: true, text: 'Km/u' } } }
             }
         });
     } else {
         document.getElementById('segment-progression-container').style.display = 'none';
     }
 
-    // 5. LIJST GENEREREN
+    // --- DEEL B: DE LIJST (Snelste Eerst - ALLES tonen) ---
+    // We tonen gewoon de hele lijst, gesorteerd op snelheid.
+    let listData = [...baseData].sort((a,b) => b.speed - a.speed);
+
     const listEl = document.getElementById('ranking-list');
-    
-    if (filteredData.length === 0) {
+    if (listData.length === 0) {
         listEl.innerHTML = '<p style="text-align:center; color:var(--text-muted); padding:20px;">Geen segmenten gevonden.</p>';
     } else {
-        listEl.innerHTML = filteredData.map((item, i) => {
+        listEl.innerHTML = listData.map((item, i) => {
             const medal = i===0 ? '🥇' : i===1 ? '🥈' : i===2 ? '🥉' : `#${i+1}`;
             const borderStyle = i===0 ? 'border-left: 4px solid gold;' : i===1 ? 'border-left: 4px solid silver;' : i===2 ? 'border-left: 4px solid #cd7f32;' : 'border-left: 4px solid transparent;';
             
