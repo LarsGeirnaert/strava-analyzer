@@ -279,7 +279,7 @@ async function updateDashboard() {
     renderActivityList(realRides.slice(0, 8));
 }
 
-// --- VERVANG DEZE FUNCTIE IN UI.JS ---
+// --- VERVANG DEZE FUNCTIES IN UI.JS ---
 
 async function updateRecapView() {
     if(!allActivitiesCache) allActivitiesCache = await window.supabaseAuth.listActivities();
@@ -287,99 +287,102 @@ async function updateRecapView() {
     const selMonth = document.getElementById('recap-month-select').value;
     const selYear = parseInt(document.getElementById('recap-year-select').value);
     
-    // FILTER: Filter op jaar EN (optioneel) maand
+    // FILTER
     const filtered = allActivitiesCache.filter(act => {
-        if (act.summary.type === 'route') return false; // Negeer geplande routes
+        if (act.summary.type === 'route') return false; 
         const d = new Date(act.summary.rideDate);
-        const matchYear = d.getFullYear() === selYear;
-        // Als 'all' is gekozen, match elke maand, anders match specifieke maand
-        const matchMonth = selMonth === 'all' || d.getMonth() === parseInt(selMonth);
-        return matchYear && matchMonth;
+        return d.getFullYear() === selYear && (selMonth === 'all' || d.getMonth() === parseInt(selMonth));
     });
 
-    // Bereken totalen
+    // BASIS TOTALEN
     let d=0, e=0, s=0;
+    // EXTRA: Records bijhouden
+    let maxDist = 0, maxElev = 0, maxSpeed = 0;
+
     filtered.forEach(act => { 
-        d += parseFloat(act.summary.distanceKm); 
-        e += parseFloat(act.summary.elevationGain); 
-        s += parseFloat(act.summary.avgSpeed); 
+        const dist = parseFloat(act.summary.distanceKm);
+        const elev = parseFloat(act.summary.elevationGain);
+        const spd = parseFloat(act.summary.avgSpeed);
+
+        d += dist; 
+        e += elev; 
+        s += spd; 
+
+        if(dist > maxDist) maxDist = dist;
+        if(elev > maxElev) maxElev = elev;
+        if(spd > maxSpeed) maxSpeed = spd;
     });
 
     const avgS = filtered.length > 0 ? (s / filtered.length).toFixed(1) : 0;
     
-    // Update Tekst
+    // UPDATE DOM
     let title = selMonth === 'all' ? `Jaaroverzicht ${selYear}` : `${document.getElementById('recap-month-select').options[document.getElementById('recap-month-select').selectedIndex].text} ${selYear}`;
     document.getElementById('recap-period-title').innerText = title;
-    document.getElementById('recap-dist').innerText = d.toFixed(1) + ' km';
-    document.getElementById('recap-elev').innerText = e.toFixed(0) + ' m';
+    
+    document.getElementById('recap-dist').innerText = d.toFixed(0) + ' km';
+    document.getElementById('recap-elev').innerText = e.toFixed(0);
     document.getElementById('recap-count').innerText = filtered.length;
-    document.getElementById('recap-speed').innerText = avgS + ' km/u';
+    
+    // Nieuwe Records Vullen
+    document.getElementById('recap-longest').innerText = maxDist.toFixed(1) + ' km';
+    document.getElementById('recap-highest').innerText = maxElev.toFixed(0) + ' m';
+    document.getElementById('recap-fastest').innerText = maxSpeed.toFixed(1) + ' km/u';
 
-    // Update Progressie balk (altijd op basis van jaar totaal)
-    const yearTotal = allActivitiesCache.filter(act => act.summary.type !== 'route' && new Date(act.summary.rideDate).getFullYear() === selYear).reduce((acc, a) => acc + parseFloat(a.summary.distanceKm), 0);
-    const goalPercent = Math.min(100, (yearTotal / 5000) * 100).toFixed(1);
+    // DOELEN
+    const goalKey = selMonth === 'all' ? `goal_${selYear}` : `goal_${selYear}_${selMonth}`;
+    const defaultGoal = selMonth === 'all' ? 5000 : 400;
+    const targetKm = parseFloat(localStorage.getItem(goalKey) || defaultGoal);
+    
+    document.getElementById('recap-goal-val').innerText = targetKm;
+    document.getElementById('recap-goal-label').innerText = selMonth === 'all' ? "Jaardoel" : "Maanddoel";
+    
+    const goalPercent = Math.min(100, (d / targetKm) * 100).toFixed(1);
     document.getElementById('recap-goal-percent').innerText = goalPercent + '%';
     document.getElementById('recap-goal-fill').style.width = goalPercent + '%';
 
-    // Update Lijst Top Ritten
-    const sorted = [...filtered].sort((a,b) => b.summary.distanceKm - a.summary.distanceKm).slice(0, 3);
-    document.getElementById('recap-best-list').innerHTML = sorted.map((act, i) => `
-        <div class="rank-card" style="border-left: 4px solid ${i===0?'gold':i===1?'silver':'#cd7f32'}" onclick="switchTab('analysis'); window.openRide(${JSON.stringify(act).replace(/"/g, '&quot;')})">
-            <div><strong>${act.fileName}</strong><br><small>${new Date(act.summary.rideDate).toLocaleDateString()}</small></div>
-            <div style="text-align:right"><strong>${parseFloat(act.summary.distanceKm).toFixed(1)} km</strong></div>
-        </div>`).join('') || '<p style="text-align:center; color:var(--text-muted);">Geen ritten in deze periode.</p>';
-
-    // NIEUW: Teken de vergelijkingsgrafiek
+    // GRAFIEKEN
     renderRecapChart(filtered, selMonth, selYear);
-}
+    renderDistributionChart(filtered); // NIEUW: Taartdiagram
 
-// --- VOEG DEZE NIEUWE FUNCTIE TOE AAN UI.JS ---
+    // LIJST (Top 5 nu)
+    const sorted = [...filtered].sort((a,b) => b.summary.distanceKm - a.summary.distanceKm).slice(0, 5);
+    document.getElementById('recap-best-list').innerHTML = sorted.map((act, i) => `
+        <div class="rank-card" style="border-left: 4px solid ${i===0?'gold':i===1?'silver':i===2?'#cd7f32':'transparent'}" onclick="switchTab('analysis'); window.openRide(${JSON.stringify(act).replace(/"/g, '&quot;')})">
+            <div style="flex:1;"><strong>${act.fileName}</strong><br><small>${new Date(act.summary.rideDate).toLocaleDateString()}</small></div>
+            <div style="text-align:right; font-size:0.9rem;">
+                <span style="display:block; font-weight:bold;">${parseFloat(act.summary.distanceKm).toFixed(1)} km</span>
+                <span style="color:var(--text-muted); font-size:0.8rem;">${act.summary.elevationGain}m</span>
+            </div>
+        </div>`).join('') || '<p style="text-align:center; color:var(--text-muted); padding:20px;">Geen ritten gevonden.</p>';
+}
 
 function renderRecapChart(activities, monthMode, year) {
     const ctx = document.getElementById('recapComparisonChart').getContext('2d');
-    
-    // Verwijder oude grafiek indien aanwezig
     if (activeCharts['recap']) activeCharts['recap'].destroy();
 
-    let labels = [];
-    let dataPoints = [];
-    let labelText = "";
-    let chartType = 'bar';
+    let labels = [], dataPoints = [], labelText = "", chartType = 'bar';
 
     if (monthMode === 'all') {
-        // MODUS: JAAROVERZICHT (Vergelijk maanden)
-        labelText = `Afstand per maand in ${year}`;
+        labelText = `Afstand per maand (${year})`;
         labels = ['Jan', 'Feb', 'Mrt', 'Apr', 'Mei', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dec'];
         dataPoints = new Array(12).fill(0);
-        
         activities.forEach(act => {
             const m = new Date(act.summary.rideDate).getMonth();
             dataPoints[m] += parseFloat(act.summary.distanceKm);
         });
-
     } else {
-        // MODUS: MAANDOVERZICHT (Dagelijkse progressie)
         labelText = `Afstand per dag`;
-        chartType = 'line'; // Lijn is mooier voor dagen
-        
-        // Sorteer op datum
+        chartType = 'line';
         activities.sort((a,b) => new Date(a.summary.rideDate) - new Date(b.summary.rideDate));
-        
-        // Groepeer per dag
         const daysInMonth = new Date(year, parseInt(monthMode) + 1, 0).getDate();
-        const dailyData = new Array(daysInMonth).fill(0);
-        
+        labels = Array.from({length: daysInMonth}, (_, i) => i + 1);
+        dataPoints = new Array(daysInMonth).fill(0);
         activities.forEach(act => {
             const d = new Date(act.summary.rideDate).getDate();
-            dailyData[d-1] += parseFloat(act.summary.distanceKm);
+            dataPoints[d-1] += parseFloat(act.summary.distanceKm);
         });
-
-        // Maak labels 1..31
-        labels = Array.from({length: daysInMonth}, (_, i) => i + 1);
-        dataPoints = dailyData;
     }
 
-    // Teken grafiek
     activeCharts['recap'] = new Chart(ctx, {
         type: chartType,
         data: {
@@ -387,24 +390,55 @@ function renderRecapChart(activities, monthMode, year) {
             datasets: [{
                 label: labelText,
                 data: dataPoints,
-                backgroundColor: 'rgba(252, 76, 2, 0.5)', // Strava Oranje
+                backgroundColor: 'rgba(252, 76, 2, 0.5)',
                 borderColor: '#fc4c02',
                 borderWidth: 2,
                 borderRadius: 4,
-                tension: 0.3, // Voor vloeiende lijnen bij maandweergave
-                fill: monthMode !== 'all' // Alleen vullen bij lijngrafiek
+                tension: 0.3,
+                fill: monthMode !== 'all'
             }]
         },
         options: {
             responsive: true,
             maintainAspectRatio: false,
-            scales: {
-                y: { beginAtZero: true, grid: { color: 'rgba(200,200,200,0.1)' } },
-                x: { grid: { display: false } }
-            },
+            scales: { y: { beginAtZero: true }, x: { grid: { display: false } } },
+            plugins: { legend: { display: false } }
+        }
+    });
+}
+
+// NIEUWE FUNCTIE: Verdeelt ritten in categorieën
+function renderDistributionChart(activities) {
+    const ctx = document.getElementById('recapDistributionChart').getContext('2d');
+    if (activeCharts['distrib']) activeCharts['distrib'].destroy();
+
+    let short = 0, medium = 0, long = 0, epic = 0;
+
+    activities.forEach(act => {
+        const d = parseFloat(act.summary.distanceKm);
+        if (d < 30) short++;
+        else if (d < 60) medium++;
+        else if (d < 100) long++;
+        else epic++;
+    });
+
+    activeCharts['distrib'] = new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+            labels: ['Kort (<30km)', 'Middel (30-60km)', 'Lang (60-100km)', 'Epic (>100km)'],
+            datasets: [{
+                data: [short, medium, long, epic],
+                backgroundColor: ['#28a745', '#17a2b8', '#ffc107', '#dc3545'],
+                borderWidth: 0
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
             plugins: {
-                legend: { display: true, labels: { color: 'var(--text-main)' } }
-            }
+                legend: { position: 'right', labels: { boxWidth: 10, font: { size: 10 } } }
+            },
+            cutout: '60%'
         }
     });
 }
@@ -545,29 +579,127 @@ function renderTrendGraph(activities, key, tableId, chartId, filterId, label) {
     if(tb) tb.innerHTML = `<div class="table-container"><table class="data-table"><thead><tr><th>#</th><th>Naam</th><th>Datum</th><th>${label}</th></tr></thead><tbody>${r.map((act, i) => `<tr onclick="switchTab('analysis'); window.openRide(${JSON.stringify(act).replace(/"/g, '&quot;')})"><td>#${i+1}</td><td>${act.fileName}</td><td>${new Date(act.summary.rideDate).toLocaleDateString()}</td><td><strong>${parseFloat(act.summary[key]).toFixed(1)}</strong></td></tr>`).join('')}</tbody></table></div>`;
 }
 
-window.loadRankings = async function(dist) {
-    const me = parseFloat(document.getElementById('segmentMaxElev').value) || 99999;
-    const d = allActivitiesCache.filter(a => a.summary.type !== 'route').map(act => {
-        const s = (act.summary.segments || []).find(s => s.distance === parseInt(dist));
-        return s ? { ...s, activity: act, elev: act.summary.elevationGain } : null;
-    }).filter(i => i && i.elev <= me).sort((a,b) => b.speed - a.speed);
+window.loadRankings = async function(distArg) {
+    if(!allActivitiesCache) allActivitiesCache = await window.supabaseAuth.listActivities();
+
+    // 1. HAAL HUIDIGE WAARDEN OP
+    const selector = document.getElementById('segmentSelector');
+    const selectedDist = distArg || (selector ? selector.value : "5");
     
-    if(d.length > 0) {
+    const maxElev = parseFloat(document.getElementById('segmentMaxElev').value) || 99999;
+    const topFilter = document.getElementById('segmentTopFilter').value; // 'all', '5', '10'
+    const targetDist = parseInt(selectedDist);
+
+    // 2. DATA VERZAMELEN
+    let data = allActivitiesCache
+        .filter(act => act.summary.type !== 'route')
+        .map(act => {
+            const seg = (act.summary.segments || []).find(s => s.distance === targetDist);
+            if (seg) {
+                return {
+                    activity: act,
+                    speed: seg.speed,
+                    timeMs: seg.timeMs,
+                    elev: act.summary.elevationGain,
+                    date: new Date(act.summary.rideDate)
+                };
+            }
+            return null;
+        })
+        .filter(item => item && item.elev <= maxElev);
+
+    // 3. EERST SORTEREN OP SNELHEID & FILTEREN
+    data.sort((a,b) => b.speed - a.speed); // Snelste eerst
+
+    let filteredData = [...data];
+    if (topFilter !== 'all') {
+        filteredData = filteredData.slice(0, parseInt(topFilter));
+    }
+
+    // 4. GRAFIEK TEKENEN (Op basis van de gefilterde Top X)
+    if(filteredData.length > 0) {
         document.getElementById('segment-progression-container').style.display = 'block';
-        const speeds = [...d].sort((a,b) => new Date(a.activity.summary.rideDate) - new Date(b.activity.summary.rideDate)).map(i => i.speed);
-        const tr = calculateTrendLine(speeds);
+        
+        // Sorteer de Top X weer op datum voor een logische tijdlijn
+        const timeSorted = [...filteredData].sort((a,b) => a.date - b.date);
+        
+        const speeds = timeSorted.map(i => i.speed);
+        const labels = timeSorted.map(i => i.date.toLocaleDateString());
+        const trend = calculateTrendLine(speeds);
+
         const ctx = document.getElementById('segmentProgressionChart').getContext('2d');
         if(activeCharts['segChart']) activeCharts['segChart'].destroy();
+        
         activeCharts['segChart'] = new Chart(ctx, {
             type: 'line',
             data: {
-                labels: d.map(i => new Date(i.activity.summary.rideDate).toLocaleDateString()),
-                datasets: [{label: 'Snelheid (km/u)', data: speeds, borderColor: '#28a745', fill: true}, {label: 'Trend', data: tr, borderColor: '#fc4c02', borderDash:[5,5]}]
+                labels: labels,
+                datasets: [
+                    {
+                        label: 'Snelheid (km/u)', 
+                        data: speeds, 
+                        borderColor: '#28a745', 
+                        backgroundColor: 'rgba(40, 167, 69, 0.1)',
+                        fill: true, 
+                        tension: 0.3, 
+                        pointRadius: 5,
+                        pointHoverRadius: 7
+                    }, 
+                    {
+                        label: 'Trend', 
+                        data: trend, 
+                        borderColor: '#fc4c02', 
+                        borderDash: [5,5], 
+                        pointRadius: 0, 
+                        fill: false
+                        // "hidden" attribuut is hier verwijderd, dus hij toont nu altijd!
+                    }
+                ]
             },
-            options: { responsive: true, maintainAspectRatio: false }
+            options: {
+                responsive: true, 
+                maintainAspectRatio: false,
+                plugins: { 
+                    tooltip: { 
+                        callbacks: { 
+                            afterLabel: (c) => timeSorted[c.dataIndex].activity.fileName 
+                        } 
+                    }
+                },
+                scales: {
+                    y: { title: { display: true, text: 'Km/u' } }
+                }
+            }
         });
+    } else {
+        document.getElementById('segment-progression-container').style.display = 'none';
     }
-    document.getElementById('ranking-list').innerHTML = d.map((item, i) => `<div class="rank-card" onclick="switchTab('analysis'); window.openRide(${JSON.stringify(item.activity).replace(/"/g, '&quot;')})"><div><strong>#${i+1} ${item.activity.fileName}</strong><br><small>⛰️ ${item.elev}m</small></div><div style="text-align:right"><strong>${item.speed.toFixed(1)} km/u</strong></div></div>`).join('');
+
+    // 5. LIJST GENEREREN
+    const listEl = document.getElementById('ranking-list');
+    
+    if (filteredData.length === 0) {
+        listEl.innerHTML = '<p style="text-align:center; color:var(--text-muted); padding:20px;">Geen segmenten gevonden.</p>';
+    } else {
+        listEl.innerHTML = filteredData.map((item, i) => {
+            const medal = i===0 ? '🥇' : i===1 ? '🥈' : i===2 ? '🥉' : `#${i+1}`;
+            const borderStyle = i===0 ? 'border-left: 4px solid gold;' : i===1 ? 'border-left: 4px solid silver;' : i===2 ? 'border-left: 4px solid #cd7f32;' : 'border-left: 4px solid transparent;';
+            
+            return `
+            <div class="rank-card" style="${borderStyle}" onclick="switchTab('analysis'); window.openRide(${JSON.stringify(item.activity).replace(/"/g, '&quot;')})">
+                <div style="display:flex; align-items:center; gap:10px;">
+                    <span style="font-size:1.2rem; font-weight:bold; width:40px;">${medal}</span>
+                    <div style="overflow:hidden;">
+                        <strong style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis; display:block;">${item.activity.fileName}</strong>
+                        <small>${item.date.toLocaleDateString()} • ⛰️ ${item.elev}m</small>
+                    </div>
+                </div>
+                <div style="text-align:right; min-width:80px;">
+                    <strong style="font-size:1.1rem; color:var(--primary);">${item.speed.toFixed(1)} km/u</strong>
+                </div>
+            </div>`;
+        }).join('');
+    }
 };
 
 function renderActivityList(acts) {

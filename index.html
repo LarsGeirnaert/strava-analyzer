@@ -65,61 +65,77 @@
             </div>
 
             <div id="view-recap" class="view-section hidden">
-                <div style="padding: 20px; max-width: 1000px; margin: 0 auto;">
+                <div style="padding: 20px; max-width: 1200px; margin: 0 auto;">
                     
                     <header class="view-header" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:15px;">
-                        <h2>📊 Statistieken & Vergelijking</h2>
+                        <h2>📊 Uitgebreid Overzicht</h2>
                         <div style="display:flex; gap:10px;">
                             <select id="recap-month-select" class="recap-select" onchange="updateRecapView()">
-                                <option value="all">📅 Hele Jaar</option> <option value="0">Januari</option>
-                                <option value="1">Februari</option>
-                                <option value="2">Maart</option>
-                                <option value="3">April</option>
-                                <option value="4">Mei</option>
-                                <option value="5">Juni</option>
-                                <option value="6">Juli</option>
-                                <option value="7">Augustus</option>
-                                <option value="8">September</option>
-                                <option value="9">Oktober</option>
-                                <option value="10">November</option>
-                                <option value="11">December</option>
+                                <option value="all">📅 Hele Jaar</option>
+                                <option value="0">Januari</option><option value="1">Februari</option>
+                                <option value="2">Maart</option><option value="3">April</option>
+                                <option value="4">Mei</option><option value="5">Juni</option>
+                                <option value="6">Juli</option><option value="7">Augustus</option>
+                                <option value="8">September</option><option value="9">Oktober</option>
+                                <option value="10">November</option><option value="11">December</option>
                             </select>
-
                             <select id="recap-year-select" class="recap-select" onchange="updateRecapView()">
-                                <option value="2026">2026</option>
-                                <option value="2025">2025</option>
-                                <option value="2024">2024</option>
+                                <option value="2026">2026</option><option value="2025">2025</option><option value="2024">2024</option>
                             </select>
                         </div>
                     </header>
 
-                    <div class="recap-hero">
-                        <div class="recap-main-stat">
-                            <h4 id="recap-period-title">Jaaroverzicht</h4>
-                            <h1 id="recap-dist">0.0 km</h1>
-                            <p>Totaal in selectie</p>
+                    <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap:20px; margin-bottom:30px;">
+                        <div class="dash-card" style="flex-direction:column; align-items:flex-start; background:linear-gradient(135deg, #fc4c02 0%, #ff8c00 100%); color:white; border:none;">
+                            <h4 id="recap-period-title" style="opacity:0.9;">Overzicht</h4>
+                            <h1 id="recap-dist" style="font-size:3rem; margin:10px 0;">0 km</h1>
+                            <div style="display:flex; gap:15px; font-size:0.9rem;">
+                                <span>⛰️ <span id="recap-elev">0</span> m</span>
+                                <span>🚴 <span id="recap-count">0</span> ritten</span>
+                            </div>
                         </div>
-                        <div class="recap-sub-stats">
-                            <div class="sub-stat-box"><h3>⛰️ Hoogte</h3><p id="recap-elev">0 m</p></div>
-                            <div class="sub-stat-box"><h3>🚴 Ritten</h3><p id="recap-count">0</p></div>
-                            <div class="sub-stat-box"><h3>⚡ Gem.</h3><p id="recap-speed">0 km/u</p></div>
+
+                        <div class="dash-card" style="flex-direction:column; align-items:flex-start;">
+                            <h4 style="color:var(--text-muted); margin-bottom:10px;">🏅 Hoogtepunten</h4>
+                            <div style="width:100%;">
+                                <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
+                                    <span>Langste Rit:</span> <strong id="recap-longest">0 km</strong>
+                                </div>
+                                <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
+                                    <span>Hoogste Rit:</span> <strong id="recap-highest">0 m</strong>
+                                </div>
+                                <div style="display:flex; justify-content:space-between;">
+                                    <span>Snelste Rit:</span> <strong id="recap-fastest">0 km/u</strong>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="dash-card" style="flex-direction:column; justify-content:center;">
+                            <div style="display:flex; justify-content:space-between; width:100%; margin-bottom:5px;">
+                                <strong id="recap-goal-label">Doel</strong>
+                                <span id="recap-goal-percent" style="color:var(--primary); font-weight:bold;">0%</span>
+                            </div>
+                            <div class="progress-bar-bg" style="height:10px; background:#e0e0e0; width:100%;"><div id="recap-goal-fill" class="progress-bar-fill"></div></div>
+                            <div style="text-align:right; margin-top:5px; font-size:0.8rem; color:var(--text-muted);">
+                                <span id="recap-goal-val">--</span> km <span style="cursor:pointer;" onclick="editGoal()">✏️</span>
+                            </div>
                         </div>
                     </div>
 
-                    <div class="chart-box wide" style="margin-top:25px; height: 300px;">
-                        <canvas id="recapComparisonChart"></canvas>
+                    <div style="display:grid; grid-template-columns: 2fr 1fr; gap:20px; margin-bottom:30px;">
+                        <div class="chart-box wide" style="height:300px;">
+                            <h4>📈 Afstand Verloop</h4>
+                            <canvas id="recapComparisonChart"></canvas>
+                        </div>
+                        
+                        <div class="chart-box" style="height:300px;">
+                            <h4>🍰 Afstand Verdeling</h4>
+                            <canvas id="recapDistributionChart"></canvas>
+                        </div>
                     </div>
 
-                    <div class="progress-section" style="margin-top:25px; background:var(--bg-card); padding:20px; border-radius:12px;">
-                        <div style="display:flex; justify-content:space-between; margin-bottom:10px;">
-                            <strong>Jaardoel (5000km)</strong>
-                            <span id="recap-goal-percent">0%</span>
-                        </div>
-                        <div class="progress-bar-bg" style="height:15px;"><div id="recap-goal-fill" class="progress-bar-fill"></div></div>
-                    </div>
-                    
-                    <div style="margin-top:30px;">
-                        <h3>🏆 Beste ritten in selectie</h3>
+                    <div>
+                        <h3>🏆 Top 5 Ritten</h3>
                         <div id="recap-best-list" class="ranking-list"></div>
                     </div>
                 </div>
@@ -183,12 +199,23 @@
                         <button class="sub-nav-btn" onclick="switchRankingTab('elevation')">⛰️ Hoogte</button>
                     </div>
                     
-                    <div id="rank-tab-segments" class="rank-tab-content">
+                   <div id="rank-tab-segments" class="rank-tab-content">
                         <div class="ranking-controls" style="display:flex; gap:10px; background:var(--bg-card); padding:15px; border-radius:8px; margin-bottom:20px;">
-                            <select id="segmentSelector" class="segment-select" onchange="loadRankings(this.value)"></select>
-                            <input type="number" id="segmentMaxElev" class="small-input" placeholder="Max Klim (m)" oninput="loadRankings(document.getElementById('segmentSelector').value)">
+                            
+                            <select id="segmentSelector" class="segment-select" onchange="loadRankings()"></select>
+                            
+                            <select id="segmentTopFilter" class="segment-select" onchange="loadRankings()">
+                                <option value="all">Alles</option>
+                                <option value="5" selected>Top 5</option>
+                                <option value="10">Top 10</option>
+                            </select>
+
+                            <input type="number" id="segmentMaxElev" class="small-input" placeholder="Max Klim (m)" oninput="loadRankings()">
                         </div>
-                        <div id="segment-progression-container" class="chart-box wide" style="height:300px; display:none;"><canvas id="segmentProgressionChart"></canvas></div>
+                        
+                        <div id="segment-progression-container" class="chart-box wide" style="height:300px; display:none;">
+                            <canvas id="segmentProgressionChart"></canvas>
+                        </div>
                         <div id="ranking-list" class="ranking-list"></div>
                     </div>
 

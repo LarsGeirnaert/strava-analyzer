@@ -211,41 +211,104 @@ function updateStats(dist, timeMs, speed, ele) {
 function updateChart(labels, dataPoints) {
     const chartEl = document.getElementById('elevationChart');
     if(!chartEl) return;
+    
     const ctx = chartEl.getContext('2d');
+    
+    // We downsamplen data voor performance, 'step' onthoudt de verhouding
     const step = Math.ceil(labels.length / 500); 
+    
     const filteredLabels = labels.filter((_, i) => i % step === 0);
     const filteredData = dataPoints.filter((_, i) => i % step === 0);
+
     if (elevationChart) elevationChart.destroy();
+    
     elevationChart = new Chart(ctx, {
         type: 'line',
         data: {
             labels: filteredLabels.map(d => parseFloat(d).toFixed(1)),
-            datasets: [{ label: 'Hoogte', data: filteredData, borderColor: '#fc4c02', backgroundColor: 'rgba(252,76,2,0.1)', fill: true, pointRadius: 0, borderWidth: 2 }]
+            datasets: [{ 
+                label: 'Hoogte', 
+                data: filteredData, 
+                borderColor: '#fc4c02', 
+                backgroundColor: 'rgba(252,76,2,0.1)', 
+                fill: true, 
+                pointRadius: 0, 
+                pointHoverRadius: 6, // Bolletje in grafiek ook groter bij hover
+                borderWidth: 2,
+                order: 1
+            }]
         },
         options: {
-            responsive: true, maintainAspectRatio: false,
-            onHover: (event, chartElements) => {
-                if (chartElements.length > 0) {
-                    const index = chartElements[0].index;
-                    showPointOnMap(index * step);
-                } else { hidePointOnMap(); }
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: {
+                mode: 'index',     // Reageert op de dichtstbijzijnde x-as index
+                intersect: false,  // Je hoeft niet precies op de lijn te zitten
             },
-            scales: { x: { display: false }, y: { display: true } }
+            onHover: (event, elements) => {
+                if (elements && elements.length > 0) {
+                    const chartIndex = elements[0].index;
+                    // Reken terug naar de originele index van de volledige GPS data
+                    const realIndex = chartIndex * step;
+                    showPointOnMap(realIndex);
+                } else {
+                    hidePointOnMap();
+                }
+            },
+            scales: { 
+                x: { display: false }, 
+                y: { display: true } 
+            },
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    displayColors: false,
+                    callbacks: {
+                        label: (ctx) => `Hoogte: ${ctx.raw}m`
+                    }
+                }
+            }
         }
     });
 }
 
+// 2. Toon een DUIDELIJK punt op de kaart
 function showPointOnMap(index) {
     if (!currentRideData || !map) return;
-    const latlng = currentRideData.uiData.latlngs[index];
+    
+    // Zorg dat we niet buiten de array lezen door afrondingsfouten
+    const safeIndex = Math.min(index, currentRideData.uiData.latlngs.length - 1);
+    const latlng = currentRideData.uiData.latlngs[safeIndex];
+    
     if (!latlng) return;
+
     if (!hoverMarker) {
-        hoverMarker = L.circleMarker(latlng, { radius: 6, fillColor: "#007bff", color: "#fff", weight: 2, fillOpacity: 1 }).addTo(map);
-    } else { hoverMarker.setLatLng(latlng); }
+        // Maak een nieuwe marker aan als die er nog niet is
+        hoverMarker = L.circleMarker(latlng, {
+            radius: 8,              // Groter formaat
+            fillColor: "#007bff",   // Fel blauw
+            color: "#ffffff",       // Witte rand
+            weight: 3,              // Dikke rand
+            opacity: 1,
+            fillOpacity: 1
+        }).addTo(map);
+    } else {
+        // Verplaats de bestaande marker
+        hoverMarker.setLatLng(latlng);
+        // Zorg dat hij zichtbaar is (voor het geval hij verborgen was)
+        if (!map.hasLayer(hoverMarker)) hoverMarker.addTo(map);
+    }
+    
+    // Zorg dat de marker altijd BOVEN de route lijn ligt
+    hoverMarker.bringToFront();
 }
 
+// 3. Verberg het punt als je stopt met hoveren
 function hidePointOnMap() {
-    if (hoverMarker && map) { map.removeLayer(hoverMarker); hoverMarker = null; }
+    if (hoverMarker && map) {
+        map.removeLayer(hoverMarker);
+        hoverMarker = null; // Resetten
+    }
 }
 
 async function saveToCloud() {
