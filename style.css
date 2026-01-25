@@ -538,3 +538,31 @@ path.region-visited { stroke-width: 2px; }
 body.dark-mode .welcome-banner {
     background: linear-gradient(135deg, #b33602, #d67d04);
 }
+
+/* --- Wereld Jager Mode Switcher --- */
+.mode-switcher {
+    display: flex;
+    background: var(--bg-body);
+    border-radius: 8px;
+    padding: 4px;
+    border: 1px solid var(--border-color);
+}
+
+.mode-btn {
+    padding: 8px 15px;
+    border: none;
+    background: transparent;
+    color: var(--text-muted);
+    font-weight: bold;
+    cursor: pointer;
+    border-radius: 6px;
+    transition: all 0.2s;
+}
+
+.mode-btn:hover { color: var(--text-main); }
+
+.mode-btn.active {
+    background: var(--bg-card);
+    color: var(--primary);
+    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+}

@@ -7,7 +7,10 @@ let routeMap = null;
 let geoJsonLayer = null; 
 let conqueredMunis = new Set(); 
 let selectedRides = new Set(); 
-let activeCharts = {}; 
+let activeCharts = {};
+let heatmapLayerGroup = null; 
+let tileLayerGroup = null;    
+let currentWorldMode = 'muni';
 
 // Route Planner variabelen (GECORRIGEERD)
 let waypoints = []; 
@@ -69,15 +72,16 @@ function switchTab(tabName) {
     setTimeout(() => {
         if(tabName === 'analysis' && typeof map !== 'undefined' && map) map.invalidateSize();
         if(tabName === 'routes') { initRouteMap(); updateSavedRoutesList(); } 
-        if(tabName === 'municipalities' && muniMap) muniMap.invalidateSize();
-        if(tabName === 'heatmap' && heatmapMap) heatmapMap.invalidateSize();
+        if(tabName === 'municipalities') {
+            initMuniMap(); 
+            // Forceer refresh van de gekozen modus
+            setWorldMode(currentWorldMode);
+        }
     }, 150);
 
     if(tabName === 'dashboard') updateDashboard();
     if(tabName === 'recap') updateRecapView();
-    if(tabName === 'municipalities') initMuniMap();
-    if(tabName === 'heatmap') initHeatmapMap();
-    if(tabName === 'rankings') switchRankingTab('segments');
+    if(tabName === 'rankings') loadRankings();
 }
 
 // --- ROUTE PLANNER LOGICA ---
@@ -270,6 +274,8 @@ window.deleteRoute = async function(id) {
 
 // --- VERVANG DEZE FUNCTIES IN UI.JS ---
 
+// --- VERVANG DEZE FUNCTIE IN UI.JS ---
+
 async function updateDashboard() {
     if(!window.supabaseAuth.getCurrentUser()) return;
     
@@ -286,10 +292,35 @@ async function updateDashboard() {
         e += parseFloat(a.summary.elevationGain||0); 
     });
     
-    // Animeer de getallen (leuk effectje)
+    // Animeer de getallen
     animateValue("total-dist", 0, d, 1000, " km");
     animateValue("total-elev", 0, e, 1000, " m");
     document.getElementById('total-rides').innerText = realRides.length;
+
+    // --- NIEUW: EXPLORER TILES BEREKENING ---
+    // We gebruiken de heatmap cache omdat we daar de coördinaten al hebben.
+    // Dit voorkomt dat we alle bestanden opnieuw moeten downloaden.
+    const user = window.supabaseAuth.getCurrentUser();
+    const cacheKey = `heatmap_coords_${user.id}`;
+    const heatmapCache = JSON.parse(localStorage.getItem(cacheKey) || "{}");
+    
+    const uniqueTiles = new Set();
+    
+    // Loop door alle opgeslagen ritten in de cache
+    Object.values(heatmapCache).forEach(points => {
+        points.forEach(p => {
+            // Afronden op 2 decimalen maakt vakjes van ongeveer 1km x 1km
+            const lat = p[0].toFixed(2);
+            const lon = p[1].toFixed(2);
+            uniqueTiles.add(`${lat},${lon}`);
+        });
+    });
+
+    // Update de teller in de HTML (als het element bestaat)
+    if(document.getElementById('total-tiles')) {
+        animateValue("total-tiles", 0, uniqueTiles.size, 1000, "");
+    }
+    // ----------------------------------------
 
     // 3. Welkomstboodschap & Quote
     const hour = new Date().getHours();
@@ -299,11 +330,10 @@ async function updateDashboard() {
     else if (hour >= 18) greeting = "Goedenavond";
     
     const userEmail = window.supabaseAuth.getCurrentUser().email.split('@')[0];
-    const name = userEmail.charAt(0).toUpperCase() + userEmail.slice(1); // Naam uit email
+    const name = userEmail.charAt(0).toUpperCase() + userEmail.slice(1);
     
     document.getElementById('welcome-msg').innerText = `${greeting}, ${name}! 👋`;
     
-    // Random quotes
     const quotes = [
         "Pijn is fijn, je moet alleen even de knop omzetten.",
         "Het gaat niet om de snelheid, maar om de glimlach.",
@@ -314,15 +344,13 @@ async function updateDashboard() {
     ];
     document.getElementById('quote-msg').innerText = `"${quotes[Math.floor(Math.random() * quotes.length)]}"`;
 
-    // 4. Streak Berekening (Weken op rij gefietst)
+    // 4. Streak Berekening
     const streak = calculateWeeklyStreak(realRides);
     document.getElementById('streak-count').innerText = streak;
 
-    // 5. Badges Genereren (Gamification!)
+    // 5. Badges & Lijst
     renderBadges(d, e, realRides);
-
-    // 6. Lijst renderen
-    renderActivityList(realRides.slice(0, 5)); // Laatste 5
+    renderActivityList(realRides.slice(0, 5));
 }
 
 // --- NIEUWE HULPFUNCTIES VOOR DASHBOARD ---
@@ -607,11 +635,9 @@ async function loadFeatures() {
 function updateMuniUI() {
     if(!geoJsonLayer) return;
     const total = geoJsonLayer.getLayers().length;
-    document.getElementById('muni-count').innerText = conqueredMunis.size;
-    document.getElementById('muni-total').innerText = total;
-    const p = total > 0 ? (conqueredMunis.size / total * 100).toFixed(1) : 0;
-    document.getElementById('muni-percent').innerText = p + '%';
-    document.getElementById('muni-progress-fill').style.width = p + '%';
+    // Gebruik de nieuwe stats functie
+    updateWorldStats('muni', conqueredMunis.size, total);
+    
     geoJsonLayer.eachLayer(l => {
         if (conqueredMunis.has(l.muniName)) l.setStyle({ fillColor: '#fc4c02', fillOpacity: 0.7, color: '#d94002', weight: 2 });
         else l.setStyle({ fillColor: 'transparent', color: 'transparent', weight: 0 });
@@ -824,3 +850,188 @@ window.toggleSelection = (id) => { if(selectedRides.has(id)) selectedRides.delet
 window.deleteSelectedRides = async function() { if(confirm("Verwijderen?")) { await window.supabaseAuth.deleteActivities(Array.from(selectedRides)); selectedRides.clear(); updateDashboard(); } };
 window.triggerUpload = () => document.getElementById('gpxInput').click();
 window.toggleTheme = () => { document.body.classList.toggle('dark-mode'); localStorage.setItem('theme', document.body.classList.contains('dark-mode') ? 'dark' : 'light'); };
+
+window.toggleTiles = function() {
+    // Als ze al zichtbaar zijn, verwijder ze dan (toggle)
+    if (tileLayerGroup) {
+        heatmapMap.removeLayer(tileLayerGroup);
+        tileLayerGroup = null;
+        document.getElementById('show-tiles-btn').innerText = "🗺️ Toon Tegels";
+        return;
+    }
+
+    const btn = document.getElementById('show-tiles-btn');
+    btn.innerText = "⏳ Berekenen...";
+
+    // Gebruik een timeout zodat de browser de knop tekst kan updaten
+    setTimeout(() => {
+        drawTilesOnMap();
+        btn.innerText = "❌ Verberg Tegels";
+    }, 50);
+};
+
+function drawTilesOnMap() {
+    const user = window.supabaseAuth.getCurrentUser();
+    const cacheKey = `heatmap_coords_${user.id}`;
+    const heatmapCache = JSON.parse(localStorage.getItem(cacheKey) || "{}");
+    
+    // Set gebruiken om dubbele tegels te voorkomen
+    const uniqueTiles = new Set();
+
+    // 1. Bereken alle unieke vakjes
+    Object.values(heatmapCache).forEach(points => {
+        points.forEach(p => {
+            // We ronden af naar beneden op 2 decimalen (bv 51.234 -> 51.23)
+            // Dit creëert een vast raster van ca. 1.1km x 0.7km (in NL/BE)
+            const latGrid = Math.floor(p[0] * 100) / 100;
+            const lonGrid = Math.floor(p[1] * 100) / 100;
+            uniqueTiles.add(`${latGrid},${lonGrid}`);
+        });
+    });
+
+    // 2. Teken de vakjes
+    tileLayerGroup = L.layerGroup();
+    
+    uniqueTiles.forEach(coordKey => {
+        const [lat, lon] = coordKey.split(',').map(parseFloat);
+        
+        // De hoekpunten van het vierkantje
+        const bounds = [
+            [lat, lon],             // Linksonder
+            [lat + 0.01, lon + 0.01] // Rechtsboven
+        ];
+
+        L.rectangle(bounds, {
+            color: "#00acc1",       // Randkleur (Teal)
+            weight: 1,
+            fillColor: "#00acc1",   // Vulkleur
+            fillOpacity: 0.2        // Transparant zodat je de kaart nog ziet
+        }).addTo(tileLayerGroup);
+    });
+
+    // Voeg de laag toe aan de kaart
+    if (heatmapMap) {
+        tileLayerGroup.addTo(heatmapMap);
+        
+        // Zoom naar de tegels als er tegels zijn
+        if (uniqueTiles.size > 0) {
+            // Maak een tijdelijke group om de bounds te berekenen
+            // (Leaflet layerGroup heeft geen getBounds, featureGroup wel)
+            const group = L.featureGroup(tileLayerGroup.getLayers());
+            heatmapMap.fitBounds(group.getBounds());
+        }
+    } else {
+        alert("Open eerst de Heatmap tab.");
+    }
+}
+
+window.setWorldMode = function(mode) {
+    currentWorldMode = mode;
+    
+    // UI Update
+    document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
+    const activeBtn = document.querySelector(`.mode-btn[onclick="setWorldMode('${mode}')"]`);
+    if(activeBtn) activeBtn.classList.add('active');
+
+    // Kaart opschonen
+    if(geoJsonLayer) muniMap.removeLayer(geoJsonLayer);
+    if(heatmapLayerGroup) muniMap.removeLayer(heatmapLayerGroup);
+    if(tileLayerGroup) muniMap.removeLayer(tileLayerGroup);
+
+    // Knoppen resetten
+    document.getElementById('world-action-btn').style.display = 'none';
+    document.getElementById('muni-loading').style.display = 'none';
+
+    if (mode === 'muni') {
+        loadFeatures(); // Laad gemeentes
+    } else if (mode === 'heatmap') {
+        document.getElementById('world-action-btn').style.display = 'inline-block';
+        updateWorldStats('heatmap');
+        // Check cache en teken direct als mogelijk
+        const user = window.supabaseAuth.getCurrentUser();
+        if(localStorage.getItem(`heatmap_coords_${user.id}`)) drawHeatmap();
+    } else if (mode === 'tiles') {
+        drawTiles(); // Teken tegels
+    }
+};
+
+function updateWorldStats(mode, count = 0, total = 0) {
+    const textEl = document.getElementById('world-stats-text');
+    const fillEl = document.getElementById('world-progress-fill');
+    
+    if (mode === 'muni') {
+        const p = total > 0 ? (count / total * 100).toFixed(1) : 0;
+        textEl.innerHTML = `<strong>${count}</strong> / ${total} Gemeentes (${p}%)`;
+        fillEl.style.width = `${p}%`;
+    } else if (mode === 'heatmap') {
+        textEl.innerHTML = `<strong>Heatmap Modus</strong>`;
+        fillEl.style.width = `100%`;
+    } else if (mode === 'tiles') {
+        textEl.innerHTML = `<strong>${count}</strong> Tegels Ontdekt`;
+        fillEl.style.width = `100%`;
+    }
+}
+
+// AANGEPASTE HEATMAP FUNCTIE
+window.drawHeatmap = async function() {
+    document.getElementById('muni-loading').style.display = 'block';
+    
+    if(heatmapLayerGroup) muniMap.removeLayer(heatmapLayerGroup);
+    heatmapLayerGroup = L.layerGroup().addTo(muniMap);
+
+    let acts = allActivitiesCache || await window.supabaseAuth.listActivities();
+    acts = acts.filter(a => a.summary.type !== 'route');
+    
+    const user = window.supabaseAuth.getCurrentUser();
+    const cacheKey = `heatmap_coords_${user.id}`;
+    let cached = JSON.parse(localStorage.getItem(cacheKey) || "{}");
+    
+    for (let i = 0; i < acts.length; i++) {
+        let pts = cached[acts[i].id];
+        if (!pts) {
+            try {
+                const b = await window.supabaseAuth.getActivityFile(acts[i].id);
+                const t = await b.text();
+                const c = []; const r = /lat="([\d\.-]+)"\s+lon="([\d\.-]+)"/g; let m;
+                while ((m = r.exec(t)) !== null) c.push([parseFloat(m[1]), parseFloat(m[2])]);
+                pts = c.filter((_, idx) => idx % 10 === 0);
+                cached[acts[i].id] = pts;
+            } catch (e) {}
+        }
+        if (pts) L.polyline(pts, { color: '#fc4c02', opacity: 0.35, weight: 2.5 }).addTo(heatmapLayerGroup);
+    }
+    
+    localStorage.setItem(cacheKey, JSON.stringify(cached));
+    document.getElementById('muni-loading').style.display = 'none';
+};
+
+// AANGEPASTE TEGELS FUNCTIE
+function drawTiles() {
+    const user = window.supabaseAuth.getCurrentUser();
+    const cacheKey = `heatmap_coords_${user.id}`;
+    const heatmapCache = JSON.parse(localStorage.getItem(cacheKey) || "{}");
+    
+    const uniqueTiles = new Set();
+    Object.values(heatmapCache).forEach(points => {
+        points.forEach(p => {
+            const latGrid = Math.floor(p[0] * 100) / 100;
+            const lonGrid = Math.floor(p[1] * 100) / 100;
+            uniqueTiles.add(`${latGrid},${lonGrid}`);
+        });
+    });
+
+    if(tileLayerGroup) muniMap.removeLayer(tileLayerGroup);
+    tileLayerGroup = L.layerGroup().addTo(muniMap);
+    
+    uniqueTiles.forEach(coordKey => {
+        const [lat, lon] = coordKey.split(',').map(parseFloat);
+        const bounds = [[lat, lon], [lat + 0.01, lon + 0.01]];
+        L.rectangle(bounds, { color: "#00acc1", weight: 1, fillColor: "#00acc1", fillOpacity: 0.3 }).addTo(tileLayerGroup);
+    });
+    
+    updateWorldStats('tiles', uniqueTiles.size);
+    if(uniqueTiles.size > 0) {
+        const first = Array.from(uniqueTiles)[0].split(',').map(parseFloat);
+        muniMap.setView(first, 10);
+    }
+}

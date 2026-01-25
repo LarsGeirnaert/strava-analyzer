@@ -37,7 +37,6 @@
             <button class="nav-btn" data-target="analysis" title="Analyse">🗺️</button>
             <button class="nav-btn" data-target="rankings" title="Ranglijsten">🏆</button>
             <button class="nav-btn" data-target="municipalities" title="Wereld Jager">🌍</button>
-            <button class="nav-btn" data-target="heatmap" title="Heatmap">🔥</button>
             
             <div style="margin-top: auto;">
                 <button id="theme-btn" class="nav-btn" onclick="toggleTheme()">🌙</button>
@@ -68,6 +67,13 @@
                     </header>
 
                     <div class="dashboard-grid">
+                        <div class="dash-card stat-total pop-in" style="animation-delay: 0.3s;">
+                            <div class="dash-icon" style="background:#e0f7fa; color:#00acc1;">🗺️</div>
+                            <div class="dash-info">
+                                <h3>Explorer Tiles</h3>
+                                <p id="total-tiles">0</p>
+                            </div>
+                        </div>
                         <div class="dash-card stat-total pop-in" style="animation-delay: 0.1s;">
                             <div class="dash-icon" style="background:#e3f2fd; color:#007bff;">📏</div>
                             <div class="dash-info"><h3>Totaal Afstand</h3><p id="total-dist">0 km</p></div>
@@ -283,13 +289,27 @@
 
             <div id="view-municipalities" class="view-section hidden">
                 <div class="muni-container">
-                    <header class="view-header" style="padding: 20px;">
-                        <h2>🌍 Wereld Jager</h2>
-                        <div class="progress-wrapper">
-                            <div class="progress-text"><span id="muni-count">0</span> / <span id="muni-total">?</span> <span id="muni-percent" style="float:right;">0%</span></div>
-                            <div class="progress-bar-bg"><div id="muni-progress-fill" class="progress-bar-fill"></div></div>
+                    <header class="view-header" style="padding: 20px; display:flex; flex-direction:column; gap:15px;">
+                        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+                            <h2>🌍 Wereld Jager</h2>
+                            
+                            <div class="mode-switcher">
+                                <button class="mode-btn active" onclick="setWorldMode('muni')">🏛️ Gemeentes</button>
+                                <button class="mode-btn" onclick="setWorldMode('heatmap')">🔥 Heatmap</button>
+                                <button class="mode-btn" onclick="setWorldMode('tiles')">🗺️ Tegels</button>
+                            </div>
                         </div>
-                        <p id="muni-loading" style="display:none; color:var(--primary); margin-top:10px;">⏳ Kaarten laden...</p>
+                        
+                        <div class="progress-wrapper">
+                            <div class="progress-text" id="world-stats-text">Laden...</div>
+                            <div class="progress-bar-bg"><div id="world-progress-fill" class="progress-bar-fill"></div></div>
+                        </div>
+                        
+                        <div style="display:flex; justify-content:space-between; align-items:center;">
+                            <p id="muni-loading" style="display:none; color:var(--primary); margin:0;">⏳ Data verwerken...</p>
+                            
+                            <button id="world-action-btn" class="upload-btn" style="width:auto; padding:5px 15px; font-size:0.8rem; display:none;" onclick="drawHeatmap()">🚀 Genereer Heatmap</button>
+                        </div>
                     </header>
                     <div id="map-municipalities"></div>
                 </div>
@@ -299,8 +319,11 @@
                 <div class="muni-container">
                     <header class="view-header" style="padding: 20px; position: absolute; z-index: 1000; pointer-events: none;">
                         <div style="background: var(--bg-card); padding: 15px; border-radius: 8px; border: 1px solid var(--border-color); pointer-events: auto;">
-                            <h2>🔥 Heatmap</h2>
-                            <button id="load-heatmap-btn" class="upload-btn" onclick="generateHeatmap()">🚀 Start</button>
+                            <h2>🔥 Heatmap & Tegels</h2>
+                            <button id="load-heatmap-btn" class="upload-btn" onclick="generateHeatmap()">🚀 Start Heatmap</button>
+                            
+                            <button id="show-tiles-btn" class="upload-btn" style="background:#00acc1; margin-top:5px;" onclick="toggleTiles()">🗺️ Toon Tegels</button>
+                            
                             <button class="upload-btn" style="background:#555; margin-top:5px;" onclick="clearHeatmapCache()">🗑️ Wis Cache</button>
                             <div id="heatmap-progress" style="display:none; margin-top:10px;"><div id="heatmap-bar" class="progress-bar-fill"></div></div>
                         </div>
