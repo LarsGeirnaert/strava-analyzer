@@ -23,15 +23,28 @@ const REGIONS = [
 ];
 
 document.addEventListener('DOMContentLoaded', () => {
+    // 1. THEMA CHECK (Dark mode is nu standaard in HTML)
+    // Als de gebruiker expliciet 'light' heeft opgeslagen, halen we dark mode weg
+    if (localStorage.getItem('theme') === 'light') {
+        document.body.classList.remove('dark-mode');
+    }
+
+    // 2. Navigatie & Selectors laden
     setupNavigation();
     setupSegmentSelector();
+    
+    // 3. Datum instellen voor recap
     const now = new Date();
     const ms = document.getElementById('recap-month-select');
     const ys = document.getElementById('recap-year-select');
     if(ms) ms.value = now.getMonth();
     if(ys) ys.value = now.getFullYear();
+    
+    // 4. Heatmap cache check voor tegels
+    if(typeof setWorldMode === 'function' && typeof currentWorldMode !== 'undefined') {
+        // Zorg dat de wereld jager knoppen werken
+    }
 });
-
 function setupNavigation() {
     document.querySelectorAll('.nav-btn[data-target]').forEach(btn => 
         btn.addEventListener('click', () => switchTab(btn.dataset.target))
@@ -644,63 +657,8 @@ function updateMuniUI() {
     });
 }
 
-async function initHeatmapMap() {
-    if (heatmapMap) { heatmapMap.invalidateSize(); return; }
-    heatmapMap = L.map('map-heatmap', { zoomControl: true, attributionControl: false }).setView([50.85, 4.35], 7);
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png').addTo(heatmapMap);
-    heatmapMap.on('click', async (e) => {
-        const user = window.supabaseAuth.getCurrentUser();
-        const cacheKey = `heatmap_coords_${user.id}`;
-        let cached = JSON.parse(localStorage.getItem(cacheKey) || "{}");
-        const matches = [];
-        for (const id in cached) {
-            if (cached[id].some(c => e.latlng.distanceTo(L.latLng(c[0], c[1])) < 45)) {
-                const act = allActivitiesCache.find(a => a.id === id);
-                if (act) matches.push(act);
-            }
-        }
-        if (matches.length > 0) {
-            const html = `<div style="min-width:180px;"><strong>🔥 ${matches.length} ritten hier</strong><div style="margin-top:8px; max-height:150px; overflow-y:auto;">${matches.map(m => `<div style="margin-bottom:8px; cursor:pointer; color:#007bff;" onclick='window.openRideFromHeatmap(${JSON.stringify(m).replace(/"/g, "&quot;")})'>${m.fileName}</div>`).join('')}</div></div>`;
-            L.popup().setLatLng(e.latlng).setContent(html).openOn(heatmapMap);
-        }
-    });
-}
-
 window.openRideFromHeatmap = function(act) { heatmapMap.closePopup(); switchTab('analysis'); window.openRide(act); };
 
-window.generateHeatmap = async function() {
-    const bar = document.getElementById('heatmap-bar');
-    document.getElementById('heatmap-progress').style.display = "block";
-    let acts = allActivitiesCache || await window.supabaseAuth.listActivities();
-    acts = acts.filter(a => a.summary.type !== 'route'); 
-    heatmapMap.eachLayer(l => { if (l instanceof L.Polyline) heatmapMap.removeLayer(l); });
-    const user = window.supabaseAuth.getCurrentUser();
-    const cacheKey = `heatmap_coords_${user.id}`;
-    let cached = JSON.parse(localStorage.getItem(cacheKey) || "{}");
-    for (let i = 0; i < acts.length; i++) {
-        bar.style.width = Math.round(((i + 1) / acts.length) * 100) + "%";
-        let pts = cached[acts[i].id];
-        if (!pts) {
-            try {
-                const b = await window.supabaseAuth.getActivityFile(acts[i].id);
-                const t = await b.text();
-                const c = []; const r = /lat="([\d\.-]+)"\s+lon="([\d\.-]+)"/g; let m;
-                while ((m = r.exec(t)) !== null) c.push([parseFloat(m[1]), parseFloat(m[2])]);
-                pts = c.filter((_, idx) => idx % 10 === 0);
-                cached[acts[i].id] = pts;
-            } catch (e) {}
-        }
-        if (pts) L.polyline(pts, { color: '#fc4c02', opacity: 0.35, weight: 2.5 }).addTo(heatmapMap);
-    }
-    localStorage.setItem(cacheKey, JSON.stringify(cached));
-    setTimeout(() => document.getElementById('heatmap-progress').style.display = "none", 1000);
-};
-
-window.clearHeatmapCache = function() {
-    const u = window.supabaseAuth.getCurrentUser();
-    localStorage.removeItem(`heatmap_coords_${u.id}`);
-    location.reload();
-};
 
 window.switchRankingTab = async function(tab) {
     document.querySelectorAll('.sub-nav-btn').forEach(b => b.classList.toggle('active', b.onclick.toString().includes(tab)));
