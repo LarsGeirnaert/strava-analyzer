@@ -269,10 +269,16 @@
                                     class="stat-value"><span id="statDist">0</span> <small>km</small></span></div>
                             <div class="stat-widget"><span class="stat-label">Tijd</span><span class="stat-value"
                                     id="statTime">0:00</span></div>
-                            <div class="stat-widget"><span class="stat-label">Snelheid</span><span
+                            <div class="stat-widget"><span class="stat-label">Gem. Snelheid</span><span
                                     class="stat-value"><span id="statSpeed">0</span></span></div>
+
+                            <div class="stat-widget"><span class="stat-label">Max Snelheid</span><span
+                                    class="stat-value"><span id="statMaxSpeed">0</span></span></div>
+
                             <div class="stat-widget"><span class="stat-label">Hoogte</span><span
                                     class="stat-value"><span id="statElev">0</span> <small>m</small></span></div>
+                            <div class="stat-widget"><span class="stat-label">Vermogen</span><span
+                                    class="stat-value"><span id="statPower">0</span> <small>W</small></span></div>
                         </div>
                         <div id="save-section" class="hidden"><button id="save-cloud-btn" class="save-btn">💾 Rit
                                 Opslaan</button></div>
@@ -290,13 +296,21 @@
 
             <div id="view-rankings" class="view-section hidden">
                 <div style="padding: 20px; max-width: 1200px; margin: 0 auto;">
-                    <header class="view-header">
+
+                    <header class="view-header"
+                        style="display:flex; justify-content:space-between; align-items:center;">
                         <h2>🏆 Ranglijsten</h2>
+                        <button id="fix-data-btn" class="upload-btn"
+                            style="width:auto; background:#666; font-size:0.8rem;" onclick="fixMaxSpeeds()">
+                            🛠️ Fix Max Snelheden
+                        </button>
                     </header>
+
                     <div class="sub-nav-container">
                         <button class="sub-nav-btn active" onclick="switchRankingTab('segments')">⚡ Records</button>
                         <button class="sub-nav-btn" onclick="switchRankingTab('distance')">📏 Afstanden</button>
                         <button class="sub-nav-btn" onclick="switchRankingTab('elevation')">⛰️ Hoogte</button>
+                        <button class="sub-nav-btn" onclick="switchRankingTab('speed')">🚀 Max Snelheid</button>
                     </div>
 
                     <div id="rank-tab-segments" class="rank-tab-content">
@@ -348,6 +362,19 @@
                         <div class="chart-box wide"><canvas id="elevationTrendChart"></canvas></div>
                         <div id="elevation-table-body"></div>
                     </div>
+
+                    <div id="rank-tab-speed" class="rank-tab-content hidden">
+                        <div class="ranking-controls">
+                            <select id="speedTopFilter" class="segment-select" onchange="switchRankingTab('speed')">
+                                <option value="all">Alles</option>
+                                <option value="5">Top 5</option>
+                                <option value="10">Top 10</option>
+                            </select>
+                        </div>
+                        <div class="chart-box wide"><canvas id="speedTrendChart"></canvas></div>
+                        <div id="speed-table-body"></div>
+                    </div>
+
                 </div>
             </div>
 

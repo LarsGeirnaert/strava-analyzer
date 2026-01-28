@@ -1,4 +1,4 @@
-// app.js - Map Visualisatie, GPX Parsing, Segmenten & Upload Logic
+// app.js - Map Visualisatie, GPX Parsing & Upload Logic
 
 let map, polyline, elevationChart;
 let segmentLayer = null; 
@@ -26,8 +26,13 @@ function clearSegmentHighlight() {
     activeSegment = null;
     if (segmentLayer && map) { map.removeLayer(segmentLayer); segmentLayer = null; }
     if (polyline && map.hasLayer(polyline)) { try { map.fitBounds(polyline.getBounds()); } catch(e) {} }
-    if(elevationChart && elevationChart.data.datasets.length > 1) { elevationChart.data.datasets.pop(); elevationChart.update(); }
+    if(elevationChart && elevationChart.data.datasets.length > 2) { 
+        elevationChart.data.datasets.pop(); 
+        elevationChart.update(); 
+    }
     document.querySelectorAll('.segment-card').forEach(c => c.classList.remove('active-segment'));
+    const btn = document.getElementById('clear-segment-btn');
+    if(btn) btn.classList.add('hidden');
 }
 
 window.openRide = async function(activity) {
@@ -55,10 +60,22 @@ function processGPXAndRender(xmlString, fileName, isExistingRide = false) {
     if (!data) return;
     currentRideData = data;
     updateMap(data.uiData.latlngs);
-    updateStats(data.summary.distanceKm, data.uiData.durationMs, data.summary.avgSpeed, data.summary.elevationGain);
-    updateChart(data.uiData.distances, data.uiData.elevations);
     
-    // Update de lijst in de UI
+    const avgPower = data.uiData.powers.length > 0 
+        ? Math.round(data.uiData.powers.reduce((a,b)=>a+b,0) / data.uiData.powers.length) 
+        : 0;
+
+    updateStats(
+        data.summary.distanceKm, 
+        data.uiData.durationMs, 
+        data.summary.avgSpeed, 
+        data.summary.elevationGain, 
+        avgPower,
+        data.summary.maxSpeed
+    );
+
+    updateChart(data.uiData.distances, data.uiData.elevations, data.uiData.speeds, data.uiData.powers);
+    
     if(typeof updateSegmentsUI === 'function') updateSegmentsUI(data.summary.segments);
     
     document.getElementById('statsPanel')?.classList.remove('hidden');
@@ -68,7 +85,44 @@ function processGPXAndRender(xmlString, fileName, isExistingRide = false) {
     if(saveSection && !isExistingRide) saveSection.classList.remove('hidden');
 }
 
-// --- CORE PARSER & SEGMENT CALCULATOR ---
+// --- NIEUWE FUNCTIE: SPIKE FILTER ---
+// Dit haalt uitschieters weg (bv: 30 -> 81 -> 30)
+function removeSpikes(data) {
+    const clean = [...data];
+    // We kijken naar punten die meer dan 10km/u verschillen van hun buren
+    const threshold = 10; 
+
+    for (let i = 1; i < clean.length - 1; i++) {
+        const prev = clean[i-1];
+        const curr = clean[i];
+        const next = clean[i+1];
+
+        // Alleen filteren als we boven de 20km/u zitten (stilstaan/wandelen mag fluctueren)
+        if (curr > 20) {
+            // Als huidige veel groter is dan vorige EN volgende
+            if (curr > prev + threshold && curr > next + threshold) {
+                // Vervang door gemiddelde van buren
+                clean[i] = (prev + next) / 2;
+            }
+        }
+    }
+    return clean;
+}
+
+function smoothArray(data, windowSize) {
+    return data.map((val, idx, arr) => {
+        if (val === undefined || val === null || isNaN(val)) return 0;
+        let start = Math.max(0, idx - windowSize);
+        let end = Math.min(arr.length, idx + windowSize + 1);
+        let sum = 0, count = 0;
+        for(let k = start; k < end; k++) { 
+            if(!isNaN(arr[k])) { sum += arr[k]; count++; }
+        }
+        return count > 0 ? sum / count : 0;
+    });
+}
+
+// --- CORE PARSER ---
 function parseGPXData(xmlString, fileName, isExistingRide = false) {
     const parser = new DOMParser();
     const xmlDoc = parser.parseFromString(xmlString, "text/xml");
@@ -83,9 +137,12 @@ function parseGPXData(xmlString, fileName, isExistingRide = false) {
     if (!trkpts.length) trkpts = xmlDoc.getElementsByTagName('Trackpoint');
     if (!trkpts.length) return null;
 
-    const latlngs = [], elevations = [], distances = [], times = [], speeds = [];
+    const latlngs = [], elevations = [], distances = [], times = [];
+    let rawSpeeds = [], rawPowers = [];
     let totalDist = 0, elevationGain = 0;
     let startTime = null, endTime = null;
+
+    const riderWeight = 75; const bikeWeight = 9; const totalWeight = riderWeight + bikeWeight;
 
     for (let i = 0; i < trkpts.length; i++) {
         let lat = parseFloat(trkpts[i].getAttribute('lat'));
@@ -98,29 +155,59 @@ function parseGPXData(xmlString, fileName, isExistingRide = false) {
             latlngs.push([lat, lon]); elevations.push(ele); times.push(t);
             
             let currentSpeed = 0;
-            if(i === 0) startTime = t;
-            else {
-                const prevLat = latlngs[i-1][0];
-                const prevLon = latlngs[i-1][1];
+            let currentPower = 0;
+
+            if(i === 0) {
+                startTime = t;
+                rawSpeeds.push(0); rawPowers.push(0);
+            } else {
+                const prevLat = latlngs[i-1][0]; const prevLon = latlngs[i-1][1];
                 const distDiff = getDistanceFromLatLonInKm(prevLat, prevLon, lat, lon);
                 totalDist += distDiff;
+                
                 const prevEle = elevations[i-1];
-                if (ele > prevEle) elevationGain += (ele - prevEle);
+                const eleDiff = ele - prevEle;
+                if (eleDiff > 0) elevationGain += eleDiff;
                 
                 const timeDiffHours = (t - times[i-1]) / 3600000;
                 if (timeDiffHours > 0 && distDiff > 0) currentSpeed = distDiff / timeDiffHours;
-                if(currentSpeed > 100) currentSpeed = 0;
-                speeds.push(currentSpeed);
+                
+                // Hard Cap: alles boven 130 is sws onzin
+                if(currentSpeed > 130 || isNaN(currentSpeed)) currentSpeed = rawSpeeds[i-1] || 0;
+                
+                // Power Calc
+                const v = currentSpeed / 3.6; 
+                const grade = (distDiff * 1000) > 0 ? eleDiff / (distDiff * 1000) : 0;
+                if (v > 1) {
+                    const pRolling = 9.8 * totalWeight * v * 0.005; 
+                    const pGravity = 9.8 * totalWeight * v * grade; 
+                    const pDrag = 0.5 * 1.225 * 0.4 * v * v * v;
+                    currentPower = Math.max(0, pRolling + pGravity + pDrag);
+                }
+                rawSpeeds.push(currentSpeed);
+                rawPowers.push(currentPower);
             }
             endTime = t;
             distances.push(totalDist);
         }
     }
 
+    // 1. Eerst spikes verwijderen (De nieuwe logica)
+    const deSpikedSpeeds = removeSpikes(rawSpeeds);
+
+    // 2. Daarna smoothen voor mooie grafieken
+    const smoothSpeeds = smoothArray(deSpikedSpeeds, 4);
+    const smoothPowers = smoothArray(rawPowers, 6);
+
+    // 3. Max Snelheid bepalen uit de opgeschoonde data
+    let rideMaxSpeed = 0;
+    if (smoothSpeeds.length > 0) {
+        // We filteren eerst de 0-waarden eruit om bugs te voorkomen, daarna max
+        rideMaxSpeed = Math.max(...smoothSpeeds.filter(s => !isNaN(s)));
+    }
+
     const durationMs = (endTime - startTime);
     const avgSpeed = durationMs > 0 ? totalDist / (durationMs / 3600000) : 0;
-    
-    // HIER WAS DE FOUT: Segmenten werden niet berekend. Nu wel:
     const segments = calculateFastestSegments(distances, times);
 
     return {
@@ -130,54 +217,33 @@ function parseGPXData(xmlString, fileName, isExistingRide = false) {
             distanceKm: totalDist.toFixed(2),
             elevationGain: Math.round(elevationGain),
             avgSpeed: avgSpeed.toFixed(1),
+            maxSpeed: rideMaxSpeed.toFixed(1), 
             durationSec: durationMs / 1000,
             rideDate: startTime ? startTime.toISOString() : new Date().toISOString(),
             segments: segments
         },
-        uiData: { latlngs, elevations, distances, speeds, durationMs }
+        uiData: { latlngs, elevations, distances, speeds: smoothSpeeds, powers: smoothPowers, durationMs }
     };
 }
 
-// DEZE FUNCTIE ONTBRAK EN IS NU TERUG
 function calculateFastestSegments(distances, times) {
     const results = [];
-    const targets = [5, 10, 20, 30, 40, 50, 60, 80, 100]; // Targets in km
+    const targets = [5, 10, 20, 30, 40, 50, 60, 80, 100];
     const totalDist = distances[distances.length - 1];
 
     targets.forEach(targetKm => {
         if (totalDist < targetKm) return;
-        let bestTimeMs = Infinity; 
-        let bestStartIdx = 0; 
-        let bestEndIdx = 0; 
-        let startIdx = 0; 
-        let found = false;
-
-        // Sliding window algoritme
+        let bestTimeMs = Infinity; let bestStartIdx = 0; let bestEndIdx = 0; let startIdx = 0; let found = false;
         for (let endIdx = 1; endIdx < distances.length; endIdx++) {
             const distDiff = distances[endIdx] - distances[startIdx];
             if (distDiff >= targetKm) {
-                // Verschuif startIdx zolang de afstand nog steeds >= target is
-                while (distances[endIdx] - distances[startIdx + 1] >= targetKm) {
-                    startIdx++;
-                }
+                while (distances[endIdx] - distances[startIdx + 1] >= targetKm) { startIdx++; }
                 const timeDiff = times[endIdx] - times[startIdx];
-                if (timeDiff < bestTimeMs) { 
-                    bestTimeMs = timeDiff; 
-                    bestStartIdx = startIdx; 
-                    bestEndIdx = endIdx; 
-                    found = true; 
-                }
+                if (timeDiff < bestTimeMs) { bestTimeMs = timeDiff; bestStartIdx = startIdx; bestEndIdx = endIdx; found = true; }
             }
         }
-        
         if (found) {
-            results.push({ 
-                distance: targetKm, 
-                timeMs: bestTimeMs, 
-                speed: targetKm / (bestTimeMs / 3600000), 
-                startIdx: bestStartIdx, 
-                endIdx: bestEndIdx 
-            });
+            results.push({ distance: targetKm, timeMs: bestTimeMs, speed: targetKm / (bestTimeMs / 3600000), startIdx: bestStartIdx, endIdx: bestEndIdx });
         }
     });
     return results.sort((a, b) => a.distance - b.distance);
@@ -197,28 +263,39 @@ function updateMap(latlngs) {
     map.fitBounds(polyline.getBounds(), { padding: [20, 20] });
 }
 
-function updateStats(dist, timeMs, speed, ele) {
+function updateStats(dist, timeMs, speed, ele, power, maxSpeed) {
     const d = document.getElementById('statDist');
     const t = document.getElementById('statTime');
     const s = document.getElementById('statSpeed');
     const e = document.getElementById('statElev');
+    const p = document.getElementById('statPower');
+    const ms = document.getElementById('statMaxSpeed');
+
     if(d) d.innerText = typeof dist === 'string' ? dist : parseFloat(dist).toFixed(2);
     if(e) e.innerText = Math.round(ele);
     if(s) s.innerText = typeof speed === 'string' ? speed : parseFloat(speed).toFixed(1);
+    
+    if(ms) {
+        if (maxSpeed && !isNaN(parseFloat(maxSpeed)) && parseFloat(maxSpeed) > 0) {
+            ms.innerText = parseFloat(maxSpeed).toFixed(1);
+        } else {
+            ms.innerText = "0.0";
+        }
+    }
+
     if(t) { const h = Math.floor(timeMs / 3600000); const m = Math.floor((timeMs % 3600000) / 60000); t.innerText = `${h}:${m.toString().padStart(2,'0')}`; }
+    if(p) p.innerText = power || 0;
 }
 
-function updateChart(labels, dataPoints) {
+function updateChart(labels, elePoints, speedPoints, powerPoints) {
     const chartEl = document.getElementById('elevationChart');
     if(!chartEl) return;
-    
     const ctx = chartEl.getContext('2d');
-    
-    // We downsamplen data voor performance, 'step' onthoudt de verhouding
     const step = Math.ceil(labels.length / 500); 
-    
     const filteredLabels = labels.filter((_, i) => i % step === 0);
-    const filteredData = dataPoints.filter((_, i) => i % step === 0);
+    const filteredEle = elePoints.filter((_, i) => i % step === 0);
+    const filteredSpeed = speedPoints ? speedPoints.filter((_, i) => i % step === 0) : [];
+    const filteredPower = powerPoints ? powerPoints.filter((_, i) => i % step === 0) : [];
 
     if (elevationChart) elevationChart.destroy();
     
@@ -226,90 +303,40 @@ function updateChart(labels, dataPoints) {
         type: 'line',
         data: {
             labels: filteredLabels.map(d => parseFloat(d).toFixed(1)),
-            datasets: [{ 
-                label: 'Hoogte', 
-                data: filteredData, 
-                borderColor: '#fc4c02', 
-                backgroundColor: 'rgba(252,76,2,0.1)', 
-                fill: true, 
-                pointRadius: 0, 
-                pointHoverRadius: 6, // Bolletje in grafiek ook groter bij hover
-                borderWidth: 2,
-                order: 1
-            }]
+            datasets: [
+                { label: 'Hoogte (m)', data: filteredEle, borderColor: '#fc4c02', backgroundColor: 'rgba(252,76,2,0.1)', fill: true, pointRadius: 0, borderWidth: 2, yAxisID: 'y', order: 3 },
+                { label: 'Snelheid (km/u)', data: filteredSpeed, borderColor: '#007bff', backgroundColor: 'transparent', fill: false, pointRadius: 0, borderWidth: 1.5, tension: 0.4, yAxisID: 'y1', order: 2 },
+                { label: 'Vermogen (W)', data: filteredPower, borderColor: '#6f42c1', backgroundColor: 'transparent', fill: false, pointRadius: 0, borderWidth: 1, tension: 0.4, yAxisID: 'y2', order: 1, hidden: true }
+            ]
         },
         options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            interaction: {
-                mode: 'index',     // Reageert op de dichtstbijzijnde x-as index
-                intersect: false,  // Je hoeft niet precies op de lijn te zitten
-            },
+            responsive: true, maintainAspectRatio: false,
+            interaction: { mode: 'index', intersect: false },
             onHover: (event, elements) => {
-                if (elements && elements.length > 0) {
-                    const chartIndex = elements[0].index;
-                    // Reken terug naar de originele index van de volledige GPS data
-                    const realIndex = chartIndex * step;
-                    showPointOnMap(realIndex);
-                } else {
-                    hidePointOnMap();
-                }
+                if (elements && elements.length > 0) { showPointOnMap(elements[0].index * step); } else { hidePointOnMap(); }
             },
             scales: { 
                 x: { display: false }, 
-                y: { display: true } 
+                y: { type: 'linear', display: true, position: 'left', title: {display:true, text:'Hoogte'} },
+                y1: { type: 'linear', display: true, position: 'right', grid: {drawOnChartArea:false}, title: {display:true, text:'Km/u'} },
+                y2: { type: 'linear', display: false, position: 'right', grid: {drawOnChartArea:false}, min: 0 }
             },
-            plugins: {
-                legend: { display: false },
-                tooltip: {
-                    displayColors: false,
-                    callbacks: {
-                        label: (ctx) => `Hoogte: ${ctx.raw}m`
-                    }
-                }
-            }
+            plugins: { legend: { display: true, labels: { boxWidth: 10 } } }
         }
     });
 }
 
-// 2. Toon een DUIDELIJK punt op de kaart
 function showPointOnMap(index) {
     if (!currentRideData || !map) return;
-    
-    // Zorg dat we niet buiten de array lezen door afrondingsfouten
     const safeIndex = Math.min(index, currentRideData.uiData.latlngs.length - 1);
     const latlng = currentRideData.uiData.latlngs[safeIndex];
-    
     if (!latlng) return;
-
-    if (!hoverMarker) {
-        // Maak een nieuwe marker aan als die er nog niet is
-        hoverMarker = L.circleMarker(latlng, {
-            radius: 8,              // Groter formaat
-            fillColor: "#007bff",   // Fel blauw
-            color: "#ffffff",       // Witte rand
-            weight: 3,              // Dikke rand
-            opacity: 1,
-            fillOpacity: 1
-        }).addTo(map);
-    } else {
-        // Verplaats de bestaande marker
-        hoverMarker.setLatLng(latlng);
-        // Zorg dat hij zichtbaar is (voor het geval hij verborgen was)
-        if (!map.hasLayer(hoverMarker)) hoverMarker.addTo(map);
-    }
-    
-    // Zorg dat de marker altijd BOVEN de route lijn ligt
+    if (!hoverMarker) { hoverMarker = L.circleMarker(latlng, { radius: 8, fillColor: "#007bff", color: "#ffffff", weight: 3, opacity: 1, fillOpacity: 1 }).addTo(map); } 
+    else { hoverMarker.setLatLng(latlng); if (!map.hasLayer(hoverMarker)) hoverMarker.addTo(map); }
     hoverMarker.bringToFront();
 }
 
-// 3. Verberg het punt als je stopt met hoveren
-function hidePointOnMap() {
-    if (hoverMarker && map) {
-        map.removeLayer(hoverMarker);
-        hoverMarker = null; // Resetten
-    }
-}
+function hidePointOnMap() { if (hoverMarker && map) { map.removeLayer(hoverMarker); hoverMarker = null; } }
 
 async function saveToCloud() {
     if (!currentRideData) return;
@@ -326,16 +353,11 @@ async function saveToCloud() {
     } catch (e) { console.error(e); btn.innerText = "Opslaan"; btn.disabled = false; }
 }
 
-// Zorg dat deze functie beschikbaar is voor de UI
 window.updateSegmentsUI = function(segments) {
     const list = document.getElementById('segments-list');
     if(!list) return;
     list.innerHTML = '';
-    
-    if(!segments || segments.length === 0) {
-        list.innerHTML = '<small style="color:#888;">Geen segmenten gevonden.</small>';
-        return;
-    }
+    if(!segments || segments.length === 0) { list.innerHTML = '<small style="color:#888;">Geen segmenten.</small>'; return; }
     
     const clearBtn = document.createElement('div');
     clearBtn.id = 'clear-segment-btn';
@@ -379,10 +401,44 @@ function highlightSegment(startIdx, endIdx, dist) {
         const chartEnd = Math.ceil(endIdx * ratio);
         const highlightData = new Array(totalPoints).fill(null);
         for (let i = 0; i < totalPoints; i++) { if (i >= chartStart && i <= chartEnd) { highlightData[i] = originalDataset.data[i]; } }
-        if (elevationChart.data.datasets.length > 1) { elevationChart.data.datasets[1].data = highlightData; } 
-        else { elevationChart.data.datasets.push({ label: 'Segment', data: highlightData, borderColor: '#00ff00', backgroundColor: 'rgba(0, 255, 0, 0.4)', borderWidth: 3, pointRadius: 0, pointHoverRadius: 5, fill: true, order: 0 }); }
+        
+        if (elevationChart.data.datasets.length > 3) { elevationChart.data.datasets[3].data = highlightData; } 
+        else { elevationChart.data.datasets.push({ label: 'Segment', data: highlightData, borderColor: '#00ff00', backgroundColor: 'rgba(0, 255, 0, 0.4)', borderWidth: 3, pointRadius: 0, fill: true, order: 0 }); }
         elevationChart.update();
     }
 }
+
+// --- FIX FUNCTIE (AANGEPAST) ---
+window.fixMaxSpeeds = async function() {
+    const btn = document.getElementById('fix-data-btn');
+    if(btn) { btn.innerText = "⏳ Bezig..."; btn.disabled = true; }
+
+    const activities = await window.supabaseAuth.listActivities();
+    let count = 0;
+
+    for (const act of activities) {
+        if (act.summary.type !== 'route') {
+            try {
+                console.log(`Fixing ${act.fileName}...`);
+                const blob = await window.supabaseAuth.getActivityFile(act.id);
+                const text = await blob.text();
+                
+                // FORCE: Opnieuw parsen om de nieuwe spike-filter logica toe te passen
+                const newData = parseGPXData(text, act.fileName, true);
+                
+                if (newData) {
+                    await window.supabaseAuth.updateActivitySummary(act.id, newData.summary);
+                    count++;
+                }
+            } catch (e) {
+                console.error(`Fout bij fixen ${act.fileName}:`, e);
+            }
+        }
+    }
+
+    alert(`Klaar! ${count} ritten geüpdatet met nieuwe Max Snelheid.`);
+    if(btn) { btn.innerText = "🛠️ Data Hersteld"; }
+    location.reload(); 
+};
 
 window.parseGPXData = parseGPXData;

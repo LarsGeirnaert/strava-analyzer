@@ -660,34 +660,84 @@ function updateMuniUI() {
 window.openRideFromHeatmap = function(act) { heatmapMap.closePopup(); switchTab('analysis'); window.openRide(act); };
 
 
+// IN ui.js: Vervang deze twee functies
+
 window.switchRankingTab = async function(tab) {
     document.querySelectorAll('.sub-nav-btn').forEach(b => b.classList.toggle('active', b.onclick.toString().includes(tab)));
     document.querySelectorAll('.rank-tab-content').forEach(c => c.classList.toggle('hidden', !c.id.includes(tab)));
+    
     if(!allActivitiesCache) allActivitiesCache = await window.supabaseAuth.listActivities();
+    
     if(tab === 'segments') loadRankings(document.getElementById('segmentSelector').value);
+    
+    // Bestaande tabs
     else if(tab === 'distance') renderTrendGraph(allActivitiesCache, 'distanceKm', 'distance-table-body', 'distanceTrendChart', 'distanceTopFilter', 'Afstand (km)');
     else if(tab === 'elevation') renderTrendGraph(allActivitiesCache, 'elevationGain', 'elevation-table-body', 'elevationTrendChart', 'elevationTopFilter', 'Hoogte (m)');
+    
+    // NIEUW: De Max Snelheid Tab koppelen aan de variabele 'maxSpeed'
+    else if(tab === 'speed') renderTrendGraph(allActivitiesCache, 'maxSpeed', 'speed-table-body', 'speedTrendChart', 'speedTopFilter', 'Max Snelheid (km/u)');
 };
 
 function renderTrendGraph(activities, key, tableId, chartId, filterId, label) {
     const fv = document.getElementById(filterId)?.value || 'all';
-    let r = [...activities.filter(a => a.summary.type !== 'route')].sort((a, b) => (parseFloat(b.summary[key])||0) - (parseFloat(a.summary[key])||0));
+    
+    // 1. SORTEREN: Hoogste waarde eerst (rekening houdend met lege waardes)
+    let r = [...activities.filter(a => a.summary.type !== 'route')].sort((a, b) => {
+        const valA = parseFloat(a.summary[key]) || 0;
+        const valB = parseFloat(b.summary[key]) || 0;
+        return valB - valA;
+    });
+    
+    // Filter aantal (Top 5, Top 10, etc.)
     if(fv !== 'all') r = r.slice(0, parseInt(fv));
+    
+    // 2. GRAFIEK DATA: Chronologisch sorteren voor de lijn
     const ch = [...r].sort((a,b) => new Date(a.summary.rideDate) - new Date(b.summary.rideDate));
     const v = ch.map(a => parseFloat(a.summary[key]) || 0);
     const tr = calculateTrendLine(v);
+    
+    // Teken Grafiek
     const ctx = document.getElementById(chartId).getContext('2d');
     if(activeCharts[chartId]) activeCharts[chartId].destroy();
+    
     activeCharts[chartId] = new Chart(ctx, {
         type: 'line',
         data: {
             labels: ch.map(a => new Date(a.summary.rideDate).toLocaleDateString()),
-            datasets: [{ label: label, data: v, borderColor: '#fc4c02', fill: true, tension: 0.2 }, { label: 'Trend', data: tr, borderColor: '#333', borderDash: [5,5], fill: false }]
+            datasets: [
+                { label: label, data: v, borderColor: '#fc4c02', fill: true, tension: 0.2, backgroundColor: 'rgba(252,76,2,0.1)' }, 
+                { label: 'Trend', data: tr, borderColor: '#333', borderDash: [5,5], fill: false, pointRadius:0 }
+            ]
         },
         options: { responsive: true, maintainAspectRatio: false }
     });
+    
+    // 3. TABEL VULLEN
     const tb = document.getElementById(tableId);
-    if(tb) tb.innerHTML = `<div class="table-container"><table class="data-table"><thead><tr><th>#</th><th>Naam</th><th>Datum</th><th>${label}</th></tr></thead><tbody>${r.map((act, i) => `<tr onclick="switchTab('analysis'); window.openRide(${JSON.stringify(act).replace(/"/g, '&quot;')})"><td>#${i+1}</td><td>${act.fileName}</td><td>${new Date(act.summary.rideDate).toLocaleDateString()}</td><td><strong>${parseFloat(act.summary[key]).toFixed(1)}</strong></td></tr>`).join('')}</tbody></table></div>`;
+    if(tb) {
+        tb.innerHTML = `
+        <div class="table-container">
+            <table class="data-table">
+                <thead><tr><th>#</th><th>Naam</th><th>Datum</th><th>${label}</th></tr></thead>
+                <tbody>
+                    ${r.map((act, i) => {
+                        const val = parseFloat(act.summary[key]) || 0; 
+                        // Kleur de top 3
+                        const color = i===0 ? 'gold' : i===1 ? 'silver' : i===2 ? '#cd7f32' : 'var(--text-main)';
+                        const weight = i<3 ? '900' : 'bold';
+                        
+                        return `
+                        <tr onclick="switchTab('analysis'); window.openRide(${JSON.stringify(act).replace(/"/g, '&quot;')})">
+                            <td style="color:${color}; font-weight:${weight};">#${i+1}</td>
+                            <td>${act.fileName}</td>
+                            <td>${new Date(act.summary.rideDate).toLocaleDateString()}</td>
+                            <td><strong style="color:${color};">${val.toFixed(1)}</strong></td>
+                        </tr>`;
+                    }).join('')}
+                </tbody>
+            </table>
+        </div>`;
+    }
 }
 
 
@@ -992,4 +1042,31 @@ function drawTiles() {
         const first = Array.from(uniqueTiles)[0].split(',').map(parseFloat);
         muniMap.setView(first, 10);
     }
+}
+// IN ui.js: Vervang updateStats
+
+function updateStats(dist, timeMs, speed, ele, power, maxSpeed) { // maxSpeed toegevoegd als argument
+    const d = document.getElementById('statDist');
+    const t = document.getElementById('statTime');
+    const s = document.getElementById('statSpeed');
+    const e = document.getElementById('statElev');
+    const p = document.getElementById('statPower');
+    const ms = document.getElementById('statMaxSpeed'); // NIEUW
+
+    if(d) d.innerText = typeof dist === 'string' ? dist : parseFloat(dist).toFixed(2);
+    if(e) e.innerText = Math.round(ele);
+    
+    // Gemiddelde snelheid
+    if(s) s.innerText = typeof speed === 'string' ? speed : parseFloat(speed).toFixed(1);
+    
+    // NIEUW: Max Snelheid invullen
+    if(ms) ms.innerText = maxSpeed ? parseFloat(maxSpeed).toFixed(1) : "0.0";
+
+    if(t) { 
+        const h = Math.floor(timeMs / 3600000); 
+        const m = Math.floor((timeMs % 3600000) / 60000); 
+        t.innerText = `${h}:${m.toString().padStart(2,'0')}`; 
+    }
+    
+    if(p) p.innerText = power || 0;
 }

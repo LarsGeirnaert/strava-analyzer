@@ -1,6 +1,5 @@
 // auth.js - Authenticatie, Database & Gemeente Opslag
 
-// JOUW SUPABASE GEGEVENS
 const SUPABASE_URL = 'https://zisirffmoiezwfcidezc.supabase.co';
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inppc2lyZmZtb2llendmY2lkZXpjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjkxNzUwMDYsImV4cCI6MjA4NDc1MTAwNn0.rVcLHYlGREqGeaX0W7r7RX9y0X9NdnwY_RQsb1508OU';
 
@@ -10,7 +9,6 @@ window.supabase = supabaseClient;
 let currentUser = null;
 let isLoginMode = true;
 
-// DOM Elementen
 const loginScreen = document.getElementById('login-screen');
 const appContainer = document.querySelector('.app-container');
 const emailInput = document.getElementById('email');
@@ -26,7 +24,7 @@ window.supabaseAuth = {
     isLoggedIn: () => !!currentUser,
     getCurrentUser: () => currentUser,
     
-    // 1. LIJST OPHALEN (Lichtgewicht)
+    // 1. LIJST OPHALEN
     async listActivities() {
         if (!currentUser) return [];
         const { data, error } = await supabaseClient
@@ -39,7 +37,7 @@ window.supabaseAuth = {
         return data.map(d => ({ ...d, fileName: d.file_name }));
     },
 
-    // 2. BESTAND OPHALEN (Zwaar)
+    // 2. BESTAND OPHALEN
     async getActivityFile(id) {
         const { data, error } = await supabaseClient
             .from('activities')
@@ -66,13 +64,24 @@ window.supabaseAuth = {
                 summary: summary,
                 ride_date: summary.rideDate || new Date().toISOString()
             })
-            .select(); // Return de opgeslagen data (nodig voor ID)
+            .select();
             
         if (error) throw error;
         return data;
     },
 
-    // 4. VERWIJDEREN
+    // 4. ACTIVITEIT UPDATEN (DEZE WAS JE KWIJT!)
+    async updateActivitySummary(id, newSummary) {
+        if (!currentUser) throw new Error("Niet ingelogd");
+        const { error } = await supabaseClient
+            .from('activities')
+            .update({ summary: newSummary })
+            .eq('id', id);
+        
+        if (error) throw error;
+    },
+
+    // 5. VERWIJDEREN
     async deleteActivities(idsArray) {
         if (!currentUser) throw new Error("Niet ingelogd");
         const { error } = await supabaseClient
@@ -82,26 +91,20 @@ window.supabaseAuth = {
         if (error) throw error;
     },
 
-    // 5. GEMEENTES OPSLAAN (Voor de kaart)
+    // 6. GEMEENTES OPSLAAN
     async saveConqueredMunicipalities(namesArray) {
         if (!currentUser || !namesArray || namesArray.length === 0) return;
-
-        // Maak records aan
         const records = namesArray.map(name => ({
             user_id: currentUser.id,
             municipality_name: name
         }));
-
-        // Upsert: Voeg toe, negeer als al bestaat
         const { error } = await supabaseClient
             .from('user_municipalities')
             .upsert(records, { onConflict: 'user_id, municipality_name', ignoreDuplicates: true });
-
         if (error) console.error("Fout bij opslaan gemeentes:", error);
-        else console.log(`✅ ${namesArray.length} gemeentes bijgewerkt in DB.`);
     },
 
-    // 6. GEMEENTES OPHALEN
+    // 7. GEMEENTES OPHALEN
     async getConqueredMunicipalities() {
         if (!currentUser) return [];
         const { data, error } = await supabaseClient
@@ -123,7 +126,7 @@ async function checkSession() {
 function toggleAuthMode(e) {
     if(e) e.preventDefault();
     isLoginMode = !isLoginMode;
-    authError.style.display = 'none';
+    if(authError) authError.style.display = 'none';
 
     if (isLoginMode) {
         authTitle.innerText = "Log in om verder te gaan";
@@ -144,7 +147,7 @@ async function handleAuthAction() {
     const email = emailInput.value.trim();
     const password = passwordInput.value.trim();
     if(!email || !password) { showError("Vul alle velden in."); return; }
-    authError.style.display = 'none';
+    if(authError) authError.style.display = 'none';
     actionBtn.innerText = "Laden..."; actionBtn.disabled = true;
 
     try {
@@ -168,7 +171,12 @@ async function handleAuthAction() {
 
 function showError(msg) {
     if(msg.includes("Invalid login")) msg = "Ongeldig email of wachtwoord.";
-    authError.innerText = msg; authError.style.display = 'block';
+    if(authError) {
+        authError.innerText = msg; 
+        authError.style.display = 'block';
+    } else {
+        alert(msg);
+    }
 }
 
 function handleLoginSuccess(user) {
