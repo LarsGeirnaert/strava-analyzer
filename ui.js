@@ -52,15 +52,29 @@ function setupNavigation() {
     );
 }
 
+// IN ui.js
+
 function setupSegmentSelector() {
     const select = document.getElementById('segmentSelector');
     if (select) {
         select.innerHTML = ''; 
+        // Vul dropdown: 5km t/m 100km
         for (let k = 5; k <= 100; k += 5) {
             const opt = document.createElement('option');
-            opt.value = k; opt.text = `${k} km`; select.appendChild(opt);
+            opt.value = k; 
+            opt.text = `${k} km`; 
+            select.appendChild(opt);
         }
-        select.value = "5";
+        select.value = "5"; // Standaard 5km
+    }
+    
+    // Pas de tekst van de knop aan zodat duidelijk is wat hij doet
+    const fixBtn = document.getElementById('fix-data-btn');
+    if(fixBtn) {
+        fixBtn.innerHTML = "🔄 <strong>Update Alle Data</strong>";
+        fixBtn.title = "Klik hier om alle ritten opnieuw te berekenen voor de ranglijsten";
+        fixBtn.style.width = "auto";
+        fixBtn.style.padding = "10px 20px";
     }
 }
 
@@ -806,113 +820,130 @@ function renderTrendGraph(activities, key, tableId, chartId, filterId, label) {
     }
 }
 
+// IN ui.js - Vervang loadRankings volledig
 
 window.loadRankings = async function(distArg) {
+    // 1. Zorg voor data
     if(!allActivitiesCache) allActivitiesCache = await window.supabaseAuth.listActivities();
 
-    // 1. HAAL HUIDIGE WAARDEN OP
     const selector = document.getElementById('segmentSelector');
-    const selectedDist = distArg || (selector ? selector.value : "5");
+    // Forceer naar een getal (belangrijk!)
+    const selectedDist = parseInt(distArg || (selector ? selector.value : "5"));
+    const trendFilter = document.getElementById('segmentTrendFilter').value;
+
+    console.log("Ranking laden voor:", selectedDist, "km");
+
+    // 2. Filter de data
+    let rankingData = [];
     
-    const maxElev = parseFloat(document.getElementById('segmentMaxElev').value) || 99999;
-    const trendFilter = document.getElementById('segmentTrendFilter').value; // Alleen nog Trend filter
-    const targetDist = parseInt(selectedDist);
+    allActivitiesCache.forEach(act => {
+        // Alleen echte ritten
+        if (act.summary.type === 'route') return;
 
-    // 2. DATA VERZAMELEN
-    let baseData = allActivitiesCache
-        .filter(act => act.summary.type !== 'route')
-        .map(act => {
-            const seg = (act.summary.segments || []).find(s => s.distance === targetDist);
-            if (seg) {
-                return {
-                    activity: act,
-                    speed: seg.speed,
-                    timeMs: seg.timeMs,
-                    elev: act.summary.elevationGain,
-                    date: new Date(act.summary.rideDate)
-                };
-            }
-            return null;
-        })
-        .filter(item => item && item.elev <= maxElev);
-
-    // --- DEEL A: DE GRAFIEK (Chronologisch & Laatste X) ---
-    let graphData = [...baseData].sort((a,b) => a.date - b.date); // Oud -> Nieuw
-
-    if (trendFilter !== 'all') {
-        const limit = parseInt(trendFilter);
-        graphData = graphData.slice(-limit); // Pak laatste X
-    }
-
-    if(graphData.length > 0) {
-        document.getElementById('segment-progression-container').style.display = 'block';
+        // Hebben we segmenten?
+        const segs = act.summary.segments || [];
         
-        const speeds = graphData.map(i => i.speed);
-        const labels = graphData.map(i => i.date.toLocaleDateString());
-        const trend = calculateTrendLine(speeds);
+        // Zoek exact de afstand die we nodig hebben (bv 10)
+        // We gebruiken 'find' en checken op strict equality of type match
+        const match = segs.find(s => parseInt(s.distance) === selectedDist);
 
-        const ctx = document.getElementById('segmentProgressionChart').getContext('2d');
-        if(activeCharts['segChart']) activeCharts['segChart'].destroy();
-        
-        activeCharts['segChart'] = new Chart(ctx, {
-            type: 'line',
-            data: {
-                labels: labels,
-                datasets: [
-                    {
-                        label: 'Snelheid (km/u)', 
-                        data: speeds, 
-                        borderColor: '#28a745', 
-                        backgroundColor: 'rgba(40, 167, 69, 0.1)',
-                        fill: true, tension: 0.3, pointRadius: 5, pointHoverRadius: 7
-                    }, 
-                    {
-                        label: 'Trend', 
-                        data: trend, 
-                        borderColor: '#fc4c02', 
-                        borderDash: [5,5], 
-                        pointRadius: 0, fill: false
-                    }
-                ]
-            },
-            options: {
-                responsive: true, maintainAspectRatio: false,
-                plugins: { tooltip: { callbacks: { afterLabel: (c) => graphData[c.dataIndex].activity.fileName } } },
-                scales: { y: { title: { display: true, text: 'Km/u' } } }
-            }
-        });
-    } else {
-        document.getElementById('segment-progression-container').style.display = 'none';
-    }
+        if (match) {
+            rankingData.push({
+                activity: act,
+                speed: match.speed,
+                timeMs: match.timeMs,
+                date: new Date(act.summary.rideDate)
+            });
+        }
+    });
 
-    // --- DEEL B: DE LIJST (Snelste Eerst - ALLES tonen) ---
-    // We tonen gewoon de hele lijst, gesorteerd op snelheid.
-    let listData = [...baseData].sort((a,b) => b.speed - a.speed);
+    // 3. Sorteer op Snelheid (Hoog naar Laag)
+    rankingData.sort((a,b) => b.speed - a.speed);
 
+    // 4. Render de Lijst
     const listEl = document.getElementById('ranking-list');
-    if (listData.length === 0) {
-        listEl.innerHTML = '<p style="text-align:center; color:var(--text-muted); padding:20px;">Geen segmenten gevonden.</p>';
-    } else {
-        listEl.innerHTML = listData.map((item, i) => {
-            const medal = i===0 ? '🥇' : i===1 ? '🥈' : i===2 ? '🥉' : `#${i+1}`;
-            const borderStyle = i===0 ? 'border-left: 4px solid gold;' : i===1 ? 'border-left: 4px solid silver;' : i===2 ? 'border-left: 4px solid #cd7f32;' : 'border-left: 4px solid transparent;';
-            
-            return `
-            <div class="rank-card" style="${borderStyle}" onclick="switchTab('analysis'); window.openRide(${JSON.stringify(item.activity).replace(/"/g, '&quot;')})">
-                <div style="display:flex; align-items:center; gap:10px;">
-                    <span style="font-size:1.2rem; font-weight:bold; width:40px;">${medal}</span>
-                    <div style="overflow:hidden;">
-                        <strong style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis; display:block;">${item.activity.fileName}</strong>
-                        <small>${item.date.toLocaleDateString()} • ⛰️ ${item.elev}m</small>
-                    </div>
-                </div>
-                <div style="text-align:right; min-width:80px;">
-                    <strong style="font-size:1.1rem; color:var(--primary);">${item.speed.toFixed(1)} km/u</strong>
-                </div>
+    listEl.innerHTML = '';
+
+    if (rankingData.length === 0) {
+        listEl.innerHTML = `
+            <div style="text-align:center; padding:40px; color:var(--text-muted);">
+                <h3>Geen data voor ${selectedDist} km</h3>
+                <p>Of je hebt nog geen ritten die lang genoeg zijn, <br>
+                of je moet even op de <strong>Update Alle Data</strong> knop klikken.</p>
             </div>`;
-        }).join('');
+        
+        // Verberg grafiek als er geen data is
+        document.getElementById('segment-progression-container').style.display = 'none';
+        return; 
+    }
+
+    // Render Items
+    listEl.innerHTML = rankingData.map((item, i) => {
+        const medal = i===0 ? '🥇' : i===1 ? '🥈' : i===2 ? '🥉' : `#${i+1}`;
+        const borderStyle = i===0 ? 'border-left: 4px solid gold;' : i===1 ? 'border-left: 4px solid silver;' : i===2 ? 'border-left: 4px solid #cd7f32;' : '';
+        
+        // Tijd netjes maken
+        const totSec = Math.floor(item.timeMs / 1000);
+        const h = Math.floor(totSec / 3600);
+        const m = Math.floor((totSec % 3600) / 60);
+        const s = totSec % 60;
+        const timeStr = h > 0 
+            ? `${h}:${m.toString().padStart(2,'0')}:${s.toString().padStart(2,'0')}`
+            : `${m}:${s.toString().padStart(2,'0')}`;
+
+        return `
+        <div class="rank-card" style="${borderStyle}" onclick="switchTab('analysis'); window.openRide(${JSON.stringify(item.activity).replace(/"/g, '&quot;')})">
+            <div style="display:flex; align-items:center; gap:15px;">
+                <span style="font-size:1.5rem; width:40px; text-align:center;">${medal}</span>
+                <div>
+                    <strong style="font-size:1rem; display:block;">${item.activity.fileName}</strong>
+                    <small style="color:var(--text-muted);">📅 ${item.date.toLocaleDateString()} • ⏱️ ${timeStr}</small>
+                </div>
+            </div>
+            <div style="text-align:right;">
+                <strong style="font-size:1.4rem; color:var(--primary);">${item.speed.toFixed(1)} <small>km/u</small></strong>
+            </div>
+        </div>`;
+    }).join('');
+
+    // 5. Update Grafiek (Optioneel, als er data is)
+    const chartContainer = document.getElementById('segment-progression-container');
+    if (rankingData.length > 1) {
+        chartContainer.style.display = 'block';
+        updateTrendChart(rankingData); // Aparte helper functie of inline
+    } else {
+        chartContainer.style.display = 'none';
     }
 };
+
+// Helper voor de grafiek (zet deze ook in ui.js)
+function updateTrendChart(data) {
+    const ctx = document.getElementById('segmentProgressionChart').getContext('2d');
+    if(activeCharts['segChart']) activeCharts['segChart'].destroy();
+
+    // Sorteer op datum voor de grafiek
+    const chronological = [...data].sort((a,b) => a.date - b.date);
+    
+    // Pak trend filter (laatste 5, 10, etc)
+    const filterVal = document.getElementById('segmentTrendFilter').value;
+    const chartData = filterVal === 'all' ? chronological : chronological.slice(-parseInt(filterVal));
+
+    activeCharts['segChart'] = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: chartData.map(d => d.date.toLocaleDateString()),
+            datasets: [{
+                label: 'Snelheid (km/u)',
+                data: chartData.map(d => d.speed),
+                borderColor: '#28a745',
+                backgroundColor: 'rgba(40,167,69,0.1)',
+                tension: 0.3,
+                fill: true
+            }]
+        },
+        options: { responsive: true, maintainAspectRatio: false }
+    });
+}
 
 function renderActivityList(acts) {
     const list = document.getElementById('dashboard-list');

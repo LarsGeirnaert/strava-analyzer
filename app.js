@@ -202,6 +202,8 @@ function smoothArray(data, windowSize) {
     });
 }
 
+// IN app.js
+
 function parseGPXData(xmlString, fileName, isExistingRide = false) {
     const parser = new DOMParser();
     const xmlDoc = parser.parseFromString(xmlString, "text/xml");
@@ -222,6 +224,7 @@ function parseGPXData(xmlString, fileName, isExistingRide = false) {
     let totalDist = 0, elevationGain = 0;
     let startTime = null, endTime = null;
 
+    // Gewicht voor power calculatie
     const riderWeight = 75; const bikeWeight = 9; const totalWeight = riderWeight + bikeWeight;
 
     for (let i = 0; i < trkpts.length; i++) {
@@ -255,8 +258,13 @@ function parseGPXData(xmlString, fileName, isExistingRide = false) {
                     currentSpeed = distDiff / timeDiffHours;
                 }
                 
-                if(currentSpeed > 130 || isNaN(currentSpeed)) currentSpeed = rawSpeeds[i-1] || 0;
+                // --- UPDATE 1: Harde limiet direct tijdens inlezen ---
+                // Als snelheid boven 100 is, gebruik vorige snelheid (filter extreme GPS fouten)
+                if(currentSpeed > 100 || isNaN(currentSpeed)) {
+                    currentSpeed = rawSpeeds[i-1] || 0;
+                }
                 
+                // Power berekening
                 const v = currentSpeed / 3.6; 
                 const grade = (distDiff * 1000) > 0 ? eleDiff / (distDiff * 1000) : 0;
                 if (v > 1) {
@@ -273,21 +281,30 @@ function parseGPXData(xmlString, fileName, isExistingRide = false) {
         }
     }
 
+    // --- UPDATE 2: Betere filtering voor Max Snelheid ---
+    // Eerst median filter om enkele uitschieters weg te halen
     const cleanSpeeds = applyMedianFilter(rawSpeeds, 5);
+    // Daarna smoothing voor mooie grafieken
     const smoothSpeeds = smoothArray(cleanSpeeds, 4);
     const smoothPowers = smoothArray(rawPowers, 6);
 
     let rideMaxSpeed = 0;
     if (smoothSpeeds.length > 0) {
-        const validSpeeds = smoothSpeeds.filter(s => !isNaN(s) && s < 110);
+        // FILTER: Alles boven 85 km/u wordt genegeerd voor het record
+        // Dit fixt jouw 99.2 en 79.6 (als 79.6 ook fout is, kunnen we dit verlagen naar 75)
+        const validSpeeds = smoothSpeeds.filter(s => !isNaN(s) && s < 85);
+        
         if (validSpeeds.length > 0) {
             rideMaxSpeed = Math.max(...validSpeeds);
         }
     }
 
-    const durationMs = (endTime - startTime);
-    const avgSpeed = durationMs > 0 ? totalDist / (durationMs / 3600000) : 0;
+    // Segments berekenen (gebruikt onze nieuwe functie)
     const segments = calculateFastestSegments(distances, times);
+
+    const durationMs = (endTime - startTime);
+    // Gemiddelde snelheid: gebruik totale afstand / totale tijd (is vaak nauwkeuriger dan gemiddelde van array)
+    const avgSpeed = durationMs > 0 ? totalDist / (durationMs / 3600000) : 0;
 
     return {
         xmlString: xmlString,
@@ -299,11 +316,14 @@ function parseGPXData(xmlString, fileName, isExistingRide = false) {
             maxSpeed: parseFloat(rideMaxSpeed.toFixed(1)), 
             durationSec: durationMs / 1000,
             rideDate: startTime ? startTime.toISOString() : new Date().toISOString(),
-            segments: segments
+            segments: segments,
+            type: 'ride' // Zeker weten dat dit type ride is
         },
         uiData: { latlngs, elevations, distances, speeds: smoothSpeeds, powers: smoothPowers, durationMs }
     };
 }
+
+// IN app.js - Vervang calculateFastestSegments volledig
 
 function calculateFastestSegments(distances, times) {
     const results = [];
@@ -311,34 +331,30 @@ function calculateFastestSegments(distances, times) {
 
     const totalDist = distances[distances.length - 1];
 
-    // Loop verplicht elke 5km af
-    for (let targetKm = 5; targetKm <= 100; targetKm += 5) {
+    // STRIKTE LOOP: 5, 10, 15 ... tot 100
+    for (let k = 5; k <= 100; k += 5) {
         
-        // Als de rit korter is dan het doel, stop de loop
-        if (totalDist < targetKm) break;
+        // Stop als de rit korter is dan het doel (bv rit is 12km, stop bij 15km)
+        if (totalDist < k) break;
 
         let bestTimeMs = Infinity;
-        let bestStartIdx = -1;
-        let bestEndIdx = -1;
-        let startIdx = 0;
         let found = false;
+        let startIdx = 0;
 
-        // Zoek het snelste stukje van exact 'targetKm' lengte
+        // Zoek snelste blokje van afstand K
         for (let endIdx = 1; endIdx < distances.length; endIdx++) {
-            // Schuif startpunt op zodat het stukje niet onnodig lang is
-            while (startIdx < endIdx && (distances[endIdx] - distances[startIdx + 1]) >= targetKm) {
+            const currentDist = distances[endIdx] - distances[startIdx];
+            
+            // Als het stukje langer is dan nodig, schuif startpunt op
+            while (startIdx < endIdx && (distances[endIdx] - distances[startIdx + 1]) >= k) {
                 startIdx++;
             }
 
-            const currentDist = distances[endIdx] - distances[startIdx];
-
-            // Check of dit een geldig segment is (minimaal de target afstand)
-            if (currentDist >= targetKm) {
+            // Checken
+            if ((distances[endIdx] - distances[startIdx]) >= k) {
                 const timeDiff = times[endIdx] - times[startIdx];
                 if (timeDiff < bestTimeMs) {
                     bestTimeMs = timeDiff;
-                    bestStartIdx = startIdx;
-                    bestEndIdx = endIdx;
                     found = true;
                 }
             }
@@ -346,17 +362,13 @@ function calculateFastestSegments(distances, times) {
 
         if (found) {
             results.push({
-                distance: targetKm,
+                distance: k,
                 timeMs: bestTimeMs,
-                speed: targetKm / (bestTimeMs / 3600000), // km/u
-                startIdx: bestStartIdx,
-                endIdx: bestEndIdx
+                speed: k / (bestTimeMs / 3600000) // km/u
             });
         }
     }
-    
-    // Sorteer op afstand (klein naar groot)
-    return results.sort((a, b) => a.distance - b.distance);
+    return results;
 }
 
 function getDistanceFromLatLonInKm(lat1, lon1, lat2, lon2) {
@@ -517,50 +529,53 @@ function highlightSegment(startIdx, endIdx, dist) {
     }
 }
 
+// IN app.js - Vervang fixMaxSpeeds volledig
+
 window.fixMaxSpeeds = async function() {
     const btn = document.getElementById('fix-data-btn');
-    if(btn) { btn.innerText = "⏳ Bezig..."; btn.disabled = true; }
-
-    const activities = await window.supabaseAuth.listActivities();
-    let count = 0;
-
-    for (const act of activities) {
-        if (act.summary.type !== 'route') {
-            try {
-                console.log(`Fixing ${act.fileName}...`);
-                const blob = await window.supabaseAuth.getActivityFile(act.id);
-                const text = await blob.text();
-                
-                const newData = parseGPXData(text, act.fileName, true);
-                
-                if (newData) {
-                    // Update zowel de nieuwe segmenten als de max snelheid
-                    const updatedSummary = {
-                        ...act.summary, 
-                        maxSpeed: newData.summary.maxSpeed,
-                        segments: newData.summary.segments // OVERSCHRIJF segmenten met de nieuwe 5km logica
-                    };
-
-                    const { error } = await window.supabase
-                        .from('activities')
-                        .update({ summary: updatedSummary })
-                        .eq('id', act.id);
-
-                    if (!error) {
-                        count++;
-                    } else {
-                        console.error(`Fout bij ${act.fileName}:`, error);
-                    }
-                }
-            } catch (e) {
-                console.error(`Error loop:`, e);
-            }
-        }
+    if(btn) { 
+        btn.innerHTML = "⚠️ Bezig met Harde Reset..."; 
+        btn.disabled = true; 
+        btn.style.background = "#dc3545"; // Rood om aan te geven: serieus werk
     }
 
-    alert(`Klaar! ${count} ritten bijgewerkt (Segmenten & Max Snelheid).`);
-    if(btn) { btn.innerText = "✅ Klaar"; }
-    location.reload(); 
+    try {
+        const activities = await window.supabaseAuth.listActivities();
+        console.log(`Start harde reset voor ${activities.length} ritten...`);
+
+        let count = 0;
+        
+        for (const act of activities) {
+            // Sla routes over, alleen echte ritten
+            if (act.summary.type === 'route') continue;
+
+            // 1. Haal het originele bestand op (BLOB)
+            const blob = await window.supabaseAuth.getActivityFile(act.id);
+            const text = await blob.text();
+
+            // 2. BEREKEN ALLES OPNIEUW (met de nieuwe 5-100km logica)
+            const freshData = parseGPXData(text, act.fileName, true);
+            
+            if (freshData && freshData.summary) {
+                // 3. OVERSCHRIJF de database volledig met deze nieuwe summary
+                // We behouden alleen het originele ID en bestandsnaam, de rest wordt ververst.
+                const newSummary = freshData.summary;
+                
+                await window.supabaseAuth.updateActivitySummary(act.id, newSummary);
+                
+                count++;
+                if(btn) btn.innerHTML = `⏳ Bezig... ${count}/${activities.length}`;
+            }
+        }
+
+        alert(`✅ GELUKT! ${count} ritten zijn volledig gereset en opnieuw berekend.`);
+        location.reload();
+
+    } catch (e) {
+        console.error(e);
+        alert("Fout tijdens resetten: " + e.message);
+        if(btn) btn.innerHTML = "❌ Fout - Probeer opnieuw";
+    }
 };
 
 window.parseGPXData = parseGPXData;
