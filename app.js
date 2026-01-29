@@ -9,11 +9,9 @@ let hoverMarker = null;
 document.addEventListener('DOMContentLoaded', () => {
     initMap();
     
-    // Bestaande file input
     const gpxInput = document.getElementById('gpxInput');
     if(gpxInput) gpxInput.addEventListener('change', (e) => handleFileUpload(e));
     
-    // NIEUWE MAP INPUT
     const folderInput = document.getElementById('folderInput');
     if(folderInput) folderInput.addEventListener('change', (e) => handleFolderUpload(e));
 
@@ -47,10 +45,7 @@ window.openRide = async function(activity) {
         if(window.switchTab) window.switchTab('analysis');
         const fileBlob = await window.supabaseAuth.getActivityFile(activity.id);
         const text = await fileBlob.text();
-        
-        // Geef activity.summary mee zodat we de opgeslagen maxSpeed kunnen tonen
         processGPXAndRender(text, activity.fileName, true, activity.summary);
-        
         const saveSection = document.getElementById('save-section');
         if(saveSection) saveSection.classList.add('hidden');
     } catch (e) { console.error(e); alert("Kon rit data niet ophalen."); }
@@ -65,7 +60,7 @@ async function handleFileUpload(e) {
     processGPXAndRender(text, file.name);
 }
 
-// --- NIEUWE FUNCTIE: MAP UPLOAD MET DATUM FILTER ---
+// --- FOLDER UPLOAD ---
 async function handleFolderUpload(e) {
     const files = e.target.files;
     if (!files || files.length === 0) return;
@@ -73,41 +68,24 @@ async function handleFolderUpload(e) {
     const progressEl = document.getElementById('upload-progress');
     if(progressEl) progressEl.style.display = 'block';
     
-    // De datum grens: 1 januari 2024
     const CUTOFF_DATE = new Date('2024-01-01T00:00:00').getTime();
-    
-    let processed = 0;
-    let uploaded = 0;
-    let skipped = 0;
+    let processed = 0; let uploaded = 0; let skipped = 0;
 
-    // We zetten de UI op "Analysis" zodat je de voortgang ziet
     if(window.switchTab) window.switchTab('analysis');
-
     console.log(`Start verwerken van ${files.length} bestanden...`);
 
     for (const file of files) {
-        // Alleen .gpx bestanden
         if (!file.name.toLowerCase().endsWith('.gpx')) continue;
-
         try {
             if(progressEl) progressEl.innerText = `Checken: ${file.name} (${processed}/${files.length})`;
-            
             const text = await file.text();
-            
-            // 1. SNELLE DATUM CHECK (zonder zware parse)
             const timeMatch = text.match(/<time>(.*?)<\/time>/);
             
             if (timeMatch && timeMatch[1]) {
                 const rideDate = new Date(timeMatch[1]).getTime();
-                
-                // FILTER: Is de rit na 1-1-2024?
                 if (rideDate > CUTOFF_DATE) {
-                    
-                    // 2. PARSEN & OPSLAAN
                     const data = parseGPXData(text, file.name); 
-                    
                     if (data) {
-                        // Sla direct op in Supabase
                         await window.supabaseAuth.saveActivity({
                             fileBlob: new Blob([text], {type: 'application/xml'}),
                             fileName: data.fileName,
@@ -120,22 +98,14 @@ async function handleFolderUpload(e) {
                     console.log(`⏭️ Overgeslagen (Te oud): ${file.name}`);
                     skipped++;
                 }
-            } else {
-                console.warn(`Geen datum gevonden in ${file.name}`);
             }
-
-        } catch (err) {
-            console.error(`Fout bij ${file.name}:`, err);
-        }
+        } catch (err) { console.error(`Fout bij ${file.name}:`, err); }
         processed++;
     }
 
     if(progressEl) progressEl.innerText = `Klaar! ${uploaded} geüpload, ${skipped} overgeslagen.`;
     alert(`Batch klaar!\n✅ ${uploaded} nieuwe ritten toegevoegd.\n⏭️ ${skipped} ritten van voor 2024 genegeerd.`);
-    
     if(window.updateDashboard) window.updateDashboard();
-    
-    // Reset de input
     document.getElementById('folderInput').value = '';
 }
 
@@ -149,7 +119,6 @@ function processGPXAndRender(xmlString, fileName, isExistingRide = false, existi
         ? Math.round(data.uiData.powers.reduce((a,b)=>a+b,0) / data.uiData.powers.length) 
         : 0;
 
-    // Gebruik bestaande max snelheid als die er is (bij openen rit), anders de nieuw berekende
     const displayMaxSpeed = (existingSummary && existingSummary.maxSpeed) 
         ? existingSummary.maxSpeed 
         : data.summary.maxSpeed;
@@ -185,9 +154,7 @@ function updateStats(dist, timeMs, speed, ele, power, maxSpeed) {
     if(d) d.innerText = typeof dist === 'string' ? dist : parseFloat(dist).toFixed(2);
     if(e) e.innerText = Math.round(ele);
     if(s) s.innerText = typeof speed === 'string' ? speed : parseFloat(speed).toFixed(1);
-    
     if(ms) ms.innerText = maxSpeed ? parseFloat(maxSpeed).toFixed(1) : "0.0";
-    
     if(t) { const h = Math.floor(timeMs / 3600000); const m = Math.floor((timeMs % 3600000) / 60000); t.innerText = `${h}:${m.toString().padStart(2,'0')}`; }
     if(p) p.innerText = power || 0;
 }
@@ -310,7 +277,6 @@ function parseGPXData(xmlString, fileName, isExistingRide = false) {
     const smoothSpeeds = smoothArray(cleanSpeeds, 4);
     const smoothPowers = smoothArray(rawPowers, 6);
 
-    // --- MAX SNELHEID BEREKENING ---
     let rideMaxSpeed = 0;
     if (smoothSpeeds.length > 0) {
         const validSpeeds = smoothSpeeds.filter(s => !isNaN(s) && s < 110);
@@ -339,9 +305,16 @@ function parseGPXData(xmlString, fileName, isExistingRide = false) {
     };
 }
 
+// --- SEGMENT BEREKENING (AANGEPAST: ELKE 5 KM) ---
 function calculateFastestSegments(distances, times) {
     const results = [];
-    const targets = [5, 10, 20, 30, 40, 50, 60, 80, 100];
+    
+    // Genereer targets: 5, 10, 15, ..., 100
+    const targets = [];
+    for (let k = 5; k <= 100; k += 5) {
+        targets.push(k);
+    }
+
     const totalDist = distances[distances.length - 1];
 
     targets.forEach(targetKm => {
@@ -514,11 +487,11 @@ window.fixMaxSpeeds = async function() {
                 const newData = parseGPXData(text, act.fileName, true);
                 
                 if (newData) {
-                    const newSpeed = newData.summary.maxSpeed;
-                    
+                    // Update zowel de nieuwe segmenten als de max snelheid
                     const updatedSummary = {
                         ...act.summary, 
-                        maxSpeed: newSpeed 
+                        maxSpeed: newData.summary.maxSpeed,
+                        segments: newData.summary.segments // OVERSCHRIJF segmenten met de nieuwe 5km logica
                     };
 
                     const { error } = await window.supabase
@@ -538,7 +511,7 @@ window.fixMaxSpeeds = async function() {
         }
     }
 
-    alert(`Klaar! ${count} ritten bijgewerkt met max snelheid.`);
+    alert(`Klaar! ${count} ritten bijgewerkt (Segmenten & Max Snelheid).`);
     if(btn) { btn.innerText = "✅ Klaar"; }
     location.reload(); 
 };
