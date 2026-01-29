@@ -84,11 +84,23 @@ function switchTab(tabName) {
     if(target) target.classList.remove('hidden');
 
     setTimeout(() => {
-        if(tabName === 'analysis' && typeof map !== 'undefined' && map) map.invalidateSize();
+        // Fix voor Analysis map
+        if(tabName === 'analysis' && typeof map !== 'undefined' && map) {
+            map.invalidateSize();
+            
+            // Controleer of er iets op de kaart staat om op te focussen
+            if (activeSegment && segmentLayer) {
+                 // Focus op segment met padding onderin
+                 map.fitBounds(segmentLayer.getBounds(), { paddingTopLeft: [20, 20], paddingBottomRight: [20, 300] });
+            } else if (polyline) {
+                 // Focus op hele rit met padding onderin
+                 map.fitBounds(polyline.getBounds(), { paddingTopLeft: [20, 20], paddingBottomRight: [20, 300] });
+            }
+        }
+
         if(tabName === 'routes') { initRouteMap(); updateSavedRoutesList(); } 
         if(tabName === 'municipalities') {
             initMuniMap(); 
-            // Forceer refresh van de gekozen modus
             setWorldMode(currentWorldMode);
         }
     }, 150);
