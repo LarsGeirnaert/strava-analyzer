@@ -24,7 +24,6 @@ window.supabaseAuth = {
     isLoggedIn: () => !!currentUser,
     getCurrentUser: () => currentUser,
     
-    // 1. LIJST OPHALEN
     async listActivities() {
         if (!currentUser) return [];
         const { data, error } = await supabaseClient
@@ -37,7 +36,6 @@ window.supabaseAuth = {
         return data.map(d => ({ ...d, fileName: d.file_name }));
     },
 
-    // 2. BESTAND OPHALEN
     async getActivityFile(id) {
         const { data, error } = await supabaseClient
             .from('activities')
@@ -49,7 +47,6 @@ window.supabaseAuth = {
         return new Blob([new Uint8Array(data.file_data)], { type: 'application/xml' });
     },
 
-    // 3. RIT OPSLAAN
     async saveActivity({ fileBlob, fileName, summary }) {
         if (!currentUser) throw new Error("Niet ingelogd");
         const arrayBuffer = await fileBlob.arrayBuffer();
@@ -70,18 +67,24 @@ window.supabaseAuth = {
         return data;
     },
 
-    // 4. ACTIVITEIT UPDATEN (DEZE WAS JE KWIJT!)
+// IN auth.js (vervang of controleer updateActivitySummary)
+
     async updateActivitySummary(id, newSummary) {
         if (!currentUser) throw new Error("Niet ingelogd");
-        const { error } = await supabaseClient
+        
+        // We sturen de update en vragen DIRECT de data terug (.select())
+        const { data, error } = await supabaseClient
             .from('activities')
             .update({ summary: newSummary })
-            .eq('id', id);
+            .eq('id', id)
+            .select(); 
         
-        if (error) throw error;
+        if (error) {
+            console.error("Supabase Error:", error);
+            throw error;
+        }
+        return data;
     },
-
-    // 5. VERWIJDEREN
     async deleteActivities(idsArray) {
         if (!currentUser) throw new Error("Niet ingelogd");
         const { error } = await supabaseClient
@@ -91,7 +94,6 @@ window.supabaseAuth = {
         if (error) throw error;
     },
 
-    // 6. GEMEENTES OPSLAAN
     async saveConqueredMunicipalities(namesArray) {
         if (!currentUser || !namesArray || namesArray.length === 0) return;
         const records = namesArray.map(name => ({
@@ -104,7 +106,6 @@ window.supabaseAuth = {
         if (error) console.error("Fout bij opslaan gemeentes:", error);
     },
 
-    // 7. GEMEENTES OPHALEN
     async getConqueredMunicipalities() {
         if (!currentUser) return [];
         const { data, error } = await supabaseClient
@@ -116,7 +117,6 @@ window.supabaseAuth = {
     }
 };
 
-// --- AUTH UI LOGICA ---
 async function checkSession() {
     const { data: { session } } = await supabaseClient.auth.getSession();
     if (session) handleLoginSuccess(session.user);

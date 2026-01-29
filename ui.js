@@ -11,6 +11,7 @@ let activeCharts = {};
 let heatmapLayerGroup = null; 
 let tileLayerGroup = null;    
 let currentWorldMode = 'muni';
+let isShowingAll = false;
 
 // Route Planner variabelen (GECORRIGEERD)
 let waypoints = []; 
@@ -285,87 +286,140 @@ window.deleteRoute = async function(id) {
     }
 };
 
-// --- VERVANG DEZE FUNCTIES IN UI.JS ---
+// IN ui.js:
 
-// --- VERVANG DEZE FUNCTIE IN UI.JS ---
-
+// 1. AANGEPASTE UPDATE DASHBOARD (Houdt rekening met 'isShowingAll')
 async function updateDashboard() {
     if(!window.supabaseAuth.getCurrentUser()) return;
     
-    // 1. Data ophalen
+    // Data ophalen
     allActivitiesCache = await window.supabaseAuth.listActivities();
     
-    // Filter routes eruit voor de stats
+    // Filter routes eruit voor statistieken
     const realRides = allActivitiesCache.filter(a => a.summary.type !== 'route');
 
-    // 2. Basis Statistieken
+    // Stats berekenen
     let d=0, e=0; 
     realRides.forEach(a => { 
         d += parseFloat(a.summary.distanceKm||0); 
         e += parseFloat(a.summary.elevationGain||0); 
     });
     
-    // Animeer de getallen
     animateValue("total-dist", 0, d, 1000, " km");
     animateValue("total-elev", 0, e, 1000, " m");
     document.getElementById('total-rides').innerText = realRides.length;
 
-    // --- NIEUW: EXPLORER TILES BEREKENING ---
-    // We gebruiken de heatmap cache omdat we daar de coördinaten al hebben.
-    // Dit voorkomt dat we alle bestanden opnieuw moeten downloaden.
+    // Tiles logic
     const user = window.supabaseAuth.getCurrentUser();
     const cacheKey = `heatmap_coords_${user.id}`;
     const heatmapCache = JSON.parse(localStorage.getItem(cacheKey) || "{}");
-    
     const uniqueTiles = new Set();
-    
-    // Loop door alle opgeslagen ritten in de cache
     Object.values(heatmapCache).forEach(points => {
         points.forEach(p => {
-            // Afronden op 2 decimalen maakt vakjes van ongeveer 1km x 1km
-            const lat = p[0].toFixed(2);
-            const lon = p[1].toFixed(2);
+            const lat = p[0].toFixed(2); const lon = p[1].toFixed(2);
             uniqueTiles.add(`${lat},${lon}`);
         });
     });
+    if(document.getElementById('total-tiles')) animateValue("total-tiles", 0, uniqueTiles.size, 1000, "");
 
-    // Update de teller in de HTML (als het element bestaat)
-    if(document.getElementById('total-tiles')) {
-        animateValue("total-tiles", 0, uniqueTiles.size, 1000, "");
-    }
-    // ----------------------------------------
-
-    // 3. Welkomstboodschap & Quote
+    // Welkomst tekst
     const hour = new Date().getHours();
     let greeting = "Goedenacht";
     if (hour >= 6 && hour < 12) greeting = "Goedemorgen";
     else if (hour >= 12 && hour < 18) greeting = "Goedemiddag";
     else if (hour >= 18) greeting = "Goedenavond";
-    
     const userEmail = window.supabaseAuth.getCurrentUser().email.split('@')[0];
     const name = userEmail.charAt(0).toUpperCase() + userEmail.slice(1);
-    
     document.getElementById('welcome-msg').innerText = `${greeting}, ${name}! 👋`;
     
-    const quotes = [
-        "Pijn is fijn, je moet alleen even de knop omzetten.",
-        "Het gaat niet om de snelheid, maar om de glimlach.",
-        "Wind tegen bouwt karakter.",
-        "Elke kilometer telt.",
-        "Blijf trappen, de top is dichtbij!",
-        "Ketting rechts en gaan!"
-    ];
-    document.getElementById('quote-msg').innerText = `"${quotes[Math.floor(Math.random() * quotes.length)]}"`;
-
-    // 4. Streak Berekening
-    const streak = calculateWeeklyStreak(realRides);
-    document.getElementById('streak-count').innerText = streak;
-
-    // 5. Badges & Lijst
+    // Streak & Badges
+    document.getElementById('streak-count').innerText = calculateWeeklyStreak(realRides);
     renderBadges(d, e, realRides);
-    renderActivityList(realRides.slice(0, 5));
+
+    // LIJST RENDERING LOGICA
+    renderActivityListBasedOnView();
 }
 
+// 2. NIEUWE FUNCTIE: BEPAALT WELKE RITTEN GETOOND WORDEN
+function renderActivityListBasedOnView() {
+    // Pak alles, inclusief routes (zodat je die ook kan wissen)
+    let list = allActivitiesCache || [];
+    
+    // Als we NIET alles tonen, pak alleen de eerste 5
+    if (!isShowingAll) {
+        list = list.slice(0, 5);
+        document.getElementById('activity-search').classList.add('hidden');
+        document.getElementById('dashboard-list').style.maxHeight = "400px";
+    } else {
+        // Als we WEL alles tonen, pas zoekfilter toe
+        const term = document.getElementById('activity-search').value.toLowerCase();
+        if (term) {
+            list = list.filter(a => a.fileName.toLowerCase().includes(term));
+        }
+        document.getElementById('activity-search').classList.remove('hidden');
+        document.getElementById('dashboard-list').style.maxHeight = "600px"; // Iets groter
+    }
+
+    renderActivityList(list);
+}
+
+// 3. NIEUWE FUNCTIE: KNOP "TOON ALLES"
+window.toggleActivityView = function() {
+    isShowingAll = !isShowingAll;
+    const btn = document.getElementById('toggle-view-btn');
+    
+    if (isShowingAll) {
+        btn.innerText = "⬆️ Toon Minder";
+        btn.style.background = "var(--primary)";
+    } else {
+        btn.innerText = "⬇️ Toon Alles";
+        btn.style.background = "var(--bg-nav)";
+        document.getElementById('activity-search').value = ""; // Reset zoekbalk
+    }
+    
+    renderActivityListBasedOnView();
+};
+
+// 4. NIEUWE FUNCTIE: ZOEKBALK
+window.filterActivities = function() {
+    renderActivityListBasedOnView();
+};
+
+// 5. UPDATE DE RENDER FUNCTIE (Kleine update voor styling)
+window.renderActivityList = function(acts) {
+    const list = document.getElementById('dashboard-list');
+    if(!list) return;
+    
+    if (acts.length === 0) {
+        list.innerHTML = '<div style="padding:15px; text-align:center; color:var(--text-muted);">Geen activiteiten gevonden.</div>';
+        return;
+    }
+
+    list.innerHTML = acts.map(act => {
+        // Icon based on type
+        const icon = act.summary.type === 'route' ? '✏️' : '🚴';
+        const detail = act.summary.type === 'route' 
+            ? 'Route' 
+            : `${new Date(act.summary.rideDate).toLocaleDateString()}`;
+
+        return `
+        <div class="dash-list-item" style="align-items:center;">
+            <input type="checkbox" class="list-checkbox" style="width:20px; height:20px; margin-right:15px; cursor:pointer; pointer-events:auto;" 
+                onchange="toggleSelection('${act.id}')" ${selectedRides.has(act.id)?'checked':''}>
+            
+            <div style="flex:1; display:flex; justify-content:space-between; align-items:center; cursor:pointer;" 
+                onclick="if(event.target.type !== 'checkbox') { switchTab('analysis'); window.openRide(${JSON.stringify(act).replace(/"/g, '&quot;')}); }">
+                
+                <div style="display:flex; flex-direction:column;">
+                    <strong>${icon} ${act.fileName}</strong>
+                    <small style="font-size:0.75rem;">${detail}</small>
+                </div>
+                
+                <span style="font-weight:bold; color:var(--primary);">${parseFloat(act.summary.distanceKm).toFixed(1)} km</span>
+            </div>
+        </div>`;
+    }).join('');
+};
 // --- NIEUWE HULPFUNCTIES VOOR DASHBOARD ---
 
 // Telt hoeveel aaneengesloten weken je hebt gefietst
@@ -1070,3 +1124,43 @@ function updateStats(dist, timeMs, speed, ele, power, maxSpeed) { // maxSpeed to
     
     if(p) p.innerText = power || 0;
 }
+
+// IN ui.js (helemaal onderaan toevoegen)
+
+window.deleteAllRides = async function() {
+    // 1. Veiligheidscheck 1
+    if(!confirm("⚠️ OPGELET: Weet je zeker dat je AL je ritten definitief wilt verwijderen?")) return;
+    
+    // 2. Veiligheidscheck 2
+    if(!confirm("Echt zeker? Dit kan niet ongedaan gemaakt worden! Je start weer vanaf 0.")) return;
+
+    const btn = document.getElementById('delete-all-btn');
+    btn.innerText = "⏳ Bezig met wissen...";
+    btn.disabled = true;
+
+    try {
+        // Haal eerst alle ID's op
+        const activities = await window.supabaseAuth.listActivities();
+        const ids = activities.map(a => a.id);
+
+        if (ids.length === 0) {
+            alert("Je hebt geen ritten om te wissen.");
+            btn.innerText = "💀 Alles Wissen";
+            btn.disabled = false;
+            return;
+        }
+
+        // Verwijder alles in één keer via de bestaande functie
+        await window.supabaseAuth.deleteActivities(ids);
+
+        // Resetten
+        alert("💥 Alles is verwijderd. Je kunt nu met een schone lei beginnen!");
+        location.reload(); // Pagina verversen
+
+    } catch (e) {
+        console.error(e);
+        alert("Er ging iets mis bij het verwijderen.");
+        btn.innerText = "💀 Alles Wissen";
+        btn.disabled = false;
+    }
+};

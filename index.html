@@ -119,13 +119,32 @@
                     </div>
 
                     <div class="recent-section animate-in">
-                        <div
-                            style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
-                            <h3>📜 Laatste Activiteiten</h3>
-                            <button id="delete-btn" class="delete-btn hidden" onclick="deleteSelectedRides()">🗑️
-                                Verwijder</button>
+                        <div style="display:flex; flex-direction:column; gap:10px; margin-bottom:15px;">
+
+                            <div style="display:flex; justify-content:space-between; align-items:center;">
+                                <div style="display:flex; align-items:center; gap:10px;">
+                                    <h3>📜 Activiteiten</h3>
+                                    <button id="toggle-view-btn" class="nav-btn"
+                                        style="font-size:0.8rem; background:var(--bg-nav); padding:5px 10px; height:auto;"
+                                        onclick="toggleActivityView()">
+                                        ⬇️ Toon Alles
+                                    </button>
+                                </div>
+
+                                <div style="display:flex; gap:5px;">
+                                    <button id="delete-btn" class="delete-btn hidden"
+                                        onclick="deleteSelectedRides()">🗑️ Selectie</button>
+                                    <button id="delete-all-btn" class="delete-btn" style="background: #8b0000;"
+                                        onclick="deleteAllRides()">💀 Alles</button>
+                                </div>
+                            </div>
+
+                            <input type="text" id="activity-search" class="search-bar hidden"
+                                placeholder="🔍 Zoek op naam..." onkeyup="filterActivities()">
                         </div>
-                        <div id="dashboard-list" class="dashboard-list">Laden...</div>
+
+                        <div id="dashboard-list" class="dashboard-list" style="transition: max-height 0.3s ease;">
+                            Laden...</div>
                     </div>
                 </div>
             </div>
@@ -262,7 +281,17 @@
                     <aside class="inner-sidebar">
                         <div class="upload-section">
                             <input type="file" id="gpxInput" multiple class="hidden-input">
-                            <label for="gpxInput" class="upload-btn">📄 GPX Bestand Uploaden</label>
+                            <label for="gpxInput" class="upload-btn">📄 Kies Bestanden</label>
+
+                            <input type="file" id="folderInput" webkitdirectory directory multiple class="hidden-input">
+                            <label for="folderInput" class="upload-btn" style="background: #007bff; margin-top:10px;">
+                                📂 Map Uploaden (> 2024)
+                            </label>
+
+                            <div id="upload-progress"
+                                style="display:none; margin-top:10px; font-size:0.8rem; color:var(--text-muted); text-align:center;">
+                                Bezig...
+                            </div>
                         </div>
                         <div class="stats-grid" id="statsPanel">
                             <div class="stat-widget"><span class="stat-label">Afstand</span><span

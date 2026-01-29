@@ -8,8 +8,15 @@ let hoverMarker = null;
 
 document.addEventListener('DOMContentLoaded', () => {
     initMap();
+    
+    // Bestaande file input
     const gpxInput = document.getElementById('gpxInput');
     if(gpxInput) gpxInput.addEventListener('change', (e) => handleFileUpload(e));
+    
+    // NIEUWE MAP INPUT
+    const folderInput = document.getElementById('folderInput');
+    if(folderInput) folderInput.addEventListener('change', (e) => handleFolderUpload(e));
+
     const saveBtn = document.getElementById('save-cloud-btn');
     if(saveBtn) saveBtn.addEventListener('click', saveToCloud);
 });
@@ -40,7 +47,10 @@ window.openRide = async function(activity) {
         if(window.switchTab) window.switchTab('analysis');
         const fileBlob = await window.supabaseAuth.getActivityFile(activity.id);
         const text = await fileBlob.text();
-        processGPXAndRender(text, activity.fileName, true);
+        
+        // Geef activity.summary mee zodat we de opgeslagen maxSpeed kunnen tonen
+        processGPXAndRender(text, activity.fileName, true, activity.summary);
+        
         const saveSection = document.getElementById('save-section');
         if(saveSection) saveSection.classList.add('hidden');
     } catch (e) { console.error(e); alert("Kon rit data niet ophalen."); }
@@ -55,7 +65,81 @@ async function handleFileUpload(e) {
     processGPXAndRender(text, file.name);
 }
 
-function processGPXAndRender(xmlString, fileName, isExistingRide = false) {
+// --- NIEUWE FUNCTIE: MAP UPLOAD MET DATUM FILTER ---
+async function handleFolderUpload(e) {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    const progressEl = document.getElementById('upload-progress');
+    if(progressEl) progressEl.style.display = 'block';
+    
+    // De datum grens: 1 januari 2024
+    const CUTOFF_DATE = new Date('2024-01-01T00:00:00').getTime();
+    
+    let processed = 0;
+    let uploaded = 0;
+    let skipped = 0;
+
+    // We zetten de UI op "Analysis" zodat je de voortgang ziet
+    if(window.switchTab) window.switchTab('analysis');
+
+    console.log(`Start verwerken van ${files.length} bestanden...`);
+
+    for (const file of files) {
+        // Alleen .gpx bestanden
+        if (!file.name.toLowerCase().endsWith('.gpx')) continue;
+
+        try {
+            if(progressEl) progressEl.innerText = `Checken: ${file.name} (${processed}/${files.length})`;
+            
+            const text = await file.text();
+            
+            // 1. SNELLE DATUM CHECK (zonder zware parse)
+            const timeMatch = text.match(/<time>(.*?)<\/time>/);
+            
+            if (timeMatch && timeMatch[1]) {
+                const rideDate = new Date(timeMatch[1]).getTime();
+                
+                // FILTER: Is de rit na 1-1-2024?
+                if (rideDate > CUTOFF_DATE) {
+                    
+                    // 2. PARSEN & OPSLAAN
+                    const data = parseGPXData(text, file.name); 
+                    
+                    if (data) {
+                        // Sla direct op in Supabase
+                        await window.supabaseAuth.saveActivity({
+                            fileBlob: new Blob([text], {type: 'application/xml'}),
+                            fileName: data.fileName,
+                            summary: data.summary
+                        });
+                        console.log(`✅ Geüpload: ${file.name}`);
+                        uploaded++;
+                    }
+                } else {
+                    console.log(`⏭️ Overgeslagen (Te oud): ${file.name}`);
+                    skipped++;
+                }
+            } else {
+                console.warn(`Geen datum gevonden in ${file.name}`);
+            }
+
+        } catch (err) {
+            console.error(`Fout bij ${file.name}:`, err);
+        }
+        processed++;
+    }
+
+    if(progressEl) progressEl.innerText = `Klaar! ${uploaded} geüpload, ${skipped} overgeslagen.`;
+    alert(`Batch klaar!\n✅ ${uploaded} nieuwe ritten toegevoegd.\n⏭️ ${skipped} ritten van voor 2024 genegeerd.`);
+    
+    if(window.updateDashboard) window.updateDashboard();
+    
+    // Reset de input
+    document.getElementById('folderInput').value = '';
+}
+
+function processGPXAndRender(xmlString, fileName, isExistingRide = false, existingSummary = null) {
     const data = parseGPXData(xmlString, fileName, isExistingRide);
     if (!data) return;
     currentRideData = data;
@@ -65,13 +149,18 @@ function processGPXAndRender(xmlString, fileName, isExistingRide = false) {
         ? Math.round(data.uiData.powers.reduce((a,b)=>a+b,0) / data.uiData.powers.length) 
         : 0;
 
+    // Gebruik bestaande max snelheid als die er is (bij openen rit), anders de nieuw berekende
+    const displayMaxSpeed = (existingSummary && existingSummary.maxSpeed) 
+        ? existingSummary.maxSpeed 
+        : data.summary.maxSpeed;
+
     updateStats(
         data.summary.distanceKm, 
         data.uiData.durationMs, 
         data.summary.avgSpeed, 
         data.summary.elevationGain, 
         avgPower,
-        data.summary.maxSpeed
+        displayMaxSpeed 
     );
 
     updateChart(data.uiData.distances, data.uiData.elevations, data.uiData.speeds, data.uiData.powers);
@@ -85,28 +174,52 @@ function processGPXAndRender(xmlString, fileName, isExistingRide = false) {
     if(saveSection && !isExistingRide) saveSection.classList.remove('hidden');
 }
 
-// --- NIEUWE FUNCTIE: SPIKE FILTER ---
-// Dit haalt uitschieters weg (bv: 30 -> 81 -> 30)
+function updateStats(dist, timeMs, speed, ele, power, maxSpeed) {
+    const d = document.getElementById('statDist');
+    const t = document.getElementById('statTime');
+    const s = document.getElementById('statSpeed');
+    const e = document.getElementById('statElev');
+    const p = document.getElementById('statPower');
+    const ms = document.getElementById('statMaxSpeed'); 
+
+    if(d) d.innerText = typeof dist === 'string' ? dist : parseFloat(dist).toFixed(2);
+    if(e) e.innerText = Math.round(ele);
+    if(s) s.innerText = typeof speed === 'string' ? speed : parseFloat(speed).toFixed(1);
+    
+    if(ms) ms.innerText = maxSpeed ? parseFloat(maxSpeed).toFixed(1) : "0.0";
+    
+    if(t) { const h = Math.floor(timeMs / 3600000); const m = Math.floor((timeMs % 3600000) / 60000); t.innerText = `${h}:${m.toString().padStart(2,'0')}`; }
+    if(p) p.innerText = power || 0;
+}
+
+// --- FILTER LOGICA ---
 function removeSpikes(data) {
     const clean = [...data];
-    // We kijken naar punten die meer dan 10km/u verschillen van hun buren
-    const threshold = 10; 
-
+    const threshold = 15;
     for (let i = 1; i < clean.length - 1; i++) {
         const prev = clean[i-1];
         const curr = clean[i];
         const next = clean[i+1];
-
-        // Alleen filteren als we boven de 20km/u zitten (stilstaan/wandelen mag fluctueren)
-        if (curr > 20) {
-            // Als huidige veel groter is dan vorige EN volgende
-            if (curr > prev + threshold && curr > next + threshold) {
-                // Vervang door gemiddelde van buren
-                clean[i] = (prev + next) / 2;
-            }
+        if (curr > 20 && curr > prev + threshold && curr > next + threshold) {
+            clean[i] = (prev + next) / 2;
         }
     }
     return clean;
+}
+
+function applyMedianFilter(data, windowSize) {
+    const result = [];
+    const half = Math.floor(windowSize / 2);
+    for(let i = 0; i < data.length; i++) {
+        let start = Math.max(0, i - half);
+        let end = Math.min(data.length, i + half + 1);
+        const slice = data.slice(start, end).filter(v => !isNaN(v));
+        if (slice.length === 0) { result.push(0); continue; }
+        slice.sort((a, b) => a - b);
+        const mid = Math.floor(slice.length / 2);
+        result.push(slice[mid]);
+    }
+    return result;
 }
 
 function smoothArray(data, windowSize) {
@@ -122,7 +235,6 @@ function smoothArray(data, windowSize) {
     });
 }
 
-// --- CORE PARSER ---
 function parseGPXData(xmlString, fileName, isExistingRide = false) {
     const parser = new DOMParser();
     const xmlDoc = parser.parseFromString(xmlString, "text/xml");
@@ -134,8 +246,9 @@ function parseGPXData(xmlString, fileName, isExistingRide = false) {
     }
 
     let trkpts = xmlDoc.getElementsByTagName('trkpt');
-    if (!trkpts.length) trkpts = xmlDoc.getElementsByTagName('Trackpoint');
-    if (!trkpts.length) return null;
+    if (trkpts.length === 0) trkpts = xmlDoc.getElementsByTagName('Trackpoint');
+    if (trkpts.length === 0) trkpts = xmlDoc.getElementsByTagName('rtept');
+    if (trkpts.length === 0) return null;
 
     const latlngs = [], elevations = [], distances = [], times = [];
     let rawSpeeds = [], rawPowers = [];
@@ -170,12 +283,13 @@ function parseGPXData(xmlString, fileName, isExistingRide = false) {
                 if (eleDiff > 0) elevationGain += eleDiff;
                 
                 const timeDiffHours = (t - times[i-1]) / 3600000;
-                if (timeDiffHours > 0 && distDiff > 0) currentSpeed = distDiff / timeDiffHours;
                 
-                // Hard Cap: alles boven 130 is sws onzin
+                if (timeDiffHours > 0.0000001 && distDiff > 0) {
+                    currentSpeed = distDiff / timeDiffHours;
+                }
+                
                 if(currentSpeed > 130 || isNaN(currentSpeed)) currentSpeed = rawSpeeds[i-1] || 0;
                 
-                // Power Calc
                 const v = currentSpeed / 3.6; 
                 const grade = (distDiff * 1000) > 0 ? eleDiff / (distDiff * 1000) : 0;
                 if (v > 1) {
@@ -192,18 +306,17 @@ function parseGPXData(xmlString, fileName, isExistingRide = false) {
         }
     }
 
-    // 1. Eerst spikes verwijderen (De nieuwe logica)
-    const deSpikedSpeeds = removeSpikes(rawSpeeds);
-
-    // 2. Daarna smoothen voor mooie grafieken
-    const smoothSpeeds = smoothArray(deSpikedSpeeds, 4);
+    const cleanSpeeds = applyMedianFilter(rawSpeeds, 5);
+    const smoothSpeeds = smoothArray(cleanSpeeds, 4);
     const smoothPowers = smoothArray(rawPowers, 6);
 
-    // 3. Max Snelheid bepalen uit de opgeschoonde data
+    // --- MAX SNELHEID BEREKENING ---
     let rideMaxSpeed = 0;
     if (smoothSpeeds.length > 0) {
-        // We filteren eerst de 0-waarden eruit om bugs te voorkomen, daarna max
-        rideMaxSpeed = Math.max(...smoothSpeeds.filter(s => !isNaN(s)));
+        const validSpeeds = smoothSpeeds.filter(s => !isNaN(s) && s < 110);
+        if (validSpeeds.length > 0) {
+            rideMaxSpeed = Math.max(...validSpeeds);
+        }
     }
 
     const durationMs = (endTime - startTime);
@@ -217,7 +330,7 @@ function parseGPXData(xmlString, fileName, isExistingRide = false) {
             distanceKm: totalDist.toFixed(2),
             elevationGain: Math.round(elevationGain),
             avgSpeed: avgSpeed.toFixed(1),
-            maxSpeed: rideMaxSpeed.toFixed(1), 
+            maxSpeed: parseFloat(rideMaxSpeed.toFixed(1)), 
             durationSec: durationMs / 1000,
             rideDate: startTime ? startTime.toISOString() : new Date().toISOString(),
             segments: segments
@@ -261,30 +374,6 @@ function updateMap(latlngs) {
     if (segmentLayer) { map.removeLayer(segmentLayer); segmentLayer = null; } 
     polyline = L.polyline(latlngs, {color: '#fc4c02', weight: 4}).addTo(map);
     map.fitBounds(polyline.getBounds(), { padding: [20, 20] });
-}
-
-function updateStats(dist, timeMs, speed, ele, power, maxSpeed) {
-    const d = document.getElementById('statDist');
-    const t = document.getElementById('statTime');
-    const s = document.getElementById('statSpeed');
-    const e = document.getElementById('statElev');
-    const p = document.getElementById('statPower');
-    const ms = document.getElementById('statMaxSpeed');
-
-    if(d) d.innerText = typeof dist === 'string' ? dist : parseFloat(dist).toFixed(2);
-    if(e) e.innerText = Math.round(ele);
-    if(s) s.innerText = typeof speed === 'string' ? speed : parseFloat(speed).toFixed(1);
-    
-    if(ms) {
-        if (maxSpeed && !isNaN(parseFloat(maxSpeed)) && parseFloat(maxSpeed) > 0) {
-            ms.innerText = parseFloat(maxSpeed).toFixed(1);
-        } else {
-            ms.innerText = "0.0";
-        }
-    }
-
-    if(t) { const h = Math.floor(timeMs / 3600000); const m = Math.floor((timeMs % 3600000) / 60000); t.innerText = `${h}:${m.toString().padStart(2,'0')}`; }
-    if(p) p.innerText = power || 0;
 }
 
 function updateChart(labels, elePoints, speedPoints, powerPoints) {
@@ -408,7 +497,6 @@ function highlightSegment(startIdx, endIdx, dist) {
     }
 }
 
-// --- FIX FUNCTIE (AANGEPAST) ---
 window.fixMaxSpeeds = async function() {
     const btn = document.getElementById('fix-data-btn');
     if(btn) { btn.innerText = "⏳ Bezig..."; btn.disabled = true; }
@@ -423,21 +511,35 @@ window.fixMaxSpeeds = async function() {
                 const blob = await window.supabaseAuth.getActivityFile(act.id);
                 const text = await blob.text();
                 
-                // FORCE: Opnieuw parsen om de nieuwe spike-filter logica toe te passen
                 const newData = parseGPXData(text, act.fileName, true);
                 
                 if (newData) {
-                    await window.supabaseAuth.updateActivitySummary(act.id, newData.summary);
-                    count++;
+                    const newSpeed = newData.summary.maxSpeed;
+                    
+                    const updatedSummary = {
+                        ...act.summary, 
+                        maxSpeed: newSpeed 
+                    };
+
+                    const { error } = await window.supabase
+                        .from('activities')
+                        .update({ summary: updatedSummary })
+                        .eq('id', act.id);
+
+                    if (!error) {
+                        count++;
+                    } else {
+                        console.error(`Fout bij ${act.fileName}:`, error);
+                    }
                 }
             } catch (e) {
-                console.error(`Fout bij fixen ${act.fileName}:`, e);
+                console.error(`Error loop:`, e);
             }
         }
     }
 
-    alert(`Klaar! ${count} ritten geüpdatet met nieuwe Max Snelheid.`);
-    if(btn) { btn.innerText = "🛠️ Data Hersteld"; }
+    alert(`Klaar! ${count} ritten bijgewerkt met max snelheid.`);
+    if(btn) { btn.innerText = "✅ Klaar"; }
     location.reload(); 
 };
 
