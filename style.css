@@ -1166,3 +1166,111 @@ body.dark-mode .welcome-banner {
     color: var(--primary);
     box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
 }
+
+/* --- style.css updates --- */
+
+/* Maak de statistiek kaarten visueel klikbaar (behalve upload) */
+.dash-card.stat-total {
+    cursor: pointer;
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.dash-card.stat-total:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 8px 15px rgba(0, 0, 0, 0.1);
+}
+
+/* De Modal (Achtergrond) */
+.modal {
+    display: flex;
+    /* Gebruikt flex om te centreren */
+    position: fixed;
+    z-index: 10000;
+    /* Heel hoog zodat het overal overheen komt */
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.6);
+    /* Donkere transparante achtergrond */
+    backdrop-filter: blur(3px);
+    /* Subtiele blur op de achtergrond */
+    justify-content: center;
+    align-items: center;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.3s ease;
+}
+
+.modal.show {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+/* Modal Content Box */
+.modal-content {
+    background-color: var(--bg-card);
+    border-radius: 12px;
+    width: 90%;
+    max-width: 450px;
+    border: 2px solid var(--primary);
+    /* Strava oranje randje */
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+    overflow: hidden;
+    transform: scale(0.8);
+    transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.modal.show .modal-content {
+    transform: scale(1);
+}
+
+/* Modal Header */
+.modal-header {
+    padding: 15px 20px;
+    background: var(--hover-bg);
+    border-bottom: 1px solid var(--border-color);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.modal-header h2 {
+    font-size: 1.2rem;
+    color: var(--text-main);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.close-modal {
+    color: var(--text-muted);
+    font-size: 1.8rem;
+    font-weight: bold;
+    cursor: pointer;
+    background: none;
+    border: none;
+    line-height: 1;
+}
+
+.close-modal:hover {
+    color: var(--primary);
+}
+
+/* Modal Body */
+.modal-body {
+    padding: 25px 20px;
+    text-align: center;
+}
+
+#modal-badge-icon {
+    font-size: 4rem;
+    margin-bottom: 15px;
+    display: block;
+}
+
+#modal-badge-desc {
+    color: var(--text-muted);
+    line-height: 1.6;
+    font-size: 0.95rem;
+}

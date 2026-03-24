@@ -189,11 +189,22 @@ async function recalculateFullRoute() {
     drawFullRoute();
 }
 
+// IN ui.js - VERVANG DEZE FUNCTIE
 function drawFullRoute() {
     if (routePolyline) routeMap.removeLayer(routePolyline);
+    
+    // Alle coordinaten van alle segmenten samenvoegen
+    // Let op: routeSegments bevat [[lat,lon], [lat,lon]...]
     const fullPath = routeSegments.flat();
+    
+    // Teken de lijn
     routePolyline = L.polyline(fullPath, {color: '#fc4c02', weight: 5}).addTo(routeMap);
+    
+    // Update afstand en tijd
     updateRouteStats(fullPath);
+    
+    // NIEUW: Update Hoogtemeters
+    fetchElevationForRoute(fullPath);
 }
 
 function updateRouteStats(latlngs) {
@@ -251,7 +262,10 @@ window.saveCreatedRoute = async function() {
             fileName: name,
             summary: {
                 distanceKm: parseFloat(document.getElementById('routeDist').innerText),
-                elevationGain: 0,
+    
+                // AANGEPAST: Pak de waarde uit de HTML of de globale variabele
+                elevationGain: window.currentRouteElevation || parseInt(document.getElementById('routeElev').innerText) || 0,
+                
                 avgSpeed: 22.0,
                 rideDate: new Date().toISOString(),
                 segments: [],
@@ -466,38 +480,45 @@ function calculateWeeklyStreak(activities) {
     return weeks.size; 
 }
 
-// Genereert badges op basis van prestaties
+// ui.js - Genereert badges op basis van prestaties (UPGRADED met klik-functionaliteit)
 function renderBadges(totalDist, totalElev, activities) {
     const container = document.getElementById('badges-container');
+    if(!container) return;
     const badges = [];
 
-    // Afstand Badges
-    if (totalDist >= 100) badges.push({icon: '🥉', name: '100 km Club', desc: 'Je eerste mijlpaal!'});
-    if (totalDist >= 500) badges.push({icon: '🥈', name: '500 km Club', desc: 'Halverwege de 1000!'});
-    if (totalDist >= 1000) badges.push({icon: '🥇', name: '1000 km Club', desc: 'Serieuze fietser!'});
-    if (totalDist >= 5000) badges.push({icon: '🚀', name: 'Wereldreiziger', desc: '5000 km aangetikt!'});
+    // --- Afstand Badges ---
+    if (totalDist >= 100) badges.push({icon: '🥉', name: '100 km Club', explanation: 'Gefeliciteerd! Je hebt je eerste mijlpaal bereikt en meer dan 100 kilometer in totaal gefietst. Een mooi begin!'});
+    if (totalDist >= 500) badges.push({icon: '🥈', name: '500 km Club', explanation: 'Serieuze kilometers! Je hebt de 500 kilometer grens doorbroken. Je bent halverwege de magische 1000!'});
+    if (totalDist >= 1000) badges.push({icon: '🥇', name: '1000 km Club', explanation: 'Klasse! 1000 kilometer op de teller. Je mag jezelf nu officieel een serieuze kilometervreter noemen.'});
+    if (totalDist >= 5000) badges.push({icon: '🚀', name: 'Wereldreiziger', explanation: 'Onvoorstelbaar! Je hebt meer dan 5000 km gefietst. Dat is ongeveer de afstand van Brussel naar Dubai. Gigantisch!'});
 
-    // Hoogte Badges
-    if (totalElev >= 1000) badges.push({icon: '⛰️', name: 'Klimmer', desc: '1000m geklommen'});
-    if (totalElev >= 8848) badges.push({icon: '🏔️', name: 'Everesting', desc: 'Hoogte van Mt. Everest'});
+    // --- Hoogte Badges ---
+    if (totalElev >= 1000) badges.push({icon: '⛰️', name: 'Klimmer', explanation: 'Je draait je hand niet om voor een helling. Je hebt in totaal meer dan 1000 hoogtemeters overwonnen.'});
+    if (totalElev >= 8848) badges.push({icon: '🏔️', name: 'Everesting', explanation: 'Legendarisch! Je hebt in totaal evenveel geklommen als de hoogte van de Mount Everest. Je bent de koning van de bergen!'});
 
-    // Rit Specifiek
-    const maxSpeed = Math.max(...activities.map(a => parseFloat(a.summary.avgSpeed) || 0));
-    if (maxSpeed > 30) badges.push({icon: '⚡', name: 'Speed Demon', desc: 'Gemiddeld > 30 km/u gereden'});
-    
-    const maxDist = Math.max(...activities.map(a => parseFloat(a.summary.distanceKm) || 0));
-    if (maxDist > 100) badges.push({icon: '💯', name: 'Gran Fondo', desc: 'Een rit van 100+ km'});
+    // --- Rit Specifiek ---
+    const realRides = activities.filter(a => a.summary.type !== 'route');
+    if(realRides.length > 0) {
+        const avgSpeeds = realRides.map(a => parseFloat(a.summary.avgSpeed) || 0);
+        const maxAvgSpeed = Math.max(...avgSpeeds);
+        if (maxAvgSpeed > 30) badges.push({icon: '⚡', name: 'Speed Demon', explanation: 'Snelheid is jouw ding. Je hebt een rit voltooid met een gemiddelde snelheid van meer dan 30 km/u.'});
 
-    // Tijdrijder (Vroege vogels)
-    const earlyBird = activities.some(a => new Date(a.summary.rideDate).getHours() < 7);
-    if (earlyBird) badges.push({icon: '🌅', name: 'Vroege Vogel', desc: 'Rit gestart voor 07:00'});
+        const dists = realRides.map(a => parseFloat(a.summary.distanceKm) || 0);
+        const maxSingleDist = Math.max(...dists);
+        if (maxSingleDist > 100) badges.push({icon: '💯', name: 'Gran Fondo', explanation: 'Respect! Je hebt de ultieme uitdaging voltooid: een enkele rit van meer dan 100 kilometer.'});
+    }
+
+    // --- Tijdrijder (Vroege vogels) ---
+    const earlyBird = realRides.some(a => new Date(a.summary.rideDate).getHours() < 7);
+    if (earlyBird) badges.push({icon: '🌅', name: 'Vroege Vogel', explanation: 'Terwijl anderen nog sliepen, was jij al onderweg. Je hebt een rit gestart voor 07:00 \'s ochtends.'});
 
     // Render
     if (badges.length === 0) {
-        container.innerHTML = '<span style="color:var(--text-muted);">Fiets meer om badges te verdienen!</span>';
+        container.innerHTML = '<span style="color:var(--text-muted); font-style:italic;">Fiets meer om badges te verdienen!</span>';
     } else {
+        // AANGEPAST: added onclick en title attribute verwijderd
         container.innerHTML = badges.map(b => `
-            <div class="badge-item" title="${b.desc}">
+            <div class="badge-item clickable-badge" onclick="openBadgeModal(${JSON.stringify(b).replace(/"/g, '&quot;')})">
                 <div class="badge-icon">${b.icon}</div>
                 <div class="badge-name">${b.name}</div>
             </div>
@@ -531,30 +552,41 @@ function animateValue(id, start, end, duration, suffix = "") {
 
 async function updateRecapView() {
     if(!allActivitiesCache) allActivitiesCache = await window.supabaseAuth.listActivities();
-    
+
     const selMonth = document.getElementById('recap-month-select').value;
-    const selYear = parseInt(document.getElementById('recap-year-select').value);
-    
+    const selYear = document.getElementById('recap-year-select').value; // Kan nu 'all' zijn
+
+    // Maand-dropdown uitschakelen als "Alle jaren" is geselecteerd
+    const monthSelect = document.getElementById('recap-month-select');
+    if (selYear === 'all') {
+        monthSelect.disabled = true;
+        monthSelect.style.opacity = '0.5';
+    } else {
+        monthSelect.disabled = false;
+        monthSelect.style.opacity = '1';
+    }
+
     // FILTER
     const filtered = allActivitiesCache.filter(act => {
-        if (act.summary.type === 'route') return false; 
+        if (act.summary.type === 'route') return false;
         const d = new Date(act.summary.rideDate);
-        return d.getFullYear() === selYear && (selMonth === 'all' || d.getMonth() === parseInt(selMonth));
+        
+        const yearMatch = selYear === 'all' || d.getFullYear() === parseInt(selYear);
+        const monthMatch = (selYear === 'all' || selMonth === 'all') ? true : d.getMonth() === parseInt(selMonth);
+        
+        return yearMatch && monthMatch;
     });
 
     // BASIS TOTALEN
     let d=0, e=0, s=0;
-    // EXTRA: Records bijhouden
     let maxDist = 0, maxElev = 0, maxSpeed = 0;
 
-    filtered.forEach(act => { 
+    filtered.forEach(act => {
         const dist = parseFloat(act.summary.distanceKm);
         const elev = parseFloat(act.summary.elevationGain);
         const spd = parseFloat(act.summary.avgSpeed);
 
-        d += dist; 
-        e += elev; 
-        s += spd; 
+        d += dist; e += elev; s += spd;
 
         if(dist > maxDist) maxDist = dist;
         if(elev > maxElev) maxElev = elev;
@@ -562,37 +594,44 @@ async function updateRecapView() {
     });
 
     const avgS = filtered.length > 0 ? (s / filtered.length).toFixed(1) : 0;
-    
-    // UPDATE DOM
-    let title = selMonth === 'all' ? `Jaaroverzicht ${selYear}` : `${document.getElementById('recap-month-select').options[document.getElementById('recap-month-select').selectedIndex].text} ${selYear}`;
+
+    // UPDATE DOM TITELS
+    let title = "Overzicht";
+    if (selYear === 'all') {
+        title = "🌍 All-Time Overzicht";
+    } else if (selMonth === 'all') {
+        title = `Jaaroverzicht ${selYear}`;
+    } else {
+        title = `${document.getElementById('recap-month-select').options[document.getElementById('recap-month-select').selectedIndex].text} ${selYear}`;
+    }
     document.getElementById('recap-period-title').innerText = title;
-    
+
     document.getElementById('recap-dist').innerText = d.toFixed(0) + ' km';
     document.getElementById('recap-elev').innerText = e.toFixed(0);
     document.getElementById('recap-count').innerText = filtered.length;
-    
-    // Nieuwe Records Vullen
+
+    // Records
     document.getElementById('recap-longest').innerText = maxDist.toFixed(1) + ' km';
     document.getElementById('recap-highest').innerText = maxElev.toFixed(0) + ' m';
     document.getElementById('recap-fastest').innerText = maxSpeed.toFixed(1) + ' km/u';
 
     // DOELEN
-    const goalKey = selMonth === 'all' ? `goal_${selYear}` : `goal_${selYear}_${selMonth}`;
-    const defaultGoal = selMonth === 'all' ? 5000 : 400;
+    const goalKey = selYear === 'all' ? 'goal_all' : (selMonth === 'all' ? `goal_${selYear}` : `goal_${selYear}_${selMonth}`);
+    const defaultGoal = selYear === 'all' ? 10000 : (selMonth === 'all' ? 5000 : 400);
     const targetKm = parseFloat(localStorage.getItem(goalKey) || defaultGoal);
-    
+
     document.getElementById('recap-goal-val').innerText = targetKm;
-    document.getElementById('recap-goal-label').innerText = selMonth === 'all' ? "Jaardoel" : "Maanddoel";
-    
+    document.getElementById('recap-goal-label').innerText = selYear === 'all' ? "Totaaldoel" : (selMonth === 'all' ? "Jaardoel" : "Maanddoel");
+
     const goalPercent = Math.min(100, (d / targetKm) * 100).toFixed(1);
     document.getElementById('recap-goal-percent').innerText = goalPercent + '%';
     document.getElementById('recap-goal-fill').style.width = goalPercent + '%';
 
     // GRAFIEKEN
     renderRecapChart(filtered, selMonth, selYear);
-    renderDistributionChart(filtered); // NIEUW: Taartdiagram
+    renderDistributionChart(filtered); 
 
-    // LIJST (Top 5 nu)
+    // LIJST (Top 5)
     const sorted = [...filtered].sort((a,b) => b.summary.distanceKm - a.summary.distanceKm).slice(0, 5);
     document.getElementById('recap-best-list').innerHTML = sorted.map((act, i) => `
         <div class="rank-card" style="border-left: 4px solid ${i===0?'gold':i===1?'silver':i===2?'#cd7f32':'transparent'}" onclick="switchTab('analysis'); window.openRide(${JSON.stringify(act).replace(/"/g, '&quot;')})">
@@ -608,9 +647,32 @@ function renderRecapChart(activities, monthMode, year) {
     const ctx = document.getElementById('recapComparisonChart').getContext('2d');
     if (activeCharts['recap']) activeCharts['recap'].destroy();
 
-    let labels = [], dataPoints = [], labelText = "", chartType = 'bar';
+    let labels = [], dataPoints = [], labelText = "", chartType = 'line';
 
-    if (monthMode === 'all') {
+    if (year === 'all') {
+        // --- ALL TIME: Gegroepeerd per jaar ---
+        labelText = `Afstand per jaar`;
+        
+        // Zoek alle unieke jaren in je ritten
+        const yearsMap = {};
+        activities.forEach(act => {
+            const y = new Date(act.summary.rideDate).getFullYear();
+            if (!yearsMap[y]) yearsMap[y] = 0;
+            yearsMap[y] += parseFloat(act.summary.distanceKm);
+        });
+        
+        labels = Object.keys(yearsMap).sort(); // Sorteer jaren oud -> nieuw
+        dataPoints = labels.map(y => yearsMap[y]);
+        
+        // Grafiek hack: als je maar 1 jaar gefietst hebt, voeg een leeg 
+        // vorig jaar toe, anders tekent hij maar 1 stipje in plaats van een lijn.
+        if(labels.length === 1) {
+            labels.unshift((parseInt(labels[0])-1).toString());
+            dataPoints.unshift(0);
+        }
+
+    } else if (monthMode === 'all') {
+        // --- JAAR: Gegroepeerd per maand ---
         labelText = `Afstand per maand (${year})`;
         labels = ['Jan', 'Feb', 'Mrt', 'Apr', 'Mei', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dec'];
         dataPoints = new Array(12).fill(0);
@@ -619,15 +681,25 @@ function renderRecapChart(activities, monthMode, year) {
             dataPoints[m] += parseFloat(act.summary.distanceKm);
         });
     } else {
-        labelText = `Afstand per dag`;
-        chartType = 'line';
-        activities.sort((a,b) => new Date(a.summary.rideDate) - new Date(b.summary.rideDate));
-        const daysInMonth = new Date(year, parseInt(monthMode) + 1, 0).getDate();
-        labels = Array.from({length: daysInMonth}, (_, i) => i + 1);
-        dataPoints = new Array(daysInMonth).fill(0);
+        // --- MAAND: Gegroepeerd per week ---
+        labelText = `Afstand per week`;
+
+        const yearNum = parseInt(year);
+        const monthIdx = parseInt(monthMode);
+        const firstDay = new Date(yearNum, monthIdx, 1);
+        const dayOfWeek = firstDay.getDay(); 
+        const offset = (dayOfWeek === 0) ? 6 : dayOfWeek - 1;
+        const daysInMonth = new Date(yearNum, monthIdx + 1, 0).getDate();
+        const totalWeeks = Math.ceil((daysInMonth + offset) / 7);
+
+        labels = Array.from({length: totalWeeks}, (_, i) => `Week ${i + 1}`);
+        dataPoints = new Array(totalWeeks).fill(0);
+
         activities.forEach(act => {
-            const d = new Date(act.summary.rideDate).getDate();
-            dataPoints[d-1] += parseFloat(act.summary.distanceKm);
+            const dateObj = new Date(act.summary.rideDate);
+            const d = dateObj.getDate();
+            const weekIndex = Math.floor((d - 1 + offset) / 7);
+            dataPoints[weekIndex] += parseFloat(act.summary.distanceKm);
         });
     }
 
@@ -643,7 +715,7 @@ function renderRecapChart(activities, monthMode, year) {
                 borderWidth: 2,
                 borderRadius: 4,
                 tension: 0.3,
-                fill: monthMode !== 'all'
+                fill: true // Zorgt voor de vulling
             }]
         },
         options: {
@@ -1207,3 +1279,94 @@ window.deleteAllRides = async function() {
         btn.disabled = false;
     }
 };
+
+// IN ui.js - NIEUWE FUNCTIE
+// Haalt hoogte op via Open-Meteo API (max 200 punten om URL lengte te beperken)
+async function fetchElevationForRoute(latlngs) {
+    const el = document.getElementById('routeElev');
+    if(!latlngs || latlngs.length < 2) {
+        if(el) el.innerText = "0";
+        return;
+    }
+
+    if(el) el.innerText = "..."; // Laat zien dat hij aan het laden is
+
+    // 1. Downsampling: We kunnen niet duizenden punten sturen.
+    // We pakken maximaal 150 punten gelijkmatig verdeeld over de route.
+    const sampleSize = 150;
+    const step = Math.ceil(latlngs.length / sampleSize);
+    const sampledPoints = latlngs.filter((_, i) => i % step === 0);
+
+    // 2. Bouw de URL
+    const lats = sampledPoints.map(p => p[0]).join(',');
+    const lons = sampledPoints.map(p => p[1]).join(',');
+    const url = `https://api.open-meteo.com/v1/elevation?latitude=${lats}&longitude=${lons}`;
+
+    try {
+        const res = await fetch(url);
+        const data = await res.json();
+        
+        if (data.elevation) {
+            // 3. Bereken hoogtemeters (alleen stijging)
+            let gain = 0;
+            const elevs = data.elevation;
+            
+            for(let i = 1; i < elevs.length; i++) {
+                const diff = elevs[i] - elevs[i-1];
+                if(diff > 0) {
+                    gain += diff;
+                }
+            }
+            
+            // 4. Update UI
+            if(el) el.innerText = Math.round(gain);
+            
+            // Sla op in een globale variabele voor als je opslaat
+            window.currentRouteElevation = Math.round(gain);
+        }
+    } catch (e) {
+        console.error("Fout bij ophalen hoogte:", e);
+        if(el) el.innerText = "?";
+    }
+}
+
+
+
+// ui.js - Onderaan toevoegen
+
+// Functie om de badge modal te openen en te vullen
+window.openBadgeModal = function(badgeData) {
+    const modal = document.getElementById('badge-modal');
+    
+    // Vul de modal met de data van de aangeklikte badge
+    document.getElementById('modal-badge-name').innerText = badgeData.name;
+    document.getElementById('modal-badge-icon').innerText = badgeData.icon;
+    document.getElementById('modal-badge-desc').innerText = badgeData.explanation;
+    
+    // Toon de modal
+    modal.classList.add('show');
+    
+    // Voeg een event listener toe om te sluiten met de Escape-toets
+    document.addEventListener('keydown', closeOnEscape);
+}
+
+// Functie om de modal te sluiten
+window.closeBadgeModal = function(event) {
+    const modal = document.getElementById('badge-modal');
+    
+    // Als event is meegegeven, check of er op de achtergrond is geklikt (niet op de content)
+    if (event && event.target !== modal) {
+        return;
+    }
+    
+    modal.classList.remove('show');
+    // Verwijder de Escape-toets listener
+    document.removeEventListener('keydown', closeOnEscape);
+}
+
+// Helper functie om te sluiten met Escape
+function closeOnEscape(event) {
+    if (event.key === 'Escape') {
+        closeBadgeModal();
+    }
+}
