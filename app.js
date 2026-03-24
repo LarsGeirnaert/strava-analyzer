@@ -27,28 +27,33 @@ function initMap() {
     map.on('click', () => { if (typeof clearSegmentHighlight === 'function') clearSegmentHighlight(); });
 }
 
-function clearSegmentHighlight() {
-    activeSegment = null;
-    if (segmentLayer && map) { map.removeLayer(segmentLayer); segmentLayer = null; }
-    if (polyline && map.hasLayer(polyline)) { try { map.fitBounds(polyline.getBounds()); } catch(e) {} }
-    if(elevationChart && elevationChart.data.datasets.length > 2) { 
-        elevationChart.data.datasets.pop(); 
-        elevationChart.update(); 
-    }
-    document.querySelectorAll('.segment-card').forEach(c => c.classList.remove('active-segment'));
-    const btn = document.getElementById('clear-segment-btn');
-    if(btn) btn.classList.add('hidden');
-}
-
+// IN app.js - Aangepaste openRide Flow
 window.openRide = async function(activity) {
     try {
         if(window.switchTab) window.switchTab('analysis');
+        
+        // 1. Toon het Dashboard, Verberg de Map
+        const sumDash = document.getElementById('ride-summary-dashboard');
+        const mapView = document.getElementById('ride-map-view');
+        
+        if(sumDash) sumDash.classList.remove('hidden');
+        if(mapView) mapView.classList.add('hidden');
+        
+        // 2. Vul de intro-kaart in met de summary data
+        if(window.populateRideSummary) window.populateRideSummary(activity);
+
+        // 3. Laad de GPX alvast in de achtergrond in de verborgen map!
         const fileBlob = await window.supabaseAuth.getActivityFile(activity.id);
         const text = await fileBlob.text();
         processGPXAndRender(text, activity.fileName, true, activity.summary);
+        
         const saveSection = document.getElementById('save-section');
         if(saveSection) saveSection.classList.add('hidden');
-    } catch (e) { console.error(e); alert("Kon rit data niet ophalen."); }
+        
+    } catch (e) { 
+        console.error(e); 
+        alert("Kon rit data niet ophalen."); 
+    }
 };
 
 async function handleFileUpload(e) {
@@ -323,8 +328,7 @@ function parseGPXData(xmlString, fileName, isExistingRide = false) {
     };
 }
 
-// IN app.js - Vervang calculateFastestSegments volledig
-
+// IN app.js - VERVANG VOLLEDIG
 function calculateFastestSegments(distances, times) {
     const results = [];
     if (!distances || distances.length === 0) return results;
@@ -333,28 +337,30 @@ function calculateFastestSegments(distances, times) {
 
     // STRIKTE LOOP: 5, 10, 15 ... tot 100
     for (let k = 5; k <= 100; k += 5) {
-        
-        // Stop als de rit korter is dan het doel (bv rit is 12km, stop bij 15km)
+
         if (totalDist < k) break;
 
         let bestTimeMs = Infinity;
         let found = false;
         let startIdx = 0;
+        
+        // NIEUW: Variabelen om de exacte locatie te onthouden
+        let bestStartIdx = 0;
+        let bestEndIdx = 0;
 
-        // Zoek snelste blokje van afstand K
         for (let endIdx = 1; endIdx < distances.length; endIdx++) {
             const currentDist = distances[endIdx] - distances[startIdx];
-            
-            // Als het stukje langer is dan nodig, schuif startpunt op
+
             while (startIdx < endIdx && (distances[endIdx] - distances[startIdx + 1]) >= k) {
                 startIdx++;
             }
 
-            // Checken
             if ((distances[endIdx] - distances[startIdx]) >= k) {
                 const timeDiff = times[endIdx] - times[startIdx];
                 if (timeDiff < bestTimeMs) {
                     bestTimeMs = timeDiff;
+                    bestStartIdx = startIdx; // Bewaar start GPS punt
+                    bestEndIdx = endIdx;     // Bewaar eind GPS punt
                     found = true;
                 }
             }
@@ -364,7 +370,9 @@ function calculateFastestSegments(distances, times) {
             results.push({
                 distance: k,
                 timeMs: bestTimeMs,
-                speed: k / (bestTimeMs / 3600000) // km/u
+                speed: k / (bestTimeMs / 3600000), // km/u
+                startIdx: bestStartIdx, // Stuur mee naar de UI
+                endIdx: bestEndIdx      // Stuur mee naar de UI
             });
         }
     }
@@ -377,21 +385,62 @@ function getDistanceFromLatLonInKm(lat1, lon1, lat2, lon2) {
     return 12742 * Math.asin(Math.sqrt(a));
 }
 
+// app.js - VOLLEDIGE FUNCTIES VERVANGEN OF TOEVOEGEN
+
+// NIEUWE FUNCTIE: Helper om de route geanimeerd te tekenen
+function animatePathOnMap(latlngs, mapInstance, polylineRef) {
+    let currentIndex = 0;
+    const currentLatlngs = [];
+    polylineRef.setLatLngs([]); // Start met een lege lijn
+
+    // Snelheid van de animatie (hoeveel punten per frame erbij komen). Verhoog dit voor langere/snellere ritten.
+    const pointsPerFrame = Math.max(1, Math.floor(latlngs.length / 100));
+
+    function animate() {
+        if (currentIndex < latlngs.length) {
+            // Voeg een aantal punten toe per frame voor een vloeiende slang
+            for(let i=0; i<pointsPerFrame; i++) {
+                if(currentIndex < latlngs.length) {
+                    currentLatlngs.push(latlngs[currentIndex]);
+                    currentIndex++;
+                }
+            }
+            polylineRef.setLatLngs(currentLatlngs);
+            requestAnimationFrame(animate); 
+        } else {
+            // Eindmarkering toevoegen als de slang af is
+            const endPoint = latlngs[latlngs.length - 1];
+            L.circleMarker(endPoint, { radius: 6, fillColor: "#28a745", color: "#fff", weight: 2, opacity: 1, fillOpacity: 1 }).addTo(mapInstance);
+        }
+    }
+    requestAnimationFrame(animate); 
+}
+
+// VOLLEDIGE FUNCTIE VERVANGEN
 function updateMap(latlngs) {
     if (!map || !latlngs || latlngs.length === 0) return;
-    
+
     if (polyline) map.removeLayer(polyline);
-    if (segmentLayer) { map.removeLayer(segmentLayer); segmentLayer = null; } 
-    
-    polyline = L.polyline(latlngs, {color: '#fc4c02', weight: 4}).addTo(map);
-    
-    // paddingBottomRight: [x, y] -> y is de onderkant. 
-    // We reserveren 280px aan de onderkant voor de grafieken.
-    map.fitBounds(polyline.getBounds(), { 
+    if (segmentLayer) { map.removeLayer(segmentLayer); segmentLayer = null; }
+
+    // Maak de lijn aan maar teken de volledige route nog niet (start leeg door animatie)
+    polyline = L.polyline([], {color: '#fc4c02', weight: 4, lineCap: 'round'}).addTo(map);
+
+    // Bepaal de bounds gebaseerd op de VOLLEDIGE route (zodat de camera goed staat)
+    const boundsPolyline = L.polyline(latlngs);
+    map.fitBounds(boundsPolyline.getBounds(), {
         paddingTopLeft: [20, 20],
-        paddingBottomRight: [20, 280], 
-        animate: false 
+        paddingBottomRight: [20, 280], // Ruimte onderin
+        animate: true // Zachtjes inzoomen
     });
+
+    // Start een klein vlaggetje bij het begin
+    L.circleMarker(latlngs[0], { radius: 6, fillColor: "#fff", color: "#000", weight: 2, opacity: 1, fillOpacity: 1 }).addTo(map);
+
+    // Laat de slang vertrekken
+    setTimeout(() => {
+        animatePathOnMap(latlngs, map, polyline);
+    }, 300); // Korte delay zodat de kaart eerst kan zoomen
 }
 
 function updateChart(labels, elePoints, speedPoints, powerPoints) {
@@ -484,52 +533,101 @@ window.updateSegmentsUI = function(segments) {
     });
 };
 
+// IN app.js - VERVANG VOLLEDIG
 function highlightSegment(startIdx, endIdx, dist) {
     if (!map || !currentRideData) return;
-    activeSegment = dist;
     
+    // Controle voor oude ritten die nog geen index hebben
+    if (startIdx === undefined || endIdx === undefined) {
+        alert("Dit is een oude rit zonder opgeslagen GPS-coördinaten voor de segmenten.\n\nGa naar de tab '🏆 Ranglijsten' en klik op de knop '🔄 Update Alle Data' om dit voor al je ritten werkend te maken!");
+        return;
+    }
+    
+    activeSegment = dist;
+
     // UI Update
     document.querySelectorAll('.segment-card').forEach(c => c.classList.remove('active-segment'));
     const activeCard = document.querySelector(`.segment-card[data-dist="${dist}"]`);
     if(activeCard) activeCard.classList.add('active-segment');
-    
+
     const btn = document.getElementById('clear-segment-btn');
     if(btn) btn.classList.remove('hidden');
 
     // Kaart Update
     if (segmentLayer) { map.removeLayer(segmentLayer); }
-    
+
     const fullPath = currentRideData.uiData.latlngs;
     const segmentPath = fullPath.slice(startIdx, endIdx + 1);
-    
+
+    // Teken dikke groene lijn
     segmentLayer = L.polyline(segmentPath, { color: '#00ff00', weight: 6, opacity: 1, lineCap: 'round' }).addTo(map);
-    
-    // AANGEPAST: Padding aan onderkant zodat segment boven de grafiek staat
-    map.fitBounds(segmentLayer.getBounds(), { 
+    segmentLayer.bringToFront(); // Zorg dat hij bovenop de oranje lijn ligt!
+
+    map.fitBounds(segmentLayer.getBounds(), {
         paddingTopLeft: [50, 50],
-        paddingBottomRight: [50, 300], // 300px ruimte onderin
-        animate: true 
+        paddingBottomRight: [50, 300], 
+        animate: true
     });
 
-    // Grafiek update (code blijft hetzelfde als voorheen, hieronder ingekort voor overzicht)
+    // Grafiek update (Groene markering in de grafiek)
     if (elevationChart) {
-        // ... (de grafiek highlight code die je al had) ...
         const originalDataset = elevationChart.data.datasets[0];
         const totalPoints = originalDataset.data.length;
         const realTotalPoints = currentRideData.uiData.latlngs.length;
         const ratio = totalPoints / realTotalPoints;
+        
         const chartStart = Math.floor(startIdx * ratio);
         const chartEnd = Math.ceil(endIdx * ratio);
-        const highlightData = new Array(totalPoints).fill(null);
-        for (let i = 0; i < totalPoints; i++) { if (i >= chartStart && i <= chartEnd) { highlightData[i] = originalDataset.data[i]; } }
         
-        if (elevationChart.data.datasets.length > 3) { elevationChart.data.datasets[3].data = highlightData; } 
-        else { elevationChart.data.datasets.push({ label: 'Segment', data: highlightData, borderColor: '#00ff00', backgroundColor: 'rgba(0, 255, 0, 0.4)', borderWidth: 3, pointRadius: 0, fill: true, order: 0 }); }
+        const highlightData = new Array(totalPoints).fill(null);
+        for (let i = 0; i < totalPoints; i++) { 
+            if (i >= chartStart && i <= chartEnd) { 
+                highlightData[i] = originalDataset.data[i]; 
+            } 
+        }
+
+        let segIndex = elevationChart.data.datasets.findIndex(d => d.label === 'Segment');
+
+        if (segIndex !== -1) { 
+            elevationChart.data.datasets[segIndex].data = highlightData; 
+        } else { 
+            elevationChart.data.datasets.push({ 
+                label: 'Segment', 
+                data: highlightData, 
+                borderColor: '#00ff00', 
+                backgroundColor: 'rgba(0, 255, 0, 0.4)', 
+                borderWidth: 3, 
+                pointRadius: 0, 
+                fill: true, 
+                order: 0 
+            }); 
+        }
         elevationChart.update();
     }
 }
 
-// IN app.js - Vervang fixMaxSpeeds volledig
+// IN app.js - VERVANG VOLLEDIG
+function clearSegmentHighlight() {
+    activeSegment = null;
+    
+    // Wis van de kaart
+    if (segmentLayer && map) { map.removeLayer(segmentLayer); segmentLayer = null; }
+    if (polyline && map.hasLayer(polyline)) { try { map.fitBounds(polyline.getBounds()); } catch(e) {} }
+    
+    // Wis van de grafiek
+    if (elevationChart) {
+        let segIndex = elevationChart.data.datasets.findIndex(d => d.label === 'Segment');
+        if (segIndex !== -1) {
+            elevationChart.data.datasets.splice(segIndex, 1);
+            elevationChart.update();
+        }
+    }
+    
+    // UI reset
+    document.querySelectorAll('.segment-card').forEach(c => c.classList.remove('active-segment'));
+    const btn = document.getElementById('clear-segment-btn');
+    if(btn) btn.classList.add('hidden');
+}
 
 window.fixMaxSpeeds = async function() {
     const btn = document.getElementById('fix-data-btn');

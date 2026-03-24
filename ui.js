@@ -23,6 +23,7 @@ const REGIONS = [
     { code: 'nl', url: 'https://cartomap.github.io/nl/wgs84/gemeente_2023.geojson', type: 'geojson', nameFields: ['statnaam'] }
 ];
 
+
 document.addEventListener('DOMContentLoaded', () => {
     // 1. THEMA CHECK (Dark mode is nu standaard in HTML)
     // Als de gebruiker expliciet 'light' heeft opgeslagen, halen we dark mode weg
@@ -284,24 +285,6 @@ window.saveCreatedRoute = async function() {
     }
 };
 
-async function updateSavedRoutesList() {
-    const list = document.getElementById('saved-routes-list');
-    if(!list) return;
-    if(!allActivitiesCache) allActivitiesCache = await window.supabaseAuth.listActivities();
-    const routes = allActivitiesCache.filter(a => a.summary.type === 'route');
-    if(routes.length === 0) { list.innerHTML = '<small style="color:var(--text-muted); padding:10px;">Nog geen routes.</small>'; return; }
-    list.innerHTML = routes.map(r => `
-        <div class="dash-list-item" style="flex-direction:column; align-items:flex-start;">
-            <div style="display:flex; justify-content:space-between; width:100%; align-items:center;">
-                <strong>${r.fileName}</strong>
-                <button class="delete-btn" style="padding:2px 6px; font-size:0.7rem;" onclick="deleteRoute('${r.id}')">🗑️</button>
-            </div>
-            <div style="font-size:0.8rem; color:var(--text-muted); display:flex; justify-content:space-between; width:100%; margin-top:5px;">
-                <span>${parseFloat(r.summary.distanceKm).toFixed(1)} km</span>
-                <span style="color:var(--primary); cursor:pointer;" onclick="loadSavedRoute('${r.id}')">👁️ Kaart</span>
-            </div>
-        </div>`).join('');
-}
 
 window.loadSavedRoute = async function(id) {
     clearRoute();
@@ -326,25 +309,36 @@ window.deleteRoute = async function(id) {
     }
 };
 
-// IN ui.js:
-
-// 1. AANGEPASTE UPDATE DASHBOARD (Houdt rekening met 'isShowingAll')
 async function updateDashboard() {
     if(!window.supabaseAuth.getCurrentUser()) return;
+
+    // Toon skeletons om 'Laden...' mooi te maken
+    document.getElementById('dashboard-list').innerHTML = `
+        <div class="skeleton skeleton-list-item"></div>
+        <div class="skeleton skeleton-list-item"></div>
+        <div class="skeleton skeleton-list-item"></div>
+    `;
     
+    // Voeg skeleton values toe aan de tellers bovenin
+    const loaders = `<span class="skeleton skeleton-val" style="width: 60%;"></span>`;
+    document.getElementById('total-dist').innerHTML = loaders;
+    document.getElementById('total-elev').innerHTML = loaders;
+    document.getElementById('total-rides').innerHTML = loaders;
+    document.getElementById('total-tiles').innerHTML = loaders;
+
     // Data ophalen
     allActivitiesCache = await window.supabaseAuth.listActivities();
-    
+
     // Filter routes eruit voor statistieken
     const realRides = allActivitiesCache.filter(a => a.summary.type !== 'route');
 
     // Stats berekenen
-    let d=0, e=0; 
-    realRides.forEach(a => { 
-        d += parseFloat(a.summary.distanceKm||0); 
-        e += parseFloat(a.summary.elevationGain||0); 
+    let d=0, e=0;
+    realRides.forEach(a => {
+        d += parseFloat(a.summary.distanceKm||0);
+        e += parseFloat(a.summary.elevationGain||0);
     });
-    
+
     animateValue("total-dist", 0, d, 1000, " km");
     animateValue("total-elev", 0, e, 1000, " m");
     document.getElementById('total-rides').innerText = realRides.length;
@@ -371,7 +365,7 @@ async function updateDashboard() {
     const userEmail = window.supabaseAuth.getCurrentUser().email.split('@')[0];
     const name = userEmail.charAt(0).toUpperCase() + userEmail.slice(1);
     document.getElementById('welcome-msg').innerText = `${greeting}, ${name}! 👋`;
-    
+
     // Streak & Badges
     document.getElementById('streak-count').innerText = calculateWeeklyStreak(realRides);
     renderBadges(d, e, realRides);
@@ -379,6 +373,203 @@ async function updateDashboard() {
     // LIJST RENDERING LOGICA
     renderActivityListBasedOnView();
 }
+
+// VOLLEDIGE FUNCTIE VERVANGEN (Schoon, zonder Eddy Merckx)
+async function updateRecapView() {
+    document.getElementById('recap-best-list').innerHTML = `
+        <div class="skeleton skeleton-list-item"></div>
+        <div class="skeleton skeleton-list-item"></div>
+    `;
+
+    if(!allActivitiesCache) allActivitiesCache = await window.supabaseAuth.listActivities();
+
+    const selMonth = document.getElementById('recap-month-select').value;
+    const selYear = document.getElementById('recap-year-select').value;
+
+    const monthSelect = document.getElementById('recap-month-select');
+    if (selYear === 'all') {
+        monthSelect.disabled = true;
+        monthSelect.style.opacity = '0.5';
+    } else {
+        monthSelect.disabled = false;
+        monthSelect.style.opacity = '1';
+    }
+
+    const filtered = allActivitiesCache.filter(act => {
+        if (act.summary.type === 'route') return false;
+        const d = new Date(act.summary.rideDate);
+        const yearMatch = selYear === 'all' || d.getFullYear() === parseInt(selYear);
+        const monthMatch = (selYear === 'all' || selMonth === 'all') ? true : d.getMonth() === parseInt(selMonth);
+        return yearMatch && monthMatch;
+    });
+
+    let d=0, e=0, s=0;
+    let maxDist = 0, maxElev = 0, maxSpeed = 0;
+
+    filtered.forEach(act => {
+        const dist = parseFloat(act.summary.distanceKm) || 0;
+        const elev = parseFloat(act.summary.elevationGain) || 0;
+        const spd = parseFloat(act.summary.avgSpeed) || 0;
+
+        d += dist; e += elev; s += spd;
+
+        if(dist > maxDist) maxDist = dist;
+        if(elev > maxElev) maxElev = elev;
+        if(spd > maxSpeed) maxSpeed = spd;
+    });
+
+    let title = "Overzicht";
+    if (selYear === 'all') title = "🌍 All-Time Overzicht";
+    else if (selMonth === 'all') title = `Jaaroverzicht ${selYear}`;
+    else title = `${document.getElementById('recap-month-select').options[document.getElementById('recap-month-select').selectedIndex].text} ${selYear}`;
+    document.getElementById('recap-period-title').innerText = title;
+
+    document.getElementById('recap-dist').innerText = d.toFixed(0) + ' km';
+    document.getElementById('recap-elev').innerText = e.toFixed(0);
+    document.getElementById('recap-count').innerText = filtered.length;
+
+    document.getElementById('recap-longest').innerText = maxDist.toFixed(1) + ' km';
+    document.getElementById('recap-highest').innerText = maxElev.toFixed(0) + ' m';
+    document.getElementById('recap-fastest').innerText = maxSpeed.toFixed(1) + ' km/u';
+
+    const goalKey = selYear === 'all' ? 'goal_all' : (selMonth === 'all' ? `goal_${selYear}` : `goal_${selYear}_${selMonth}`);
+    const defaultGoal = selYear === 'all' ? 10000 : (selMonth === 'all' ? 5000 : 400);
+    const targetKm = parseFloat(localStorage.getItem(goalKey) || defaultGoal);
+
+    document.getElementById('recap-goal-val').innerText = targetKm;
+    document.getElementById('recap-goal-label').innerText = selYear === 'all' ? "Totaaldoel" : (selMonth === 'all' ? "Jaardoel" : "Maanddoel");
+
+    const goalPercent = Math.min(100, (targetKm > 0 ? (d / targetKm) * 100 : 0)).toFixed(1);
+    document.getElementById('recap-goal-percent').innerText = goalPercent + '%';
+    document.getElementById('recap-goal-fill').style.width = goalPercent + '%';
+
+    // GRAFIEKEN
+    renderRecapChart(filtered, selMonth, selYear);
+    renderDistributionChart(filtered); 
+
+    // LIJST (Top 5)
+    const sorted = [...filtered].sort((a,b) => b.summary.distanceKm - a.summary.distanceKm).slice(0, 5);
+    document.getElementById('recap-best-list').innerHTML = sorted.map((act, i) => `
+        <div class="rank-card" style="border-left: 4px solid ${i===0?'gold':i===1?'silver':i===2?'#cd7f32':'transparent'}" onclick="switchTab('analysis'); window.openRide(${JSON.stringify(act).replace(/"/g, '&quot;')})">
+            <div style="flex:1;"><strong>${act.fileName}</strong><br><small>${new Date(act.summary.rideDate).toLocaleDateString()}</small></div>
+            <div style="text-align:right; font-size:0.9rem;">
+                <span style="display:block; font-weight:bold;">${parseFloat(act.summary.distanceKm).toFixed(1)} km</span>
+                <span style="color:var(--text-muted); font-size:0.8rem;">${act.summary.elevationGain}m</span>
+            </div>
+        </div>`).join('') || '<p style="text-align:center; color:var(--text-muted); padding:20px;">Geen ritten gevonden.</p>';
+}
+
+// VOLLEDIGE FUNCTIE VERVANGEN
+window.loadRankings = async function(distArg) {
+    const listEl = document.getElementById('ranking-list');
+    
+    // Skeletons tonen
+    listEl.innerHTML = `
+        <div class="skeleton skeleton-list-item"></div>
+        <div class="skeleton skeleton-list-item"></div>
+        <div class="skeleton skeleton-list-item"></div>
+    `;
+
+    if(!allActivitiesCache) allActivitiesCache = await window.supabaseAuth.listActivities();
+
+    const selector = document.getElementById('segmentSelector');
+    const selectedDist = parseInt(distArg || (selector ? selector.value : "5"));
+    const trendFilter = document.getElementById('segmentTrendFilter').value;
+
+    let rankingData = [];
+
+    allActivitiesCache.forEach(act => {
+        if (act.summary.type === 'route') return;
+        const segs = act.summary.segments || [];
+        const match = segs.find(s => parseInt(s.distance) === selectedDist);
+
+        if (match) {
+            rankingData.push({
+                activity: act,
+                speed: match.speed,
+                timeMs: match.timeMs,
+                date: new Date(act.summary.rideDate)
+            });
+        }
+    });
+
+    rankingData.sort((a,b) => b.speed - a.speed);
+    listEl.innerHTML = '';
+
+    if (rankingData.length === 0) {
+        listEl.innerHTML = `
+            <div style="text-align:center; padding:40px; color:var(--text-muted);">
+                <h3>Geen data voor ${selectedDist} km</h3>
+                <p>Of je hebt nog geen ritten die lang genoeg zijn, <br>
+                of je moet even op de <strong>Update Alle Data</strong> knop klikken.</p>
+            </div>`;
+        document.getElementById('segment-progression-container').style.display = 'none';
+        return;
+    }
+
+    listEl.innerHTML = rankingData.map((item, i) => {
+        const medal = i===0 ? '🥇' : i===1 ? '🥈' : i===2 ? '🥉' : `#${i+1}`;
+        const borderStyle = i===0 ? 'border-left: 4px solid gold;' : i===1 ? 'border-left: 4px solid silver;' : i===2 ? 'border-left: 4px solid #cd7f32;' : '';
+
+        const totSec = Math.floor(item.timeMs / 1000);
+        const h = Math.floor(totSec / 3600);
+        const m = Math.floor((totSec % 3600) / 60);
+        const s = totSec % 60;
+        const timeStr = h > 0 ? `${h}:${m.toString().padStart(2,'0')}:${s.toString().padStart(2,'0')}` : `${m}:${s.toString().padStart(2,'0')}`;
+
+        return `
+        <div class="rank-card" style="${borderStyle}" onclick="switchTab('analysis'); window.openRide(${JSON.stringify(item.activity).replace(/"/g, '&quot;')})">
+            <div style="display:flex; align-items:center; gap:15px;">
+                <span style="font-size:1.5rem; width:40px; text-align:center;">${medal}</span>
+                <div>
+                    <strong style="font-size:1rem; display:block;">${item.activity.fileName}</strong>
+                    <small style="color:var(--text-muted);">📅 ${item.date.toLocaleDateString()} • ⏱️ ${timeStr}</small>
+                </div>
+            </div>
+            <div style="text-align:right;">
+                <strong style="font-size:1.4rem; color:var(--primary);">${item.speed.toFixed(1)} <small>km/u</small></strong>
+            </div>
+        </div>`;
+    }).join('');
+
+    const chartContainer = document.getElementById('segment-progression-container');
+    if (rankingData.length > 1) {
+        chartContainer.style.display = 'block';
+        updateTrendChart(rankingData); 
+    } else {
+        chartContainer.style.display = 'none';
+    }
+};
+
+// VOLLEDIGE FUNCTIE VERVANGEN
+async function updateSavedRoutesList() {
+    const list = document.getElementById('saved-routes-list');
+    if(!list) return;
+    
+    // Skeleton tonen
+    list.innerHTML = `<div class="skeleton skeleton-list-item"></div>`;
+    
+    if(!allActivitiesCache) allActivitiesCache = await window.supabaseAuth.listActivities();
+    const routes = allActivitiesCache.filter(a => a.summary.type === 'route');
+    
+    if(routes.length === 0) { 
+        list.innerHTML = '<small style="color:var(--text-muted); padding:10px;">Nog geen routes.</small>'; 
+        return; 
+    }
+    
+    list.innerHTML = routes.map(r => `
+        <div class="dash-list-item" style="flex-direction:column; align-items:flex-start;">
+            <div style="display:flex; justify-content:space-between; width:100%; align-items:center;">
+                <strong>${r.fileName}</strong>
+                <button class="delete-btn" style="padding:2px 6px; font-size:0.7rem;" onclick="deleteRoute('${r.id}')">🗑️</button>
+            </div>
+            <div style="font-size:0.8rem; color:var(--text-muted); display:flex; justify-content:space-between; width:100%; margin-top:5px;">
+                <span>${parseFloat(r.summary.distanceKm).toFixed(1)} km</span>
+                <span style="color:var(--primary); cursor:pointer;" onclick="loadSavedRoute('${r.id}')">👁️ Kaart</span>
+            </div>
+        </div>`).join('');
+}
+
 
 // 2. NIEUWE FUNCTIE: BEPAALT WELKE RITTEN GETOOND WORDEN
 function renderActivityListBasedOnView() {
@@ -546,101 +737,6 @@ function animateValue(id, start, end, duration, suffix = "") {
         }
     };
     window.requestAnimationFrame(step);
-}
-
-// --- VERVANG DEZE FUNCTIES IN UI.JS ---
-
-async function updateRecapView() {
-    if(!allActivitiesCache) allActivitiesCache = await window.supabaseAuth.listActivities();
-
-    const selMonth = document.getElementById('recap-month-select').value;
-    const selYear = document.getElementById('recap-year-select').value; // Kan nu 'all' zijn
-
-    // Maand-dropdown uitschakelen als "Alle jaren" is geselecteerd
-    const monthSelect = document.getElementById('recap-month-select');
-    if (selYear === 'all') {
-        monthSelect.disabled = true;
-        monthSelect.style.opacity = '0.5';
-    } else {
-        monthSelect.disabled = false;
-        monthSelect.style.opacity = '1';
-    }
-
-    // FILTER
-    const filtered = allActivitiesCache.filter(act => {
-        if (act.summary.type === 'route') return false;
-        const d = new Date(act.summary.rideDate);
-        
-        const yearMatch = selYear === 'all' || d.getFullYear() === parseInt(selYear);
-        const monthMatch = (selYear === 'all' || selMonth === 'all') ? true : d.getMonth() === parseInt(selMonth);
-        
-        return yearMatch && monthMatch;
-    });
-
-    // BASIS TOTALEN
-    let d=0, e=0, s=0;
-    let maxDist = 0, maxElev = 0, maxSpeed = 0;
-
-    filtered.forEach(act => {
-        const dist = parseFloat(act.summary.distanceKm);
-        const elev = parseFloat(act.summary.elevationGain);
-        const spd = parseFloat(act.summary.avgSpeed);
-
-        d += dist; e += elev; s += spd;
-
-        if(dist > maxDist) maxDist = dist;
-        if(elev > maxElev) maxElev = elev;
-        if(spd > maxSpeed) maxSpeed = spd;
-    });
-
-    const avgS = filtered.length > 0 ? (s / filtered.length).toFixed(1) : 0;
-
-    // UPDATE DOM TITELS
-    let title = "Overzicht";
-    if (selYear === 'all') {
-        title = "🌍 All-Time Overzicht";
-    } else if (selMonth === 'all') {
-        title = `Jaaroverzicht ${selYear}`;
-    } else {
-        title = `${document.getElementById('recap-month-select').options[document.getElementById('recap-month-select').selectedIndex].text} ${selYear}`;
-    }
-    document.getElementById('recap-period-title').innerText = title;
-
-    document.getElementById('recap-dist').innerText = d.toFixed(0) + ' km';
-    document.getElementById('recap-elev').innerText = e.toFixed(0);
-    document.getElementById('recap-count').innerText = filtered.length;
-
-    // Records
-    document.getElementById('recap-longest').innerText = maxDist.toFixed(1) + ' km';
-    document.getElementById('recap-highest').innerText = maxElev.toFixed(0) + ' m';
-    document.getElementById('recap-fastest').innerText = maxSpeed.toFixed(1) + ' km/u';
-
-    // DOELEN
-    const goalKey = selYear === 'all' ? 'goal_all' : (selMonth === 'all' ? `goal_${selYear}` : `goal_${selYear}_${selMonth}`);
-    const defaultGoal = selYear === 'all' ? 10000 : (selMonth === 'all' ? 5000 : 400);
-    const targetKm = parseFloat(localStorage.getItem(goalKey) || defaultGoal);
-
-    document.getElementById('recap-goal-val').innerText = targetKm;
-    document.getElementById('recap-goal-label').innerText = selYear === 'all' ? "Totaaldoel" : (selMonth === 'all' ? "Jaardoel" : "Maanddoel");
-
-    const goalPercent = Math.min(100, (d / targetKm) * 100).toFixed(1);
-    document.getElementById('recap-goal-percent').innerText = goalPercent + '%';
-    document.getElementById('recap-goal-fill').style.width = goalPercent + '%';
-
-    // GRAFIEKEN
-    renderRecapChart(filtered, selMonth, selYear);
-    renderDistributionChart(filtered); 
-
-    // LIJST (Top 5)
-    const sorted = [...filtered].sort((a,b) => b.summary.distanceKm - a.summary.distanceKm).slice(0, 5);
-    document.getElementById('recap-best-list').innerHTML = sorted.map((act, i) => `
-        <div class="rank-card" style="border-left: 4px solid ${i===0?'gold':i===1?'silver':i===2?'#cd7f32':'transparent'}" onclick="switchTab('analysis'); window.openRide(${JSON.stringify(act).replace(/"/g, '&quot;')})">
-            <div style="flex:1;"><strong>${act.fileName}</strong><br><small>${new Date(act.summary.rideDate).toLocaleDateString()}</small></div>
-            <div style="text-align:right; font-size:0.9rem;">
-                <span style="display:block; font-weight:bold;">${parseFloat(act.summary.distanceKm).toFixed(1)} km</span>
-                <span style="color:var(--text-muted); font-size:0.8rem;">${act.summary.elevationGain}m</span>
-            </div>
-        </div>`).join('') || '<p style="text-align:center; color:var(--text-muted); padding:20px;">Geen ritten gevonden.</p>';
 }
 
 function renderRecapChart(activities, monthMode, year) {
@@ -812,8 +908,6 @@ function updateMuniUI() {
 window.openRideFromHeatmap = function(act) { heatmapMap.closePopup(); switchTab('analysis'); window.openRide(act); };
 
 
-// IN ui.js: Vervang deze twee functies
-
 window.switchRankingTab = async function(tab) {
     document.querySelectorAll('.sub-nav-btn').forEach(b => b.classList.toggle('active', b.onclick.toString().includes(tab)));
     document.querySelectorAll('.rank-tab-content').forEach(c => c.classList.toggle('hidden', !c.id.includes(tab)));
@@ -821,14 +915,16 @@ window.switchRankingTab = async function(tab) {
     if(!allActivitiesCache) allActivitiesCache = await window.supabaseAuth.listActivities();
     
     if(tab === 'segments') loadRankings(document.getElementById('segmentSelector').value);
-    
-    // Bestaande tabs
     else if(tab === 'distance') renderTrendGraph(allActivitiesCache, 'distanceKm', 'distance-table-body', 'distanceTrendChart', 'distanceTopFilter', 'Afstand (km)');
     else if(tab === 'elevation') renderTrendGraph(allActivitiesCache, 'elevationGain', 'elevation-table-body', 'elevationTrendChart', 'elevationTopFilter', 'Hoogte (m)');
-    
-    // NIEUW: De Max Snelheid Tab koppelen aan de variabele 'maxSpeed'
     else if(tab === 'speed') renderTrendGraph(allActivitiesCache, 'maxSpeed', 'speed-table-body', 'speedTrendChart', 'speedTopFilter', 'Max Snelheid (km/u)');
+    // NIEUW: Suffer Score inladen!
+    else if(tab === 'suffer') {
+        calculateSufferScores(); // Bereken actuele 1-100 scores
+        renderTrendGraph(allActivitiesCache, 'sufferScore', 'suffer-table-body', 'sufferTrendChart', 'sufferTopFilter', 'Suffer Score (1-100)');
+    }
 };
+
 
 function renderTrendGraph(activities, key, tableId, chartId, filterId, label) {
     const fv = document.getElementById(filterId)?.value || 'all';
@@ -892,101 +988,6 @@ function renderTrendGraph(activities, key, tableId, chartId, filterId, label) {
     }
 }
 
-// IN ui.js - Vervang loadRankings volledig
-
-window.loadRankings = async function(distArg) {
-    // 1. Zorg voor data
-    if(!allActivitiesCache) allActivitiesCache = await window.supabaseAuth.listActivities();
-
-    const selector = document.getElementById('segmentSelector');
-    // Forceer naar een getal (belangrijk!)
-    const selectedDist = parseInt(distArg || (selector ? selector.value : "5"));
-    const trendFilter = document.getElementById('segmentTrendFilter').value;
-
-    console.log("Ranking laden voor:", selectedDist, "km");
-
-    // 2. Filter de data
-    let rankingData = [];
-    
-    allActivitiesCache.forEach(act => {
-        // Alleen echte ritten
-        if (act.summary.type === 'route') return;
-
-        // Hebben we segmenten?
-        const segs = act.summary.segments || [];
-        
-        // Zoek exact de afstand die we nodig hebben (bv 10)
-        // We gebruiken 'find' en checken op strict equality of type match
-        const match = segs.find(s => parseInt(s.distance) === selectedDist);
-
-        if (match) {
-            rankingData.push({
-                activity: act,
-                speed: match.speed,
-                timeMs: match.timeMs,
-                date: new Date(act.summary.rideDate)
-            });
-        }
-    });
-
-    // 3. Sorteer op Snelheid (Hoog naar Laag)
-    rankingData.sort((a,b) => b.speed - a.speed);
-
-    // 4. Render de Lijst
-    const listEl = document.getElementById('ranking-list');
-    listEl.innerHTML = '';
-
-    if (rankingData.length === 0) {
-        listEl.innerHTML = `
-            <div style="text-align:center; padding:40px; color:var(--text-muted);">
-                <h3>Geen data voor ${selectedDist} km</h3>
-                <p>Of je hebt nog geen ritten die lang genoeg zijn, <br>
-                of je moet even op de <strong>Update Alle Data</strong> knop klikken.</p>
-            </div>`;
-        
-        // Verberg grafiek als er geen data is
-        document.getElementById('segment-progression-container').style.display = 'none';
-        return; 
-    }
-
-    // Render Items
-    listEl.innerHTML = rankingData.map((item, i) => {
-        const medal = i===0 ? '🥇' : i===1 ? '🥈' : i===2 ? '🥉' : `#${i+1}`;
-        const borderStyle = i===0 ? 'border-left: 4px solid gold;' : i===1 ? 'border-left: 4px solid silver;' : i===2 ? 'border-left: 4px solid #cd7f32;' : '';
-        
-        // Tijd netjes maken
-        const totSec = Math.floor(item.timeMs / 1000);
-        const h = Math.floor(totSec / 3600);
-        const m = Math.floor((totSec % 3600) / 60);
-        const s = totSec % 60;
-        const timeStr = h > 0 
-            ? `${h}:${m.toString().padStart(2,'0')}:${s.toString().padStart(2,'0')}`
-            : `${m}:${s.toString().padStart(2,'0')}`;
-
-        return `
-        <div class="rank-card" style="${borderStyle}" onclick="switchTab('analysis'); window.openRide(${JSON.stringify(item.activity).replace(/"/g, '&quot;')})">
-            <div style="display:flex; align-items:center; gap:15px;">
-                <span style="font-size:1.5rem; width:40px; text-align:center;">${medal}</span>
-                <div>
-                    <strong style="font-size:1rem; display:block;">${item.activity.fileName}</strong>
-                    <small style="color:var(--text-muted);">📅 ${item.date.toLocaleDateString()} • ⏱️ ${timeStr}</small>
-                </div>
-            </div>
-            <div style="text-align:right;">
-                <strong style="font-size:1.4rem; color:var(--primary);">${item.speed.toFixed(1)} <small>km/u</small></strong>
-            </div>
-        </div>`;
-    }).join('');
-
-    // 5. Update Grafiek (Optioneel, als er data is)
-    const chartContainer = document.getElementById('segment-progression-container');
-    if (rankingData.length > 1) {
-        chartContainer.style.display = 'block';
-        updateTrendChart(rankingData); // Aparte helper functie of inline
-    } else {
-        chartContainer.style.display = 'none';
-    }
-};
 
 // Helper voor de grafiek (zet deze ook in ui.js)
 function updateTrendChart(data) {
@@ -1370,3 +1371,210 @@ function closeOnEscape(event) {
         closeBadgeModal();
     }
 }
+
+// ui.js - NIEUW: Bereken de Suffer Score op een schaal van 1 tot 100
+function calculateSufferScores() {
+    if (!allActivitiesCache) return;
+    
+    let maxRaw = 0;
+    
+    // Stap 1: Bereken de "Ruwe" Pijn Score voor elke rit
+    allActivitiesCache.forEach(act => {
+        if (act.summary.type === 'route') return;
+        
+        const dist = parseFloat(act.summary.distanceKm) || 0;
+        const elev = parseFloat(act.summary.elevationGain) || 0;
+        const spd = parseFloat(act.summary.avgSpeed) || 0;
+        
+        // DE FORMULE: Afstand is basis, elke 10m stijgen telt als 1 extra km, snelheid telt exponentieel mee.
+        const rawScore = (dist * 1.0) + (elev * 0.1) + (Math.pow(spd, 2) * 0.05);
+        act.rawSuffer = rawScore;
+        
+        if (rawScore > maxRaw) maxRaw = rawScore;
+    });
+    
+    // Stap 2: Schaal alles ten opzichte van de zwaarste rit ooit (maxRaw = 100)
+    allActivitiesCache.forEach(act => {
+        if (act.summary.type === 'route') {
+            act.summary.sufferScore = 0;
+            return;
+        }
+        
+        if (maxRaw === 0) {
+            act.summary.sufferScore = 0;
+        } else {
+            let scaled = (act.rawSuffer / maxRaw) * 100;
+            act.summary.sufferScore = Math.max(1, scaled).toFixed(1); // Minimaal 1 als je gefietst hebt
+        }
+    });
+}
+
+// ui.js - Bereken en Toon Premium Rit Details
+window.updatePremiumRideHeader = function(act) {
+    if (!act || act.summary.type === 'route') {
+        document.getElementById('premium-ride-header').classList.add('hidden');
+        return;
+    }
+
+    // 1. Toon de header en vul de basis info
+    document.getElementById('premium-ride-header').classList.remove('hidden');
+    document.getElementById('premium-ride-name').innerText = act.fileName;
+    
+    // Mooie datum notatie
+    const d = new Date(act.summary.rideDate);
+    const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute:'2-digit' };
+    document.getElementById('premium-ride-date').innerText = `📅 ${d.toLocaleDateString('nl-NL', options)}`;
+
+    // 2. Bereken de Rank/Records!
+    const badgesContainer = document.getElementById('premium-badges');
+    badgesContainer.innerHTML = ''; // Maak leeg
+
+    if (!allActivitiesCache) return;
+    const rides = allActivitiesCache.filter(a => a.summary.type !== 'route');
+    let badgesHTML = '';
+
+    // Helper functie om badges te maken
+    const createBadge = (index, total, icon, label) => {
+        if (index === -1 || index >= 25) return ''; // Alleen Top 25 tonen
+        
+        const rank = index + 1;
+        let medal = '🏅';
+        let colorClass = '';
+        
+        if (rank === 1) { medal = '🥇'; colorClass = 'gold'; }
+        else if (rank === 2) { medal = '🥈'; colorClass = 'silver'; }
+        else if (rank === 3) { medal = '🥉'; colorClass = 'bronze'; }
+
+        return `<div class="record-badge ${colorClass}"><span>${medal}</span> ${rank}e ${label}</div>`;
+    };
+
+    // Afstand Rank
+    const distSorted = [...rides].sort((a,b) => (parseFloat(b.summary.distanceKm)||0) - (parseFloat(a.summary.distanceKm)||0));
+    const distIdx = distSorted.findIndex(a => a.id === act.id);
+    badgesHTML += createBadge(distIdx, rides.length, '📏', 'Langste Rit');
+
+    // Hoogte Rank
+    const elevSorted = [...rides].sort((a,b) => (parseFloat(b.summary.elevationGain)||0) - (parseFloat(a.summary.elevationGain)||0));
+    const elevIdx = elevSorted.findIndex(a => a.id === act.id);
+    if ((parseFloat(act.summary.elevationGain)||0) > 50) { // Alleen tonen als je daadwerkelijk geklommen hebt
+        badgesHTML += createBadge(elevIdx, rides.length, '⛰️', 'Hoogste Rit');
+    }
+
+    // Snelheid Rank
+    const spdSorted = [...rides].sort((a,b) => (parseFloat(b.summary.avgSpeed)||0) - (parseFloat(a.summary.avgSpeed)||0));
+    const spdIdx = spdSorted.findIndex(a => a.id === act.id);
+    badgesHTML += createBadge(spdIdx, rides.length, '🚀', 'Snelste Rit');
+
+    // Suffer Score Rank (als deze berekend is)
+    if (act.summary.sufferScore) {
+        const sufSorted = [...rides].sort((a,b) => (parseFloat(b.summary.sufferScore)||0) - (parseFloat(a.summary.sufferScore)||0));
+        const sufIdx = sufSorted.findIndex(a => a.id === act.id);
+        badgesHTML += createBadge(sufIdx, rides.length, '🥵', 'Zwaarste Rit');
+    }
+
+    badgesContainer.innerHTML = badgesHTML;
+};
+
+// ui.js - NIEUW: Intro Kaart Invullen en Knoppen Logica
+window.populateRideSummary = function(act) {
+    if (!act || !act.summary) return;
+
+    // 1. Basis Info Invullen
+    document.getElementById('sum-title').innerText = act.fileName;
+    const d = new Date(act.summary.rideDate);
+    document.getElementById('sum-date').innerText = `📅 ${d.toLocaleDateString('nl-NL', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute:'2-digit' })}`;
+
+    document.getElementById('sum-dist').innerHTML = `${parseFloat(act.summary.distanceKm).toFixed(1)} <small>km</small>`;
+    
+    // Tijd omrekenen als we timeMs hebben, anders uit avg speed afleiden
+    let timeStr = "0:00";
+    if (act.summary.durationSec) {
+        const h = Math.floor(act.summary.durationSec / 3600);
+        const m = Math.floor((act.summary.durationSec % 3600) / 60);
+        timeStr = `${h}:${m.toString().padStart(2, '0')}`;
+    } else if (act.summary.distanceKm && act.summary.avgSpeed) {
+        const hours = act.summary.distanceKm / act.summary.avgSpeed;
+        const h = Math.floor(hours);
+        const m = Math.floor((hours % 1) * 60);
+        timeStr = `${h}:${m.toString().padStart(2, '0')}`;
+    }
+    document.getElementById('sum-time').innerText = timeStr;
+
+    document.getElementById('sum-avg').innerHTML = `${parseFloat(act.summary.avgSpeed || 0).toFixed(1)} <small>km/u</small>`;
+    document.getElementById('sum-max').innerHTML = `${parseFloat(act.summary.maxSpeed || 0).toFixed(1)} <small>km/u</small>`;
+    document.getElementById('sum-elev').innerHTML = `${Math.round(act.summary.elevationGain || 0)} <small>m</small>`;
+    document.getElementById('sum-power').innerHTML = `${Math.round(act.summary.avgPower || 0)} <small>W</small>`;
+
+    // 2. Rankings Berekenen
+    const badgesContainer = document.getElementById('sum-badges');
+    badgesContainer.innerHTML = ''; 
+
+    if (allActivitiesCache) {
+        const rides = allActivitiesCache.filter(a => a.summary.type !== 'route');
+        
+        const createBadge = (index, icon, label) => {
+            if (index === -1) return '';
+            const rank = index + 1;
+            let color = rank === 1 ? 'gold' : rank === 2 ? 'silver' : rank === 3 ? 'bronze' : '';
+            return `<div class="record-badge ${color}"><span>${icon}</span> <strong>${rank}e</strong> ${label}</div>`;
+        };
+
+        const distIdx = [...rides].sort((a,b) => (parseFloat(b.summary.distanceKm)||0) - (parseFloat(a.summary.distanceKm)||0)).findIndex(a => a.id === act.id);
+        badgesContainer.innerHTML += createBadge(distIdx, '📏', 'Langste Rit');
+
+        const elevIdx = [...rides].sort((a,b) => (parseFloat(b.summary.elevationGain)||0) - (parseFloat(a.summary.elevationGain)||0)).findIndex(a => a.id === act.id);
+        if ((parseFloat(act.summary.elevationGain)||0) > 0) badgesContainer.innerHTML += createBadge(elevIdx, '⛰️', 'Hoogste Rit');
+
+        const spdIdx = [...rides].sort((a,b) => (parseFloat(b.summary.avgSpeed)||0) - (parseFloat(a.summary.avgSpeed)||0)).findIndex(a => a.id === act.id);
+        badgesContainer.innerHTML += createBadge(spdIdx, '🚀', 'Snelste Rit');
+        
+        if (act.summary.sufferScore) {
+            const sufIdx = [...rides].sort((a,b) => (parseFloat(b.summary.sufferScore)||0) - (parseFloat(a.summary.sufferScore)||0)).findIndex(a => a.id === act.id);
+            badgesContainer.innerHTML += createBadge(sufIdx, '🥵', 'Suffer Score');
+        }
+    }
+
+    // 3. Segmenten Preview
+    const segContainer = document.getElementById('sum-segments');
+    segContainer.innerHTML = '';
+    if (act.summary.segments && act.summary.segments.length > 0) {
+        // Toon de 3 beste/langste segmenten
+        const topSegs = act.summary.segments.slice(0, 3);
+        segContainer.innerHTML = topSegs.map(s => `
+            <div class="summary-segment-item">
+                <strong>${s.distance} km Sprint</strong>
+                <span style="color:var(--primary); font-weight:bold;">${s.speed.toFixed(1)} km/u</span>
+            </div>
+        `).join('');
+    } else {
+        segContainer.innerHTML = '<p style="color:var(--text-muted); font-size:0.9rem;">Geen segmenten berekend voor deze rit.</p>';
+    }
+};
+
+window.showMapAnalysis = function() {
+    // 1. Wissel de schermen
+    document.getElementById('ride-summary-dashboard').classList.add('hidden');
+    document.getElementById('ride-map-view').classList.remove('hidden');
+    
+    // 2. Fix de kaart!
+    if (typeof map !== 'undefined' && map) {
+        // Geef de browser een fractie van een seconde om de div zichtbaar te maken
+        setTimeout(() => {
+            map.invalidateSize(); // Vertel Leaflet de nieuwe, echte afmetingen
+            
+            // Pas de zoom perfect aan op de getekende lijn (polyline)
+            if (typeof polyline !== 'undefined' && polyline) {
+                map.fitBounds(polyline.getBounds(), {
+                    paddingTopLeft: [20, 20],
+                    paddingBottomRight: [20, 300], // Ruimte voor de grafiek
+                    animate: false // We doen dit zonder animatie zodat het direct goed staat
+                });
+            }
+        }, 50);
+    }
+};
+
+window.backToSummary = function() {
+    document.getElementById('ride-map-view').classList.add('hidden');
+    document.getElementById('ride-summary-dashboard').classList.remove('hidden');
+};

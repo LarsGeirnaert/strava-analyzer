@@ -1274,3 +1274,257 @@ body.dark-mode .welcome-banner {
     line-height: 1.6;
     font-size: 0.95rem;
 }
+
+/* --- style.css updates --- */
+
+/* Custom Scrollbars voor alle overflowing elementen */
+::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: var(--bg-nav);
+}
+
+::-webkit-scrollbar-thumb {
+    background: var(--border-color);
+    border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #555;
+}
+
+::-webkit-scrollbar-thumb:active {
+    background: var(--primary);
+}
+
+body.dark-mode ::webkit-scrollbar-thumb {
+    background: #333;
+}
+
+body.dark-mode ::webkit-scrollbar-thumb:hover {
+    background: #444;
+}
+
+/* Skeleton Loader Animaties */
+@keyframes skeleton-blink {
+    50% {
+        opacity: 0.6;
+    }
+}
+
+.skeleton {
+    background: var(--hover-bg);
+    position: relative;
+    overflow: hidden;
+    animation: skeleton-blink 1.5s infinite linear;
+    border-radius: 4px;
+    display: inline-block;
+}
+
+/* Voorbeeld van Skeleton stijlen */
+.skeleton-text {
+    height: 1.2rem;
+    margin-bottom: 5px;
+    width: 100%;
+}
+
+.skeleton-val {
+    height: 1.8rem;
+    margin-bottom: 5px;
+    width: 80%;
+}
+
+.skeleton-small {
+    height: 0.8rem;
+    width: 60%;
+}
+
+.skeleton-circle {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    margin-right: 15px;
+}
+
+.skeleton-list-item {
+    height: 60px;
+    margin-bottom: 10px;
+    width: 100%;
+}
+
+
+/* --- Premium Ride Header --- */
+.premium-ride-header {
+    background: var(--bg-card);
+    border-radius: 12px;
+    padding: 25px;
+    margin-bottom: 20px;
+    border-left: 6px solid var(--primary);
+    box-shadow: 0 8px 16px rgba(0, 0, 0, 0.15);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 15px;
+}
+
+.premium-title-group h1 {
+    font-size: 2.2rem;
+    margin: 0 0 5px 0;
+    color: var(--text-main);
+    letter-spacing: -0.5px;
+}
+
+.premium-title-group p {
+    margin: 0;
+    color: var(--text-muted);
+    font-size: 1.1rem;
+}
+
+.premium-badges-container {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.record-badge {
+    background: linear-gradient(135deg, #2a2a2a 0%, #3a3a3a 100%);
+    border: 1px solid var(--border-color);
+    color: white;
+    padding: 8px 15px;
+    border-radius: 20px;
+    font-size: 0.9rem;
+    font-weight: bold;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    transition: transform 0.2s;
+}
+
+.record-badge:hover {
+    transform: translateY(-2px);
+    border-color: var(--primary);
+}
+
+.record-badge.gold {
+    border-color: gold;
+    box-shadow: 0 4px 10px rgba(255, 215, 0, 0.2);
+}
+
+.record-badge.silver {
+    border-color: silver;
+}
+
+.record-badge.bronze {
+    border-color: #cd7f32;
+}
+
+body:not(.dark-mode) .record-badge {
+    background: linear-gradient(135deg, #ffffff 0%, #f0f0f0 100%);
+    color: #333;
+}
+
+/* --- Premium Ride Summary Dashboard --- */
+.ride-summary-container {
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 20px;
+    animation: fadeIn 0.4s ease;
+}
+
+.summary-header {
+    text-align: center;
+    margin-bottom: 30px;
+}
+
+.summary-header h1 {
+    font-size: 2.5rem;
+    color: var(--text-main);
+    margin-bottom: 5px;
+}
+
+.summary-header p {
+    color: var(--text-muted);
+    font-size: 1.1rem;
+}
+
+.summary-stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+    gap: 15px;
+    margin-bottom: 30px;
+}
+
+.summary-stat-box {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    padding: 20px 15px;
+    text-align: center;
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+}
+
+.summary-stat-box .label {
+    display: block;
+    color: var(--text-muted);
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 8px;
+}
+
+.summary-stat-box .value {
+    display: block;
+    color: var(--text-main);
+    font-size: 1.8rem;
+    font-weight: bold;
+}
+
+.summary-stat-box .value small {
+    font-size: 1rem;
+    color: var(--text-muted);
+}
+
+.summary-section-title {
+    font-size: 1.3rem;
+    margin-bottom: 15px;
+    color: var(--text-main);
+    border-bottom: 2px solid var(--border-color);
+    padding-bottom: 5px;
+}
+
+.big-action-btn {
+    display: block;
+    width: 100%;
+    background: linear-gradient(135deg, #fc4c02 0%, #ff8c00 100%);
+    color: white;
+    border: none;
+    padding: 18px;
+    font-size: 1.2rem;
+    font-weight: bold;
+    border-radius: 12px;
+    cursor: pointer;
+    margin-top: 30px;
+    box-shadow: 0 5px 15px rgba(252, 76, 2, 0.4);
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.big-action-btn:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 8px 20px rgba(252, 76, 2, 0.6);
+}
+
+/* Voor de segmenten preview op de kaart */
+.summary-segment-item {
+    display: flex;
+    justify-content: space-between;
+    background: var(--bg-nav);
+    padding: 10px 15px;
+    border-radius: 8px;
+    margin-bottom: 8px;
+    font-size: 0.95rem;
+}
