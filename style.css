@@ -1528,3 +1528,96 @@ body:not(.dark-mode) .record-badge {
     margin-bottom: 8px;
     font-size: 0.95rem;
 }
+
+/* --- Kalender & Paginatie Styles --- */
+.calendar-container {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 30px;
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+}
+
+.calendar-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 15px;
+}
+
+.calendar-grid {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 8px;
+    text-align: center;
+}
+
+.calendar-day-name {
+    font-weight: bold;
+    color: var(--text-muted);
+    font-size: 0.85rem;
+    padding-bottom: 5px;
+    text-transform: uppercase;
+}
+
+.calendar-day {
+    padding: 10px 5px;
+    border-radius: 8px;
+    background: var(--hover-bg);
+    color: var(--text-main);
+    font-size: 0.95rem;
+    transition: transform 0.2s;
+}
+
+.calendar-day.empty {
+    background: transparent;
+}
+
+.calendar-day.active-day {
+    background: rgba(252, 76, 2, 0.2);
+    color: var(--primary);
+    font-weight: bold;
+    border: 1px solid var(--primary);
+    cursor: pointer;
+    box-shadow: 0 2px 5px rgba(252, 76, 2, 0.2);
+}
+
+.calendar-day.active-day:hover {
+    background: var(--primary);
+    color: white;
+    transform: translateY(-2px);
+}
+
+.pagination-controls {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 15px;
+    padding: 15px;
+    background: var(--bg-card);
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+}
+
+.page-btn {
+    background: var(--hover-bg);
+    color: var(--text-main);
+    border: 1px solid var(--border-color);
+    padding: 8px 15px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: bold;
+    transition: 0.2s;
+}
+
+.page-btn:hover:not(:disabled) {
+    background: var(--primary);
+    color: white;
+    border-color: var(--primary);
+}
+
+.page-btn:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+}

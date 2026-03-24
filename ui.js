@@ -12,6 +12,9 @@ let heatmapLayerGroup = null;
 let tileLayerGroup = null;    
 let currentWorldMode = 'muni';
 let isShowingAll = false;
+let currentActivityPage = 1;
+const ACTIVITY_PAGE_SIZE = 25;
+let currentCalDate = new Date();
 
 // Route Planner variabelen (GECORRIGEERD)
 let waypoints = []; 
@@ -309,6 +312,7 @@ window.deleteRoute = async function(id) {
     }
 };
 
+// ui.js - VOLLEDIGE FUNCTIE VERVANGEN
 async function updateDashboard() {
     if(!window.supabaseAuth.getCurrentUser()) return;
 
@@ -324,15 +328,15 @@ async function updateDashboard() {
     document.getElementById('total-dist').innerHTML = loaders;
     document.getElementById('total-elev').innerHTML = loaders;
     document.getElementById('total-rides').innerHTML = loaders;
-    document.getElementById('total-tiles').innerHTML = loaders;
+    if(document.getElementById('total-tiles')) document.getElementById('total-tiles').innerHTML = loaders;
 
-    // Data ophalen
+    // 1. DATA OPHALEN
     allActivitiesCache = await window.supabaseAuth.listActivities();
 
     // Filter routes eruit voor statistieken
     const realRides = allActivitiesCache.filter(a => a.summary.type !== 'route');
 
-    // Stats berekenen
+    // 2. STATS BEREKENEN
     let d=0, e=0;
     realRides.forEach(a => {
         d += parseFloat(a.summary.distanceKm||0);
@@ -370,9 +374,17 @@ async function updateDashboard() {
     document.getElementById('streak-count').innerText = calculateWeeklyStreak(realRides);
     renderBadges(d, e, realRides);
 
-    // LIJST RENDERING LOGICA
+    // 3. KALENDER INITIALISEREN (Direct bij het laden!)
+    // We checken even veilig of currentCalDate al bestaat, anders maken we hem aan met de datum van vandaag.
+    if (typeof currentCalDate === 'undefined') {
+        window.currentCalDate = new Date();
+    }
+    renderCalendar(currentCalDate.getMonth(), currentCalDate.getFullYear());
+
+    // 4. LIJST MET PAGINATIE RENDERING LOGICA
     renderActivityListBasedOnView();
 }
+
 
 // VOLLEDIGE FUNCTIE VERVANGEN (Schoon, zonder Eddy Merckx)
 async function updateRecapView() {
@@ -570,28 +582,102 @@ async function updateSavedRoutesList() {
         </div>`).join('');
 }
 
+renderCalendar(currentCalDate.getMonth(), currentCalDate.getFullYear());
 
-// 2. NIEUWE FUNCTIE: BEPAALT WELKE RITTEN GETOOND WORDEN
+// --- NIEUW: Paginatie & Lijst Logica ---
+window.filterActivities = function() {
+    currentActivityPage = 1; // Als je zoekt, ga altijd terug naar pagina 1
+    renderActivityListBasedOnView();
+};
+
+window.changeActivityPage = function(dir) {
+    currentActivityPage += dir;
+    renderActivityListBasedOnView();
+};
+
 function renderActivityListBasedOnView() {
-    // Pak alles, inclusief routes (zodat je die ook kan wissen)
     let list = allActivitiesCache || [];
-    
-    // Als we NIET alles tonen, pak alleen de eerste 5
-    if (!isShowingAll) {
-        list = list.slice(0, 5);
-        document.getElementById('activity-search').classList.add('hidden');
-        document.getElementById('dashboard-list').style.maxHeight = "400px";
-    } else {
-        // Als we WEL alles tonen, pas zoekfilter toe
-        const term = document.getElementById('activity-search').value.toLowerCase();
-        if (term) {
-            list = list.filter(a => a.fileName.toLowerCase().includes(term));
-        }
-        document.getElementById('activity-search').classList.remove('hidden');
-        document.getElementById('dashboard-list').style.maxHeight = "600px"; // Iets groter
+    const term = document.getElementById('activity-search').value.toLowerCase();
+
+    // 1. Zoeken toepassen
+    if (term) {
+        list = list.filter(a => a.fileName.toLowerCase().includes(term));
     }
 
-    renderActivityList(list);
+    // 2. Paginatie wiskunde
+    const totalPages = Math.ceil(list.length / ACTIVITY_PAGE_SIZE) || 1;
+    if (currentActivityPage > totalPages) currentActivityPage = totalPages;
+    if (currentActivityPage < 1) currentActivityPage = 1;
+
+    const startIndex = (currentActivityPage - 1) * ACTIVITY_PAGE_SIZE;
+    const endIndex = startIndex + ACTIVITY_PAGE_SIZE;
+    const pageList = list.slice(startIndex, endIndex);
+
+    // 3. UI updaten
+    const pageInfo = document.getElementById('page-info');
+    const prevBtn = document.getElementById('prev-page-btn');
+    const nextBtn = document.getElementById('next-page-btn');
+
+    if (pageInfo) pageInfo.innerText = `Pagina ${currentActivityPage} / ${totalPages}`;
+    if (prevBtn) prevBtn.disabled = currentActivityPage === 1;
+    if (nextBtn) nextBtn.disabled = currentActivityPage === totalPages;
+
+    // 4. Lijst renderen
+    renderActivityList(pageList);
+}
+
+// --- NIEUW: Kalender Logica ---
+window.changeCalendarMonth = function(dir) {
+    currentCalDate.setMonth(currentCalDate.getMonth() + dir);
+    renderCalendar(currentCalDate.getMonth(), currentCalDate.getFullYear());
+};
+
+function renderCalendar(month, year) {
+    const grid = document.getElementById('calendar-grid');
+    const title = document.getElementById('calendar-month-year');
+    if(!grid || !title) return;
+
+    const months = ['Januari', 'Februari', 'Maart', 'April', 'Mei', 'Juni', 'Juli', 'Augustus', 'September', 'Oktober', 'November', 'December'];
+    title.innerText = `${months[month]} ${year}`;
+
+    // 1. Dagen van de week header
+    let html = ['Ma', 'Di', 'Wo', 'Do', 'Vr', 'Za', 'Zo'].map(d => `<div class="calendar-day-name">${d}</div>`).join('');
+
+    // 2. Bepaal start offset (Maandag = 0, Zondag = 6)
+    const firstDay = new Date(year, month, 1).getDay();
+    const offset = firstDay === 0 ? 6 : firstDay - 1; 
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+    // 3. Lege vakjes voor de 1e dag
+    for (let i = 0; i < offset; i++) {
+        html += `<div class="calendar-day empty"></div>`;
+    }
+
+    // 4. Zoek actieve fietsdagen
+    const activeDays = new Map();
+    if (allActivitiesCache) {
+        allActivitiesCache.forEach(act => {
+            if(act.summary.type === 'route') return;
+            const d = new Date(act.summary.rideDate);
+            // Als de rit in de getoonde maand valt, bewaar hem op de "dag"
+            if (d.getMonth() === month && d.getFullYear() === year) {
+                activeDays.set(d.getDate(), act);
+            }
+        });
+    }
+
+    // 5. Genereer de dagen
+    for (let day = 1; day <= daysInMonth; day++) {
+        if (activeDays.has(day)) {
+            const act = activeDays.get(day);
+            // Bij een klik op een gereden dag, openen we direct dat rapport!
+            html += `<div class="calendar-day active-day" title="${act.fileName}" onclick='switchTab("analysis"); window.openRide(${JSON.stringify(act).replace(/"/g, '&quot;')})'>${day}</div>`;
+        } else {
+            html += `<div class="calendar-day">${day}</div>`;
+        }
+    }
+
+    grid.innerHTML = html;
 }
 
 // 3. NIEUWE FUNCTIE: KNOP "TOON ALLES"

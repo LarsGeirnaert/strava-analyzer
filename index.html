@@ -126,39 +126,61 @@
                         </div>
                     </div>
 
+                    <div class="calendar-container animate-in" style="margin-bottom: 30px;">
+                        <div class="calendar-header">
+                            <h3 style="margin: 0;">📅 Fietskalender</h3>
+                            <div style="display:flex; gap:10px; align-items:center;">
+                                <button class="page-btn" style="padding: 5px 12px;"
+                                    onclick="changeCalendarMonth(-1)">◀</button>
+                                <strong id="calendar-month-year"
+                                    style="min-width: 130px; text-align: center; font-size: 1.1rem; color: var(--text-main);">Maand
+                                    Jaar</strong>
+                                <button class="page-btn" style="padding: 5px 12px;"
+                                    onclick="changeCalendarMonth(1)">▶</button>
+                            </div>
+                        </div>
+                        <div id="calendar-grid" class="calendar-grid">
+                        </div>
+                    </div>
+
                     <div class="recent-section animate-in">
                         <div style="display:flex; flex-direction:column; gap:10px; margin-bottom:15px;">
 
                             <div style="display:flex; justify-content:space-between; align-items:center;">
                                 <div style="display:flex; align-items:center; gap:10px;">
                                     <h3>📜 Activiteiten</h3>
-                                    <button id="toggle-view-btn" class="nav-btn"
-                                        style="font-size:0.8rem; background:var(--bg-nav); padding:5px 10px; height:auto;"
-                                        onclick="toggleActivityView()">
-                                        ⬇️ Toon Alles
-                                    </button>
                                 </div>
 
                                 <div style="display:flex; gap:5px;">
                                     <button id="delete-btn" class="delete-btn hidden"
                                         onclick="deleteSelectedRides()">🗑️ Selectie</button>
-                                    <button id="delete-all-btn" class="delete-btn" style="background: #8b0000;"
-                                        onclick="deleteAllRides()">💀 Alles</button>
                                 </div>
                             </div>
 
-                            <input type="text" id="activity-search" class="search-bar hidden"
-                                placeholder="🔍 Zoek op naam..." onkeyup="filterActivities()">
+                            <input type="text" id="activity-search" class="search-bar" placeholder="🔍 Zoek op naam..."
+                                onkeyup="filterActivities()">
                         </div>
 
-                        <div id="dashboard-list" class="dashboard-list" style="transition: max-height 0.3s ease;">
+                        <div id="dashboard-list" class="dashboard-list" style="max-height: 600px; overflow-y: auto;">
                             <div class="skeleton skeleton-list-item"></div>
                             <div class="skeleton skeleton-list-item"></div>
                             <div class="skeleton skeleton-list-item"></div>
                         </div>
+
+                        <div class="pagination-controls">
+                            <button id="prev-page-btn" class="page-btn" onclick="changeActivityPage(-1)">◀
+                                Vorige</button>
+                            <span id="page-info"
+                                style="font-size: 0.95rem; font-weight: bold; color: var(--text-muted);">Pagina 1 /
+                                1</span>
+                            <button id="next-page-btn" class="page-btn" onclick="changeActivityPage(1)">Volgende
+                                ▶</button>
+                        </div>
                     </div>
+
                 </div>
             </div>
+
 
             <div id="view-recap" class="view-section hidden">
                 <div style="padding: 20px; max-width: 1200px; margin: 0 auto;">
