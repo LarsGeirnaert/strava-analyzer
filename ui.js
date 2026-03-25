@@ -332,27 +332,17 @@ window.deleteRoute = async function(id) {
 async function updateDashboard() {
     if(!window.supabaseAuth.getCurrentUser()) return;
 
-    // Toon skeletons om 'Laden...' mooi te maken
-    document.getElementById('dashboard-list').innerHTML = `
-        <div class="skeleton skeleton-list-item"></div>
-        <div class="skeleton skeleton-list-item"></div>
-        <div class="skeleton skeleton-list-item"></div>
-    `;
+    document.getElementById('dashboard-list').innerHTML = `<div class="skeleton skeleton-list-item"></div><div class="skeleton skeleton-list-item"></div>`;
     
-    // Voeg skeleton values toe aan de tellers bovenin
     const loaders = `<span class="skeleton skeleton-val" style="width: 60%;"></span>`;
     document.getElementById('total-dist').innerHTML = loaders;
     document.getElementById('total-elev').innerHTML = loaders;
     document.getElementById('total-rides').innerHTML = loaders;
     if(document.getElementById('total-tiles')) document.getElementById('total-tiles').innerHTML = loaders;
 
-    // 1. DATA OPHALEN
     allActivitiesCache = await window.supabaseAuth.listActivities();
-
-    // Filter routes eruit voor statistieken
     const realRides = allActivitiesCache.filter(a => a.summary.type !== 'route');
 
-    // 2. STATS BEREKENEN
     let d=0, e=0;
     realRides.forEach(a => {
         d += parseFloat(a.summary.distanceKm||0);
@@ -363,20 +353,15 @@ async function updateDashboard() {
     animateValue("total-elev", 0, e, 1000, " m");
     document.getElementById('total-rides').innerText = realRides.length;
 
-    // Tiles logic
     const user = window.supabaseAuth.getCurrentUser();
     const cacheKey = `heatmap_coords_${user.id}`;
     const heatmapCache = JSON.parse(localStorage.getItem(cacheKey) || "{}");
     const uniqueTiles = new Set();
     Object.values(heatmapCache).forEach(points => {
-        points.forEach(p => {
-            const lat = p[0].toFixed(2); const lon = p[1].toFixed(2);
-            uniqueTiles.add(`${lat},${lon}`);
-        });
+        points.forEach(p => { uniqueTiles.add(`${Math.floor(p[0] * 100) / 100},${Math.floor(p[1] * 100) / 100}`); });
     });
     if(document.getElementById('total-tiles')) animateValue("total-tiles", 0, uniqueTiles.size, 1000, "");
 
-    // Welkomst tekst
     const hour = new Date().getHours();
     let greeting = "Goedenacht";
     if (hour >= 6 && hour < 12) greeting = "Goedemorgen";
@@ -386,42 +371,31 @@ async function updateDashboard() {
     const name = userEmail.charAt(0).toUpperCase() + userEmail.slice(1);
     document.getElementById('welcome-msg').innerText = `${greeting}, ${name}! 👋`;
 
-    // Streak & Badges
     document.getElementById('streak-count').innerText = calculateWeeklyStreak(realRides);
     renderBadges(d, e, realRides);
 
-    // 3. KALENDER INITIALISEREN (Direct bij het laden!)
-    // We checken even veilig of currentCalDate al bestaat, anders maken we hem aan met de datum van vandaag.
-    if (typeof currentCalDate === 'undefined') {
-        window.currentCalDate = new Date();
-    }
+    if (typeof currentCalDate === 'undefined') window.currentCalDate = new Date();
     renderCalendar(currentCalDate.getMonth(), currentCalDate.getFullYear());
 
-    // 4. LIJST MET PAGINATIE RENDERING LOGICA
     renderActivityListBasedOnView();
+
+    // --- NIEUW: Teken de YTD / Maand grafieken op het Dashboard! ---
+    renderYTDChart(allActivitiesCache);
+    renderMonthlyComparisonChart(allActivitiesCache);
 }
 
-
-// VOLLEDIGE FUNCTIE VERVANGEN (Schoon, zonder Eddy Merckx)
+// VOLLEDIGE FUNCTIE VERVANGEN (Zonder de YTD grafiek)
 async function updateRecapView() {
-    document.getElementById('recap-best-list').innerHTML = `
-        <div class="skeleton skeleton-list-item"></div>
-        <div class="skeleton skeleton-list-item"></div>
-    `;
+    document.getElementById('recap-best-list').innerHTML = `<div class="skeleton skeleton-list-item"></div>`;
 
     if(!allActivitiesCache) allActivitiesCache = await window.supabaseAuth.listActivities();
 
     const selMonth = document.getElementById('recap-month-select').value;
     const selYear = document.getElementById('recap-year-select').value;
-
     const monthSelect = document.getElementById('recap-month-select');
-    if (selYear === 'all') {
-        monthSelect.disabled = true;
-        monthSelect.style.opacity = '0.5';
-    } else {
-        monthSelect.disabled = false;
-        monthSelect.style.opacity = '1';
-    }
+    
+    if (selYear === 'all') { monthSelect.disabled = true; monthSelect.style.opacity = '0.5'; } 
+    else { monthSelect.disabled = false; monthSelect.style.opacity = '1'; }
 
     const filtered = allActivitiesCache.filter(act => {
         if (act.summary.type === 'route') return false;
@@ -431,16 +405,12 @@ async function updateRecapView() {
         return yearMatch && monthMatch;
     });
 
-    let d=0, e=0, s=0;
-    let maxDist = 0, maxElev = 0, maxSpeed = 0;
-
+    let d=0, e=0, s=0, maxDist = 0, maxElev = 0, maxSpeed = 0;
     filtered.forEach(act => {
         const dist = parseFloat(act.summary.distanceKm) || 0;
         const elev = parseFloat(act.summary.elevationGain) || 0;
         const spd = parseFloat(act.summary.avgSpeed) || 0;
-
         d += dist; e += elev; s += spd;
-
         if(dist > maxDist) maxDist = dist;
         if(elev > maxElev) maxElev = elev;
         if(spd > maxSpeed) maxSpeed = spd;
@@ -455,7 +425,6 @@ async function updateRecapView() {
     document.getElementById('recap-dist').innerText = d.toFixed(0) + ' km';
     document.getElementById('recap-elev').innerText = e.toFixed(0);
     document.getElementById('recap-count').innerText = filtered.length;
-
     document.getElementById('recap-longest').innerText = maxDist.toFixed(1) + ' km';
     document.getElementById('recap-highest').innerText = maxElev.toFixed(0) + ' m';
     document.getElementById('recap-fastest').innerText = maxSpeed.toFixed(1) + ' km/u';
@@ -463,7 +432,6 @@ async function updateRecapView() {
     const goalKey = selYear === 'all' ? 'goal_all' : (selMonth === 'all' ? `goal_${selYear}` : `goal_${selYear}_${selMonth}`);
     const defaultGoal = selYear === 'all' ? 10000 : (selMonth === 'all' ? 5000 : 400);
     const targetKm = parseFloat(localStorage.getItem(goalKey) || defaultGoal);
-
     document.getElementById('recap-goal-val').innerText = targetKm;
     document.getElementById('recap-goal-label').innerText = selYear === 'all' ? "Totaaldoel" : (selMonth === 'all' ? "Jaardoel" : "Maanddoel");
 
@@ -474,8 +442,9 @@ async function updateRecapView() {
     // GRAFIEKEN
     renderRecapChart(filtered, selMonth, selYear);
     renderDistributionChart(filtered); 
+    
+    // (YTD en Maandgrafiek zijn hier succesvol verwijderd, ze staan nu in updateDashboard!)
 
-    // LIJST (Top 5)
     const sorted = [...filtered].sort((a,b) => b.summary.distanceKm - a.summary.distanceKm).slice(0, 5);
     document.getElementById('recap-best-list').innerHTML = sorted.map((act, i) => `
         <div class="rank-card" style="border-left: 4px solid ${i===0?'gold':i===1?'silver':i===2?'#cd7f32':'transparent'}" onclick="switchTab('analysis'); window.openRide(${JSON.stringify(act).replace(/"/g, '&quot;')})">
@@ -1080,9 +1049,11 @@ function renderTrendGraph(activities, key, tableId, chartId, filterId, label) {
                 <thead><tr><th>#</th><th>Naam</th><th>Datum</th><th>${label}</th></tr></thead>
                 <tbody>
                     ${r.map((act, i) => {
-                        const val = parseFloat(act.summary[key]) || 0; 
-                        // Kleur de top 3
-                        const color = i===0 ? 'gold' : i===1 ? 'silver' : i===2 ? '#cd7f32' : 'var(--text-main)';
+                        // ui.js (binnen renderTrendGraph)
+                        const val = parseFloat(act.summary[key]) || 0;
+                        
+                        // GECORRIGEERD: Gebruik de contrasterende CSS-variabelen voor de tekstkleur
+                        const color = i===0 ? 'var(--medal-text-gold)' : i===1 ? 'var(--medal-text-silver)' : i===2 ? 'var(--medal-text-bronze)' : 'var(--text-main)';
                         const weight = i<3 ? '900' : 'bold';
                         
                         return `
@@ -1352,46 +1323,6 @@ function updateStats(dist, timeMs, speed, ele, power, maxSpeed) { // maxSpeed to
     if(p) p.innerText = power || 0;
 }
 
-// IN ui.js (helemaal onderaan toevoegen)
-
-window.deleteAllRides = async function() {
-    // 1. Veiligheidscheck 1
-    if(!confirm("⚠️ OPGELET: Weet je zeker dat je AL je ritten definitief wilt verwijderen?")) return;
-    
-    // 2. Veiligheidscheck 2
-    if(!confirm("Echt zeker? Dit kan niet ongedaan gemaakt worden! Je start weer vanaf 0.")) return;
-
-    const btn = document.getElementById('delete-all-btn');
-    btn.innerText = "⏳ Bezig met wissen...";
-    btn.disabled = true;
-
-    try {
-        // Haal eerst alle ID's op
-        const activities = await window.supabaseAuth.listActivities();
-        const ids = activities.map(a => a.id);
-
-        if (ids.length === 0) {
-            alert("Je hebt geen ritten om te wissen.");
-            btn.innerText = "💀 Alles Wissen";
-            btn.disabled = false;
-            return;
-        }
-
-        // Verwijder alles in één keer via de bestaande functie
-        await window.supabaseAuth.deleteActivities(ids);
-
-        // Resetten
-        alert("💥 Alles is verwijderd. Je kunt nu met een schone lei beginnen!");
-        location.reload(); // Pagina verversen
-
-    } catch (e) {
-        console.error(e);
-        alert("Er ging iets mis bij het verwijderen.");
-        btn.innerText = "💀 Alles Wissen";
-        btn.disabled = false;
-    }
-};
-
 // IN ui.js - NIEUWE FUNCTIE
 // Haalt hoogte op via Open-Meteo API (max 200 punten om URL lengte te beperken)
 async function fetchElevationForRoute(latlngs) {
@@ -1586,68 +1517,66 @@ window.updatePremiumRideHeader = function(act) {
     badgesContainer.innerHTML = badgesHTML;
 };
 
-// ui.js - Gecorrigeerde populateRideSummary (met Vermogen-fix)
+// ui.js - Gecorrigeerde populateRideSummary (ZONDER VAM, MET Efficiëntie)
 window.populateRideSummary = function(act) {
     if (!act || !act.summary) return;
 
-    // 1. Basis Info Invullen
     document.getElementById('sum-title').innerText = act.fileName;
     const d = new Date(act.summary.rideDate);
     document.getElementById('sum-date').innerText = `📅 ${d.toLocaleDateString('nl-NL', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute:'2-digit' })}`;
 
     document.getElementById('sum-dist').innerHTML = `${parseFloat(act.summary.distanceKm).toFixed(1)} <small>km</small>`;
     
-    // Tijd omrekenen als we durationSec hebben, anders uit avg speed afleiden
     let timeStr = "0:00";
-    let hours = 0;
+    let elapsedHours = 0;
+    let movingHours = 0;
+
+    // Tijd berekenen
     if (act.summary.durationSec) {
-        hours = act.summary.durationSec / 3600;
-        const h = Math.floor(hours);
+        elapsedHours = act.summary.durationSec / 3600;
+        const h = Math.floor(elapsedHours);
         const m = Math.floor((act.summary.durationSec % 3600) / 60);
         timeStr = `${h}:${m.toString().padStart(2, '0')}`;
-    } else if (act.summary.distanceKm && act.summary.avgSpeed) {
-        hours = act.summary.distanceKm / act.summary.avgSpeed;
-        const h = Math.floor(hours);
-        const m = Math.floor((hours % 1) * 60);
-        timeStr = `${h}:${m.toString().padStart(2, '0')}`;
     }
-    document.getElementById('sum-time').innerText = timeStr;
+    
+    if (act.summary.distanceKm && act.summary.avgSpeed) {
+        movingHours = act.summary.distanceKm / act.summary.avgSpeed;
+        if (elapsedHours === 0) {
+            elapsedHours = movingHours; // Fallback
+            const h = Math.floor(elapsedHours);
+            const m = Math.floor((elapsedHours % 1) * 60);
+            timeStr = `${h}:${m.toString().padStart(2, '0')}`;
+        }
+    }
 
+    document.getElementById('sum-time').innerText = timeStr;
     document.getElementById('sum-avg').innerHTML = `${parseFloat(act.summary.avgSpeed || 0).toFixed(1)} <small>km/u</small>`;
     document.getElementById('sum-max').innerHTML = `${parseFloat(act.summary.maxSpeed || 0).toFixed(1)} <small>km/u</small>`;
     document.getElementById('sum-elev').innerHTML = `${Math.round(act.summary.elevationGain || 0)} <small>m</small>`;
+    document.getElementById('sum-power').innerHTML = `${Math.round(act.summary.avgPower || 0)} <small>W</small>`;
 
-    // --- NIEUW: Vermogen-berekening (Fysisch model) ---
-    // We gebruiken een benadering (fietser 75kg, fiets 10kg = 85kg totaal)
-    const massKg = 85; 
-    const avgSpeedKmh = parseFloat(act.summary.avgSpeed || 0);
-    const avgSpeedMs = avgSpeedKmh / 3.6; // Km/u naar m/s
-
-    // Model-parameters
-    const airDensity = 1.225; // kg/m^3
-    const frontalArea = 0.5; // m^2 (normale koersfietshouding)
-    const dragCoeff = 1.1; // Normale coëfficiënt
-    const rollingCoeff = 0.005; // Racebanden
-
-    // Berekening: Luchtweerstand + Rolweerstand (gemiddeld op het vlakke)
-    let powerW = 0;
-    if (avgSpeedMs > 1) { // Alleen als je daadwerkelijk fietst
-        const airResistance = 0.5 * airDensity * frontalArea * dragCoeff * Math.pow(avgSpeedMs, 3);
-        const rollingResistance = rollingCoeff * massKg * 9.81 * avgSpeedMs;
-        powerW = airResistance + rollingResistance;
+    // --- ELEVATE FEATURE: TRAP-EFFICIËNTIE ---
+    let efficiency = 100;
+    if (elapsedHours > 0 && movingHours > 0 && movingHours < elapsedHours) {
+        efficiency = Math.round((movingHours / elapsedHours) * 100);
     }
+    document.getElementById('sum-eff').innerHTML = `${efficiency} <small>%</small>`;
 
-    // Update de summary data én de UI
+    // Fysisch model voor Vermogen
+    const massKg = 85; 
+    const avgSpeedMs = parseFloat(act.summary.avgSpeed || 0) / 3.6; 
+    let powerW = 0;
+    if (avgSpeedMs > 1) { 
+        powerW = (0.5 * 1.225 * 0.5 * 1.1 * Math.pow(avgSpeedMs, 3)) + (0.005 * massKg * 9.81 * avgSpeedMs);
+    }
     act.summary.avgPower = Math.round(powerW);
     document.getElementById('sum-power').innerHTML = `${act.summary.avgPower} <small>W</small>`;
 
-    // 2. Rankings Berekenen
+    // Rankings
     const badgesContainer = document.getElementById('sum-badges');
     badgesContainer.innerHTML = ''; 
-
     if (allActivitiesCache) {
         const rides = allActivitiesCache.filter(a => a.summary.type !== 'route');
-        
         const createBadge = (index, icon, label) => {
             if (index === -1) return '';
             const rank = index + 1;
@@ -1663,28 +1592,118 @@ window.populateRideSummary = function(act) {
 
         const spdIdx = [...rides].sort((a,b) => (parseFloat(b.summary.avgSpeed)||0) - (parseFloat(a.summary.avgSpeed)||0)).findIndex(a => a.id === act.id);
         badgesContainer.innerHTML += createBadge(spdIdx, '🚀', 'Snelste Rit');
-        
-        if (act.summary.sufferScore) {
-            const sufIdx = [...rides].sort((a,b) => (parseFloat(b.summary.sufferScore)||0) - (parseFloat(a.summary.sufferScore)||0)).findIndex(a => a.id === act.id);
-            badgesContainer.innerHTML += createBadge(sufIdx, '🥵', 'Suffer Score');
-        }
     }
 
-    // 3. Segmenten Preview
+    // Segmenten
     const segContainer = document.getElementById('sum-segments');
     segContainer.innerHTML = '';
     if (act.summary.segments && act.summary.segments.length > 0) {
         const topSegs = act.summary.segments.slice(0, 3);
-        segContainer.innerHTML = topSegs.map(s => `
-            <div class="summary-segment-item">
-                <strong>${s.distance} km Sprint</strong>
-                <span style="color:var(--primary); font-weight:bold;">${s.speed.toFixed(1)} km/u</span>
-            </div>
-        `).join('');
+        segContainer.innerHTML = topSegs.map(s => `<div class="summary-segment-item"><strong>${s.distance} km Sprint</strong><span style="color:var(--primary); font-weight:bold;">${s.speed.toFixed(1)} km/u</span></div>`).join('');
     } else {
         segContainer.innerHTML = '<p style="color:var(--text-muted); font-size:0.9rem;">Geen segmenten berekend voor deze rit.</p>';
     }
 };
+
+// --- NIEUW: Toggle tussen YTD en Per Maand grafieken ---
+window.switchCompareChart = function(type) {
+    // Knoppen stijlen updaten
+    document.getElementById('btn-chart-ytd').style.background = type === 'ytd' ? 'linear-gradient(135deg, #fc4c02 0%, #ff8c00 100%)' : 'var(--bg-nav)';
+    document.getElementById('btn-chart-month').style.background = type === 'month' ? 'linear-gradient(135deg, #fc4c02 0%, #ff8c00 100%)' : 'var(--bg-nav)';
+
+    // Grafieken wisselen
+    if (type === 'ytd') {
+        document.getElementById('wrapper-ytd').classList.remove('hidden');
+        document.getElementById('wrapper-month').classList.add('hidden');
+    } else {
+        document.getElementById('wrapper-ytd').classList.add('hidden');
+        document.getElementById('wrapper-month').classList.remove('hidden');
+    }
+};
+
+// --- GEÜPDATE: Maandelijkse Vergelijking (Als LIJNGRAFIEK in de juiste stijl) ---
+function renderMonthlyComparisonChart(activities) {
+    const ctx = document.getElementById('monthlyComparisonChart').getContext('2d');
+    if (activeCharts['monthlyCompChart']) activeCharts['monthlyCompChart'].destroy();
+
+    const currentYear = new Date().getFullYear();
+    const yearlyData = {};
+
+    // 1. Setup lege arrays voor elk jaar dat we vinden
+    activities.forEach(act => {
+        if (act.summary.type === 'route') return;
+        const y = new Date(act.summary.rideDate).getFullYear();
+        if (!yearlyData[y]) yearlyData[y] = new Array(12).fill(0);
+    });
+
+    if (!yearlyData[currentYear]) yearlyData[currentYear] = new Array(12).fill(0);
+
+    // 2. Vul de ruwe maand-totalen in (Niet opgeteld bij elkaar)
+    activities.forEach(act => {
+        if (act.summary.type === 'route') return;
+        const d = new Date(act.summary.rideDate);
+        yearlyData[d.getFullYear()][d.getMonth()] += parseFloat(act.summary.distanceKm) || 0;
+    });
+
+    // 3. Bouw de datasets op in dezelfde strakke stijl als YTD
+    const sortedYears = Object.keys(yearlyData).sort((a, b) => b - a); // Nieuwste jaar eerst
+    const pastColors = ['#888888', '#00acc1', '#28a745', '#ffc107', '#dc3545'];
+
+    const datasets = sortedYears.map((year, index) => {
+        const isCurrent = parseInt(year) === currentYear;
+        const color = isCurrent ? '#fc4c02' : (pastColors[index - 1] || '#555555');
+
+        return {
+            label: `Jaar ${year}`,
+            data: yearlyData[year],
+            borderColor: color,
+            backgroundColor: isCurrent ? 'rgba(252, 76, 2, 0.1)' : 'transparent',
+            borderWidth: isCurrent ? 3 : 2,
+            borderDash: isCurrent ? [] : [5, 5], // Stippellijn voor oude jaren
+            fill: isCurrent, // Huidig jaar wordt ingekleurd onder de lijn
+            tension: 0.3,
+            pointRadius: isCurrent ? 4 : 0,
+            pointBackgroundColor: color,
+            order: isCurrent ? 0 : 1
+        };
+    });
+
+    // 4. Teken de grafiek als Lijn
+    activeCharts['monthlyCompChart'] = new Chart(ctx, {
+        type: 'line', // Terug naar lijn in plaats van bar
+        data: {
+            labels: ['Jan', 'Feb', 'Mrt', 'Apr', 'Mei', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dec'],
+            datasets: datasets
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { 
+                    position: 'top', 
+                    labels: { color: 'var(--text-main)', usePointStyle: true, boxWidth: 8 } 
+                },
+                tooltip: {
+                    mode: 'index',
+                    intersect: false,
+                    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                    titleColor: '#fff',
+                    bodyColor: '#fff'
+                }
+            },
+            scales: {
+                x: { 
+                    grid: { display: false }, 
+                    ticks: { color: 'var(--text-muted)' } 
+                },
+                y: { 
+                    grid: { color: 'rgba(255,255,255,0.05)' }, 
+                    ticks: { color: 'var(--text-muted)' } 
+                }
+            }
+        }
+    });
+}
 
 window.showMapAnalysis = function() {
     // 1. Wissel de schermen
@@ -1713,3 +1732,118 @@ window.backToSummary = function() {
     document.getElementById('ride-map-view').classList.add('hidden');
     document.getElementById('ride-summary-dashboard').classList.remove('hidden');
 };
+
+// --- ELEVATE FEATURE 3: Year-to-Date (YTD) Progressie (ALLE JAREN) ---
+function renderYTDChart(activities) {
+    const ctx = document.getElementById('ytdProgressChart').getContext('2d');
+    if (activeCharts['ytdChart']) activeCharts['ytdChart'].destroy();
+
+    const currentYear = new Date().getFullYear();
+    
+    // 1. Vind alle unieke jaren waarin je gefietst hebt
+    const yearlyData = {};
+    
+    activities.forEach(act => {
+        if (act.summary.type === 'route') return;
+        const d = new Date(act.summary.rideDate);
+        const year = d.getFullYear();
+        
+        // Maak een lege array van 12 maanden aan voor elk nieuw jaar dat we tegenkomen
+        if (!yearlyData[year]) {
+            yearlyData[year] = new Array(12).fill(0);
+        }
+    });
+
+    // Zorg dat het huidige jaar er altijd in staat, zelfs als je dit jaar nog niet gefietst hebt
+    if (!yearlyData[currentYear]) {
+        yearlyData[currentYear] = new Array(12).fill(0);
+    }
+
+    // 2. Vul de ruwe maand-totalen in
+    activities.forEach(act => {
+        if (act.summary.type === 'route') return;
+        const d = new Date(act.summary.rideDate);
+        const year = d.getFullYear();
+        const month = d.getMonth();
+        const dist = parseFloat(act.summary.distanceKm) || 0;
+        
+        yearlyData[year][month] += dist;
+    });
+
+    // 3. Cumulatief maken (YTD: tel elke maand op bij het totaal van de vorige maanden)
+    Object.keys(yearlyData).forEach(year => {
+        for (let i = 1; i < 12; i++) {
+            yearlyData[year][i] += yearlyData[year][i - 1];
+        }
+    });
+
+    // 4. Verberg de "toekomst" voor het huidige jaar
+    const currentMonth = new Date().getMonth();
+    for (let i = currentMonth + 1; i < 12; i++) {
+        yearlyData[currentYear][i] = null; 
+    }
+
+    // 5. Bouw de datasets op voor de grafiek
+    // We sorteren de jaren van nieuw naar oud, zodat het huidige jaar bovenaan staat in de legenda
+    const sortedYears = Object.keys(yearlyData).sort((a, b) => b - a);
+    
+    // Een lijstje met leuke/strakke kleuren voor de oudere jaren
+    const pastColors = ['#888888', '#00acc1', '#28a745', '#ffc107', '#dc3545'];
+    
+    const datasets = sortedYears.map((year, index) => {
+        const isCurrent = parseInt(year) === currentYear;
+        
+        // Bepaal de kleur. Huidig = Oranje. Oud = Een kleur uit de lijst (of grijs als de lijst op is).
+        const color = isCurrent ? '#fc4c02' : (pastColors[index - 1] || '#555555');
+        
+        return {
+            label: `Jaar ${year}`,
+            data: yearlyData[year],
+            borderColor: color,
+            backgroundColor: isCurrent ? 'rgba(252, 76, 2, 0.1)' : 'transparent',
+            borderWidth: isCurrent ? 3 : 2,
+            borderDash: isCurrent ? [] : [5, 5], // Oudere jaren zijn stippellijnen
+            fill: isCurrent, // Alleen het huidige jaar wordt aan de onderkant ingekleurd
+            tension: 0.3,
+            pointRadius: isCurrent ? 4 : 0, // Alleen het huidige jaar heeft bolletjes
+            pointBackgroundColor: color,
+            order: isCurrent ? 0 : 1 // Zorg dat het huidige jaar visueel bovenop de andere lijnen ligt
+        };
+    });
+
+    // 6. Teken de grafiek
+    activeCharts['ytdChart'] = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: ['Jan', 'Feb', 'Mrt', 'Apr', 'Mei', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dec'],
+            datasets: datasets
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { 
+                    position: 'top', 
+                    labels: { color: 'var(--text-main)', usePointStyle: true, boxWidth: 8 } 
+                },
+                tooltip: {
+                    mode: 'index',      // Dit zorgt ervoor dat je bij hoveren álle jaren tegelijk in 1 tooltip ziet!
+                    intersect: false,
+                    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                    titleColor: '#fff',
+                    bodyColor: '#fff'
+                }
+            },
+            scales: {
+                x: { 
+                    grid: { display: false }, 
+                    ticks: { color: 'var(--text-muted)' } 
+                },
+                y: { 
+                    grid: { color: 'rgba(255,255,255,0.05)' }, 
+                    ticks: { color: 'var(--text-muted)' } 
+                }
+            }
+        }
+    });
+}

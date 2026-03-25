@@ -1,6 +1,7 @@
+/* --- VASTE KLEUREN & VARIABELEN --- */
 :root {
-    /* --- VASTE KLEUREN --- */
     --primary: #fc4c02;
+    --primary-hover: #e04400;
     --green: #28a745;
 
     /* --- LICHT THEMA (Standaard) --- */
@@ -12,9 +13,15 @@
     --border-color: #eeeeee;
     --hover-bg: #f9f9f9;
     --input-bg: #ffffff;
+
+    /* Contrasterende medailles voor Lichte modus */
+    --medal-text-gold: #b59410;
+    --medal-text-silver: #7a7a7a;
+    --medal-text-bronze: #8c5d2e;
+
+    /* Kaart kleuren */
     --map-filter: none;
     --map-bg: #aad3df;
-    /* Zee kleur */
 }
 
 /* --- DARK MODE --- */
@@ -23,14 +30,22 @@ body.dark-mode {
     --bg-card: #242526;
     --bg-nav: #000000;
     --text-main: #e4e6eb;
-    --text-muted: #b0b3b8;
+
+    /* Lichter grijs voor betere leesbaarheid! */
+    --text-muted: #aaaaaa;
+
     --border-color: #3e4042;
     --hover-bg: #3a3b3c;
     --input-bg: #3a3b3c;
-    /* Filter alleen voor achtergrond tegels */
+
+    /* Felle medailles voor Donkere modus */
+    --medal-text-gold: gold;
+    --medal-text-silver: silver;
+    --medal-text-bronze: #cd7f32;
+
+    /* Kaart kleuren */
     --map-filter: invert(100%) hue-rotate(180deg) brightness(95%) contrast(90%);
     --map-bg: #1f2b38;
-    /* Donkere zee */
 }
 
 * {
@@ -1620,4 +1635,56 @@ body:not(.dark-mode) .record-badge {
 .page-btn:disabled {
     opacity: 0.3;
     cursor: not-allowed;
+}
+
+/* --- CSS Variabelen & Kleurpalet --- */
+:root {
+    --primary: #fc4c02;
+    /* Strava Oranje */
+    --primary-hover: #e04400;
+    --bg-app: #f4f4f4;
+    --bg-card: #ffffff;
+    --bg-nav: #2a2a2a;
+    --text-main: #333333;
+
+    /* GECORRIGEERD: Contrasterende kleuren voor medailles op LICHTE achtergrond */
+    --medal-text-gold: #b59410;
+    /* Donkerder goud */
+    --medal-text-silver: #7a7a7a;
+    /* Donkerder zilver */
+    --medal-text-bronze: #8c5d2e;
+    /* Donkerder brons */
+
+    --text-muted: #666666;
+    --border-color: #e0e0e0;
+    --hover-bg: #f9f9f9;
+}
+
+body.dark-mode {
+    --bg-app: #121212;
+    --bg-card: #1e1e1e;
+    --bg-nav: #000000;
+    --text-main: #f0f0f0;
+
+    /* GECORRIGEERD: Originele kleuren voor medailles op DONKERE achtergrond */
+    --medal-text-gold: gold;
+    --medal-text-silver: silver;
+    --medal-text-bronze: #cd7f32;
+
+    /* GECORRIGEERD: Veel lichter grijs voor de segmentnamen in Dark Mode! */
+    --text-muted: #aaaaaa;
+
+    --border-color: #333333;
+    --hover-bg: #2a2a2a;
+}
+
+/* --- Extra Fixes voor Dark Mode Leesbaarheid --- */
+.summary-segment-item {
+    color: var(--text-main);
+    /* Zorg dat segmenttekst wit is in dark mode */
+}
+
+.summary-segment-item strong {
+    color: var(--text-main);
+    /* Zorg dat segmenttitel wit is in dark mode */
 }
