@@ -101,18 +101,34 @@ function switchTab(tabName) {
     const target = document.getElementById(`view-${tabName}`);
     if(target) target.classList.remove('hidden');
 
+    // --- NIEUW: Flow-logica voor het 'Analyse'-tabblad via het Menu ---
+    if (tabName === 'analysis') {
+        const sumDash = document.getElementById('ride-summary-dashboard');
+        const mapView = document.getElementById('ride-map-view');
+
+        // Als we via het zijmenu komen (dus we klikken op de 🗺️ knop), 
+        // verbergen we de summary en tonen we direct de kaartomgeving.
+        if (sumDash && mapView) {
+             sumDash.classList.add('hidden');
+             mapView.classList.remove('hidden');
+        }
+    }
+
     setTimeout(() => {
         // Fix voor Analysis map
         if(tabName === 'analysis' && typeof map !== 'undefined' && map) {
             map.invalidateSize();
             
             // Controleer of er iets op de kaart staat om op te focussen
-            if (activeSegment && segmentLayer) {
+            if (typeof activeSegment !== 'undefined' && activeSegment && typeof segmentLayer !== 'undefined' && segmentLayer) {
                  // Focus op segment met padding onderin
                  map.fitBounds(segmentLayer.getBounds(), { paddingTopLeft: [20, 20], paddingBottomRight: [20, 300] });
-            } else if (polyline) {
+            } else if (typeof polyline !== 'undefined' && polyline) {
                  // Focus op hele rit met padding onderin
                  map.fitBounds(polyline.getBounds(), { paddingTopLeft: [20, 20], paddingBottomRight: [20, 300] });
+            } else {
+                 // Geen rit/segment geladen? Centreer op Eeklo / België!
+                 map.setView([51.185, 3.565], 11);
             }
         }
 
@@ -471,7 +487,7 @@ async function updateRecapView() {
         </div>`).join('') || '<p style="text-align:center; color:var(--text-muted); padding:20px;">Geen ritten gevonden.</p>';
 }
 
-// VOLLEDIGE FUNCTIE VERVANGEN
+// ui.js - VOLLEDIGE FUNCTIE VERVANGEN (Nu mét werkende Max Hoogte filter)
 window.loadRankings = async function(distArg) {
     const listEl = document.getElementById('ranking-list');
     
@@ -487,11 +503,21 @@ window.loadRankings = async function(distArg) {
     const selector = document.getElementById('segmentSelector');
     const selectedDist = parseInt(distArg || (selector ? selector.value : "5"));
     const trendFilter = document.getElementById('segmentTrendFilter').value;
+    
+    // 1. HAAL DE INGEVULDE MAX HOOGTE OP
+    const maxElevInput = document.getElementById('segmentMaxElev');
+    // Als er niks is ingevuld, zetten we het op Infinity (zodat alles wordt getoond)
+    const maxElev = maxElevInput && maxElevInput.value ? parseFloat(maxElevInput.value) : Infinity;
 
     let rankingData = [];
 
     allActivitiesCache.forEach(act => {
         if (act.summary.type === 'route') return;
+        
+        // 2. FILTER: Check of de rit onder de maximum hoogtemeters blijft!
+        const rideElev = parseFloat(act.summary.elevationGain) || 0;
+        if (rideElev > maxElev) return; // Deze rit is te heuvelachtig, we slaan hem over!
+
         const segs = act.summary.segments || [];
         const match = segs.find(s => parseInt(s.distance) === selectedDist);
 
@@ -511,9 +537,8 @@ window.loadRankings = async function(distArg) {
     if (rankingData.length === 0) {
         listEl.innerHTML = `
             <div style="text-align:center; padding:40px; color:var(--text-muted);">
-                <h3>Geen data voor ${selectedDist} km</h3>
-                <p>Of je hebt nog geen ritten die lang genoeg zijn, <br>
-                of je moet even op de <strong>Update Alle Data</strong> knop klikken.</p>
+                <h3>Geen data gevonden</h3>
+                <p>Er zijn geen ritten van ${selectedDist} km die voldoen aan je ingestelde maximum klim van ${maxElev !== Infinity ? maxElev + 'm' : ''}.</p>
             </div>`;
         document.getElementById('segment-progression-container').style.display = 'none';
         return;
@@ -1561,7 +1586,7 @@ window.updatePremiumRideHeader = function(act) {
     badgesContainer.innerHTML = badgesHTML;
 };
 
-// ui.js - NIEUW: Intro Kaart Invullen en Knoppen Logica
+// ui.js - Gecorrigeerde populateRideSummary (met Vermogen-fix)
 window.populateRideSummary = function(act) {
     if (!act || !act.summary) return;
 
@@ -1572,14 +1597,16 @@ window.populateRideSummary = function(act) {
 
     document.getElementById('sum-dist').innerHTML = `${parseFloat(act.summary.distanceKm).toFixed(1)} <small>km</small>`;
     
-    // Tijd omrekenen als we timeMs hebben, anders uit avg speed afleiden
+    // Tijd omrekenen als we durationSec hebben, anders uit avg speed afleiden
     let timeStr = "0:00";
+    let hours = 0;
     if (act.summary.durationSec) {
-        const h = Math.floor(act.summary.durationSec / 3600);
+        hours = act.summary.durationSec / 3600;
+        const h = Math.floor(hours);
         const m = Math.floor((act.summary.durationSec % 3600) / 60);
         timeStr = `${h}:${m.toString().padStart(2, '0')}`;
     } else if (act.summary.distanceKm && act.summary.avgSpeed) {
-        const hours = act.summary.distanceKm / act.summary.avgSpeed;
+        hours = act.summary.distanceKm / act.summary.avgSpeed;
         const h = Math.floor(hours);
         const m = Math.floor((hours % 1) * 60);
         timeStr = `${h}:${m.toString().padStart(2, '0')}`;
@@ -1589,7 +1616,30 @@ window.populateRideSummary = function(act) {
     document.getElementById('sum-avg').innerHTML = `${parseFloat(act.summary.avgSpeed || 0).toFixed(1)} <small>km/u</small>`;
     document.getElementById('sum-max').innerHTML = `${parseFloat(act.summary.maxSpeed || 0).toFixed(1)} <small>km/u</small>`;
     document.getElementById('sum-elev').innerHTML = `${Math.round(act.summary.elevationGain || 0)} <small>m</small>`;
-    document.getElementById('sum-power').innerHTML = `${Math.round(act.summary.avgPower || 0)} <small>W</small>`;
+
+    // --- NIEUW: Vermogen-berekening (Fysisch model) ---
+    // We gebruiken een benadering (fietser 75kg, fiets 10kg = 85kg totaal)
+    const massKg = 85; 
+    const avgSpeedKmh = parseFloat(act.summary.avgSpeed || 0);
+    const avgSpeedMs = avgSpeedKmh / 3.6; // Km/u naar m/s
+
+    // Model-parameters
+    const airDensity = 1.225; // kg/m^3
+    const frontalArea = 0.5; // m^2 (normale koersfietshouding)
+    const dragCoeff = 1.1; // Normale coëfficiënt
+    const rollingCoeff = 0.005; // Racebanden
+
+    // Berekening: Luchtweerstand + Rolweerstand (gemiddeld op het vlakke)
+    let powerW = 0;
+    if (avgSpeedMs > 1) { // Alleen als je daadwerkelijk fietst
+        const airResistance = 0.5 * airDensity * frontalArea * dragCoeff * Math.pow(avgSpeedMs, 3);
+        const rollingResistance = rollingCoeff * massKg * 9.81 * avgSpeedMs;
+        powerW = airResistance + rollingResistance;
+    }
+
+    // Update de summary data én de UI
+    act.summary.avgPower = Math.round(powerW);
+    document.getElementById('sum-power').innerHTML = `${act.summary.avgPower} <small>W</small>`;
 
     // 2. Rankings Berekenen
     const badgesContainer = document.getElementById('sum-badges');
@@ -1624,7 +1674,6 @@ window.populateRideSummary = function(act) {
     const segContainer = document.getElementById('sum-segments');
     segContainer.innerHTML = '';
     if (act.summary.segments && act.summary.segments.length > 0) {
-        // Toon de 3 beste/langste segmenten
         const topSegs = act.summary.segments.slice(0, 3);
         segContainer.innerHTML = topSegs.map(s => `
             <div class="summary-segment-item">
