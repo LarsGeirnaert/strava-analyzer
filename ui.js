@@ -142,6 +142,7 @@ function switchTab(tabName) {
     if(tabName === 'dashboard') updateDashboard();
     if(tabName === 'recap') updateRecapView();
     if(tabName === 'rankings') loadRankings();
+    if(tabName === 'achievements') window.renderAchievements();
 }
 
 // --- ROUTE PLANNER LOGICA ---
@@ -372,7 +373,6 @@ async function updateDashboard() {
     document.getElementById('welcome-msg').innerText = `${greeting}, ${name}! 👋`;
 
     document.getElementById('streak-count').innerText = calculateWeeklyStreak(realRides);
-    renderBadges(d, e, realRides);
 
     if (typeof currentCalDate === 'undefined') window.currentCalDate = new Date();
     renderCalendar(currentCalDate.getMonth(), currentCalDate.getFullYear());
@@ -751,51 +751,216 @@ function calculateWeeklyStreak(activities) {
     return weeks.size; 
 }
 
-// ui.js - Genereert badges op basis van prestaties (UPGRADED met klik-functionaliteit)
-function renderBadges(totalDist, totalElev, activities) {
-    const container = document.getElementById('badges-container');
+// ui.js - Nieuwe Achievements Logica (Inclusief Tijd!)
+window.renderAchievements = function() {
+    const container = document.getElementById('achievements-page-container');
     if(!container) return;
-    const badges = [];
 
-    // --- Afstand Badges ---
-    if (totalDist >= 100) badges.push({icon: '🥉', name: '100 km Club', explanation: 'Gefeliciteerd! Je hebt je eerste mijlpaal bereikt en meer dan 100 kilometer in totaal gefietst. Een mooi begin!'});
-    if (totalDist >= 500) badges.push({icon: '🥈', name: '500 km Club', explanation: 'Serieuze kilometers! Je hebt de 500 kilometer grens doorbroken. Je bent halverwege de magische 1000!'});
-    if (totalDist >= 1000) badges.push({icon: '🥇', name: '1000 km Club', explanation: 'Klasse! 1000 kilometer op de teller. Je mag jezelf nu officieel een serieuze kilometervreter noemen.'});
-    if (totalDist >= 5000) badges.push({icon: '🚀', name: 'Wereldreiziger', explanation: 'Onvoorstelbaar! Je hebt meer dan 5000 km gefietst. Dat is ongeveer de afstand van Brussel naar Dubai. Gigantisch!'});
+    if(!allActivitiesCache) return;
 
-    // --- Hoogte Badges ---
-    if (totalElev >= 1000) badges.push({icon: '⛰️', name: 'Klimmer', explanation: 'Je draait je hand niet om voor een helling. Je hebt in totaal meer dan 1000 hoogtemeters overwonnen.'});
-    if (totalElev >= 8848) badges.push({icon: '🏔️', name: 'Everesting', explanation: 'Legendarisch! Je hebt in totaal evenveel geklommen als de hoogte van de Mount Everest. Je bent de koning van de bergen!'});
+    // 1. Basis stats berekenen
+    const realRides = allActivitiesCache.filter(a => a.summary.type !== 'route');
+    let totalDist = 0;
+    let maxSingleDist = 0;
+    let totalElev = 0;
+    let maxSingleElev = 0;
+    let totalTimeSec = 0;
+    let maxSingleTimeSec = 0;
+    
+    realRides.forEach(a => {
+        const d = parseFloat(a.summary.distanceKm || 0);
+        const e = parseFloat(a.summary.elevationGain || 0);
+        const t = parseFloat(a.summary.durationSec || 0); // Tijd in seconden
+        
+        totalDist += d;
+        totalElev += e;
+        totalTimeSec += t;
+        
+        if (d > maxSingleDist) maxSingleDist = d;
+        if (e > maxSingleElev) maxSingleElev = e;
+        if (t > maxSingleTimeSec) maxSingleTimeSec = t;
+    });
 
-    // --- Rit Specifiek ---
-    const realRides = activities.filter(a => a.summary.type !== 'route');
-    if(realRides.length > 0) {
-        const avgSpeeds = realRides.map(a => parseFloat(a.summary.avgSpeed) || 0);
-        const maxAvgSpeed = Math.max(...avgSpeeds);
-        if (maxAvgSpeed > 30) badges.push({icon: '⚡', name: 'Speed Demon', explanation: 'Snelheid is jouw ding. Je hebt een rit voltooid met een gemiddelde snelheid van meer dan 30 km/u.'});
+    // Reken de tijd om naar uren voor makkelijkere vergelijking
+    const totalTimeHours = totalTimeSec / 3600;
+    const maxSingleTimeHours = maxSingleTimeSec / 3600;
 
-        const dists = realRides.map(a => parseFloat(a.summary.distanceKm) || 0);
-        const maxSingleDist = Math.max(...dists);
-        if (maxSingleDist > 100) badges.push({icon: '💯', name: 'Gran Fondo', explanation: 'Respect! Je hebt de ultieme uitdaging voltooid: een enkele rit van meer dan 100 kilometer.'});
+    // We maken groepen (categorieën) aan voor het overzicht
+    const categories = [
+        { id: 'total-dist', title: '🌍 Totale Afstand', achievements: [] },
+        { id: 'single-ride', title: '🚴 Langste Enkele Rit', achievements: [] },
+        { id: 'total-elev', title: '⛰️ Totale Hoogtemeters', achievements: [] },
+        { id: 'single-elev', title: '🏔️ Klimgeit (Enkele Rit)', achievements: [] },
+        { id: 'total-time', title: '⏱️ Totale Tijd in het Zadel', achievements: [] },
+        { id: 'single-time', title: '⏳ Uithoudingsvermogen (Enkele Rit)', achievements: [] }
+    ];
+
+    // =========================================================
+    // CATEGORIE 1: TOTALE AFSTAND
+    // =========================================================
+    const totalMilestones = [
+        { dist: 10, icon: '🚲', name: 'De Eerste Meters' },
+        { dist: 50, icon: '🥉', name: 'Op Dreef' },
+        { dist: 100, icon: '💯', name: 'Honderdklapper' },
+        { dist: 200, icon: '✌️', name: 'Dubbele Century' },
+        { dist: 500, icon: '🥈', name: 'Halve Duizend' },
+        { dist: 1000, icon: '🥇', name: 'Kilometervreter' }
+    ];
+
+    for (let d = 1500; d <= 10000; d += 500) {
+        let icon = '🚀';
+        let name = `${d} km Club`;
+        if (d === 5000) { icon = '🌍'; name = 'Wereldreiziger'; }
+        if (d === 10000) { icon = '👑'; name = 'Koning van de Weg'; }
+        totalMilestones.push({ dist: d, icon: icon, name: name });
     }
 
-    // --- Tijdrijder (Vroege vogels) ---
-    const earlyBird = realRides.some(a => new Date(a.summary.rideDate).getHours() < 7);
-    if (earlyBird) badges.push({icon: '🌅', name: 'Vroege Vogel', explanation: 'Terwijl anderen nog sliepen, was jij al onderweg. Je hebt een rit gestart voor 07:00 \'s ochtends.'});
+    totalMilestones.forEach(m => {
+        categories[0].achievements.push({
+            icon: m.icon, name: m.name,
+            desc: `Fiets in totaal ${m.dist} kilometer.`,
+            unlocked: totalDist >= m.dist
+        });
+    });
 
-    // Render
-    if (badges.length === 0) {
-        container.innerHTML = '<span style="color:var(--text-muted); font-style:italic;">Fiets meer om badges te verdienen!</span>';
-    } else {
-        // AANGEPAST: added onclick en title attribute verwijderd
-        container.innerHTML = badges.map(b => `
-            <div class="badge-item clickable-badge" onclick="openBadgeModal(${JSON.stringify(b).replace(/"/g, '&quot;')})">
-                <div class="badge-icon">${b.icon}</div>
-                <div class="badge-name">${b.name}</div>
+    // =========================================================
+    // CATEGORIE 2: ENKELE RIT (Afstand)
+    // =========================================================
+    for (let d = 10; d <= 200; d += 10) {
+        let icon = '🔥';
+        let name = `${d} km Rit`;
+
+        if (d === 50) { icon = '🥉'; name = 'Halve Fondo'; }
+        if (d === 100) { icon = '🥈'; name = 'Gran Fondo'; }
+        if (d === 150) { icon = '🥇'; name = 'Epic Fondo'; }
+        if (d === 200) { icon = '🦄'; name = 'Double Century'; }
+
+        categories[1].achievements.push({
+            icon: icon, name: name,
+            desc: `Voltooi een enkele rit van minimaal ${d} kilometer.`,
+            unlocked: maxSingleDist >= d
+        });
+    }
+
+    // =========================================================
+    // CATEGORIE 3: TOTALE HOOGTEMETERS
+    // =========================================================
+    const elevMilestones = [
+        { elev: 500, icon: '🧗', name: 'Klimmer in de Dop' },
+        { elev: 1000, icon: '⛰️', name: 'Berggeit' },
+        { elev: 2500, icon: '🚠', name: 'Kabelbaan' },
+        { elev: 5000, icon: '☁️', name: 'In de Wolken' },
+        { elev: 8848, icon: '🏔️', name: 'Everesting' },
+        { elev: 10000, icon: '🦅', name: 'Adelaarsnest' },
+        { elev: 20000, icon: '✈️', name: 'Vlieghoogte' },
+        { elev: 50000, icon: '🚀', name: 'Stratosfeer' }
+    ];
+
+    elevMilestones.forEach(m => {
+        categories[2].achievements.push({
+            icon: m.icon, name: m.name,
+            desc: `Klim in totaal ${m.elev.toLocaleString('nl-NL')} meter.`,
+            unlocked: totalElev >= m.elev
+        });
+    });
+
+    // =========================================================
+    // CATEGORIE 4: ENKELE RIT (Hoogtemeters)
+    // =========================================================
+    const singleElevMilestones = [
+        { elev: 100, icon: '🎢', name: 'Rollercoaster' },
+        { elev: 250, icon: '🚵', name: 'Vlaamse Ardennen' },
+        { elev: 500, icon: '🔥', name: 'Brandende Kuiten' },
+        { elev: 1000, icon: '🐐', name: 'Echte Berggeit' },
+        { elev: 1500, icon: '🥵', name: 'De Muur' },
+        { elev: 2000, icon: '🏔️', name: 'Alpenkoning' }
+    ];
+
+    singleElevMilestones.forEach(m => {
+        categories[3].achievements.push({
+            icon: m.icon, name: m.name,
+            desc: `Klim minimaal ${m.elev.toLocaleString('nl-NL')} meter tijdens één rit.`,
+            unlocked: maxSingleElev >= m.elev
+        });
+    });
+
+    // =========================================================
+    // CATEGORIE 5: TOTALE TIJD IN HET ZADEL
+    // =========================================================
+    const totalTimeMilestones = [
+        { hours: 10, icon: '⏱️', name: 'De Kop is Eraf' },
+        { hours: 24, icon: '🌙', name: 'Een Volle Dag' },
+        { hours: 50, icon: '🥉', name: 'Flink op Weg' },
+        { hours: 100, icon: '🥈', name: 'Honderd Uur' },
+        { hours: 250, icon: '🥇', name: 'Fanatiekeling' },
+        { hours: 500, icon: '🦄', name: 'Stalen Zitvlak' },
+        { hours: 1000, icon: '👑', name: 'Veteraan' }
+    ];
+
+    totalTimeMilestones.forEach(m => {
+        categories[4].achievements.push({
+            icon: m.icon, name: m.name,
+            desc: `Zit in totaal ${m.hours} uur op de fiets.`,
+            unlocked: totalTimeHours >= m.hours
+        });
+    });
+
+    // =========================================================
+    // CATEGORIE 6: ENKELE RIT (Tijd)
+    // =========================================================
+    const singleTimeMilestones = [
+        { hours: 1, icon: '🚴', name: 'Even Eruit' },
+        { hours: 2, icon: '✌️', name: 'Twee Uur Trappen' },
+        { hours: 3, icon: '🥉', name: 'Drie Uur Afzien' },
+        { hours: 4, icon: '🥈', name: 'Halve Werkdag' },
+        { hours: 5, icon: '🥇', name: 'Uithoudingsvermogen' },
+        { hours: 6, icon: '🥵', name: 'Zes Uur Zwoegen' },
+        { hours: 8, icon: '🛠️', name: 'Volle Werkdag' },
+        { hours: 10, icon: '☠️', name: 'Ultra Fietser' }
+    ];
+
+    singleTimeMilestones.forEach(m => {
+        categories[5].achievements.push({
+            icon: m.icon, name: m.name,
+            desc: `Fiets minimaal ${m.hours} uur onafgebroken in één rit.`,
+            unlocked: maxSingleTimeHours >= m.hours
+        });
+    });
+
+    // =========================================================
+    // 3. RENDEREN NAAR HTML MET KOPJES
+    // =========================================================
+    container.innerHTML = categories.map(cat => {
+        
+        const badgesHTML = cat.achievements.map(ach => {
+            const opacity = ach.unlocked ? '1' : '0.4';
+            const filter = ach.unlocked ? 'none' : 'grayscale(100%)';
+            const bg = ach.unlocked ? 'var(--bg-body)' : 'var(--hover-bg)';
+            const border = ach.unlocked ? '2px solid var(--primary)' : '1px dashed var(--border-color)';
+
+            return `
+                <div class="badge-item clickable-badge" style="opacity: ${opacity}; filter: ${filter}; background: ${bg}; border: ${border}; width: 100%; height: 100%; padding: 20px 10px; cursor: pointer;" onclick="openBadgeModal(${JSON.stringify(ach).replace(/"/g, '&quot;')})">
+                    <div class="badge-icon" style="font-size: 3rem;">${ach.icon}</div>
+                    <div class="badge-name" style="font-size: 1rem; margin-top: 10px;">${ach.name}</div>
+                    <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 5px; padding: 0 5px;">
+                        ${ach.unlocked ? '✅ Ontgrendeld' : '🔒 Vergrendeld'}
+                    </div>
+                </div>
+            `;
+        }).join('');
+
+        return `
+            <div style="margin-bottom: 50px;">
+                <h3 style="margin-bottom: 20px; font-size: 1.5rem; color: var(--text-main); border-bottom: 2px solid var(--border-color); padding-bottom: 10px;">
+                    ${cat.title}
+                </h3>
+                <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 20px;">
+                    ${badgesHTML}
+                </div>
             </div>
-        `).join('');
-    }
-}
+        `;
+    }).join('');
+};
 
 // Leuke teller animatie
 function animateValue(id, start, end, duration, suffix = "") {
@@ -1381,24 +1546,23 @@ async function fetchElevationForRoute(latlngs) {
 
 
 
-// ui.js - Onderaan toevoegen
-
 // Functie om de badge modal te openen en te vullen
 window.openBadgeModal = function(badgeData) {
     const modal = document.getElementById('badge-modal');
-    
+
     // Vul de modal met de data van de aangeklikte badge
     document.getElementById('modal-badge-name').innerText = badgeData.name;
     document.getElementById('modal-badge-icon').innerText = badgeData.icon;
-    document.getElementById('modal-badge-desc').innerText = badgeData.explanation;
     
+    // FIX: Gebruik badgeData.desc (of explanation voor de zekerheid)
+    document.getElementById('modal-badge-desc').innerText = badgeData.desc || badgeData.explanation;
+
     // Toon de modal
     modal.classList.add('show');
-    
+
     // Voeg een event listener toe om te sluiten met de Escape-toets
     document.addEventListener('keydown', closeOnEscape);
 }
-
 // Functie om de modal te sluiten
 window.closeBadgeModal = function(event) {
     const modal = document.getElementById('badge-modal');

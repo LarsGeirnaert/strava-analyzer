@@ -42,6 +42,7 @@
             <button class="nav-btn" data-target="routes" title="Routes">✏️</button>
             <button class="nav-btn" data-target="analysis" title="Analyse">🗺️</button>
             <button class="nav-btn" data-target="rankings" title="Ranglijsten">🏆</button>
+            <button class="nav-btn" data-target="achievements" title="Achievements">🎖️</button>
             <button class="nav-btn" data-target="municipalities" title="Wereld Jager">🌍</button>
 
             <div style="margin-top: auto;">
@@ -140,14 +141,6 @@
                         </div>
                     </div>
 
-                    <div class="badges-section animate-in" style="margin-bottom:40px;">
-                        <h3>🏆 Jouw Prijzenkast</h3>
-                        <div id="badges-container" class="badges-grid">
-                            <span style="color:var(--text-muted); font-style:italic;">Nog geen badges verdiend. Ga
-                                fietsen!</span>
-                        </div>
-                    </div>
-
                     <div class="calendar-container animate-in" style="margin-bottom: 30px;">
                         <div class="calendar-header">
                             <h3 style="margin: 0;">📅 Fietskalender</h3>
@@ -194,6 +187,19 @@
                             <button id="next-page-btn" class="page-btn" onclick="changeActivityPage(1)">Volgende
                                 ▶</button>
                         </div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="view-achievements" class="view-section hidden">
+                <div class="view-header" style="padding: 40px; padding-bottom: 20px;">
+                    <h2>🎖️ Jouw Achievements</h2>
+                    <p>Verzamel ze allemaal door kilometers te vreten en hoogtemeters te trotseren.</p>
+                </div>
+
+                <div style="padding: 0 40px 40px 40px;">
+                    <div id="achievements-page-container" class="badges-grid"
+                        style="display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 20px; border: none; padding: 0; background: transparent;">
                     </div>
                 </div>
             </div>
