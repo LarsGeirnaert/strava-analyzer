@@ -43,6 +43,7 @@
             <button class="nav-btn" data-target="analysis" title="Analyse">🗺️</button>
             <button class="nav-btn" data-target="rankings" title="Ranglijsten">🏆</button>
             <button class="nav-btn" data-target="achievements" title="Achievements">🎖️</button>
+            <button class="nav-btn" data-target="community" title="Community">👥</button>
             <button class="nav-btn" data-target="municipalities" title="Wereld Jager">🌍</button>
 
             <div style="margin-top: auto;">
@@ -200,6 +201,71 @@
                 <div style="padding: 0 40px 40px 40px;">
                     <div id="achievements-page-container" class="badges-grid"
                         style="display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 20px; border: none; padding: 0; background: transparent;">
+                    </div>
+                </div>
+            </div>
+
+            <div id="view-community" class="view-section hidden">
+                <div style="padding: 40px; max-width: 800px; margin: 0 auto;">
+                    <header class="view-header" style="margin-bottom: 30px;">
+                        <h2>👥 Community</h2>
+                        <p>Zoek andere fietsers en vergelijk statistieken.</p>
+                    </header>
+
+                    <div style="display:flex; gap:10px; margin-bottom:20px;">
+                        <input type="text" id="community-search" class="search-bar"
+                            placeholder="🔍 Zoek een fietser op naam..."
+                            onkeyup="if(event.key === 'Enter') searchCommunity()">
+                        <button class="upload-btn" style="width:auto; padding:0 20px;"
+                            onclick="searchCommunity()">Zoeken</button>
+                    </div>
+
+                    <div id="community-results" class="dashboard-list">
+                        <p style="text-align:center; color:var(--text-muted); padding:20px;">Typ een naam en druk op
+                            zoeken.</p>
+                    </div>
+                </div>
+            </div>
+
+            <div id="view-public-profile" class="view-section hidden">
+                <div style="padding: 40px; max-width: 900px; margin: 0 auto;">
+                    <button class="upload-btn"
+                        style="background: #555; width: auto; padding: 5px 15px; margin-bottom: 20px;"
+                        onclick="switchTab('community')">⬅️ Terug naar Zoeken</button>
+
+                    <header class="view-header" style="margin-bottom:30px;">
+                        <h2 id="public-profile-name">👤 Profiel Naam</h2>
+                    </header>
+
+                    <div class="dashboard-grid">
+                        <div class="dash-card stat-total">
+                            <div class="dash-icon" style="background:#e3f2fd; color:#007bff;">📏</div>
+                            <div class="dash-info" style="width: 100%;">
+                                <h3>Totaal Afstand</h3>
+                                <p id="public-total-dist"><span class="skeleton skeleton-val"></span></p>
+                            </div>
+                        </div>
+                        <div class="dash-card stat-total">
+                            <div class="dash-icon" style="background:#fff3cd; color:#ffc107;">⛰️</div>
+                            <div class="dash-info" style="width: 100%;">
+                                <h3>Totaal Hoogte</h3>
+                                <p id="public-total-elev"><span class="skeleton skeleton-val"></span></p>
+                            </div>
+                        </div>
+                        <div class="dash-card stat-total">
+                            <div class="dash-icon" style="background:#d4edda; color:#28a745;">🚴</div>
+                            <div class="dash-info" style="width: 100%;">
+                                <h3>Aantal Ritten</h3>
+                                <p id="public-total-rides"><span class="skeleton skeleton-val"></span></p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="recent-section" style="margin-top: 30px;">
+                        <h3>📜 Recente Activiteiten</h3>
+                        <div id="public-activities-list" class="dashboard-list" style="max-height: 400px;">
+                            <p style="color:var(--text-muted); padding: 15px;">Laden...</p>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -563,6 +629,22 @@
             <div class="modal-body">
                 <span id="modal-badge-icon">🥉</span>
                 <p id="modal-badge-desc">Hier komt de uitleg van hoe je deze badge hebt verdiend.</p>
+            </div>
+        </div>
+    </div>
+
+    <div id="profile-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>👤 Welkom bij de Community!</h2>
+            </div>
+            <div class="modal-body" style="text-align: left;">
+                <p style="margin-bottom: 15px; color: var(--text-muted);">Kies een weergavenaam zodat andere fietsers je
+                    kunnen vinden.</p>
+                <input type="text" id="profile-name-input" class="search-bar"
+                    placeholder="Jouw Weergavenaam (bijv. Lars G)">
+                <button class="upload-btn" style="margin-top: 10px; background: var(--primary);"
+                    onclick="saveProfileName()">Opslaan & Verder</button>
             </div>
         </div>
     </div>

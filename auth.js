@@ -23,6 +23,45 @@ const logoutBtn = document.getElementById('logout-btn');
 window.supabaseAuth = {
     isLoggedIn: () => !!currentUser,
     getCurrentUser: () => currentUser,
+
+    async getProfile(userId = null) {
+        if (!currentUser && !userId) return null;
+        const targetId = userId || currentUser.id;
+        
+        const { data, error } = await supabaseClient
+            .from('profiles')
+            .select('id, display_name')
+            .eq('id', targetId)
+            .maybeSingle(); // FIX: maybeSingle voorkomt de 406 error als je nog geen profiel hebt!
+            
+        if (error) console.error("Fout bij ophalen profiel:", error);
+        return data;
+    },
+
+    async updateProfile(displayName) {
+        if (!currentUser) throw new Error("Niet ingelogd");
+        const { error } = await supabaseClient
+            .from('profiles')
+            .upsert({ 
+                id: currentUser.id, 
+                display_name: displayName,
+                updated_at: new Date().toISOString()
+            });
+            
+        if (error) throw error;
+    },
+
+    async searchProfiles(searchTerm) {
+        const { data, error } = await supabaseClient
+            .from('profiles')
+            .select('id, display_name')
+            .ilike('display_name', `%${searchTerm}%`) // Zoekt op (delen van) de naam
+            .limit(20);
+            
+        if (error) throw error;
+        return data;
+    },
+    // --- EINDE SOCIALE FUNCTIES ---
     
     async listActivities() {
         if (!currentUser) return [];
@@ -67,8 +106,6 @@ window.supabaseAuth = {
         return data;
     },
 
-// IN auth.js (vervang of controleer updateActivitySummary)
-
     async updateActivitySummary(id, newSummary) {
         if (!currentUser) throw new Error("Niet ingelogd");
         
@@ -85,6 +122,7 @@ window.supabaseAuth = {
         }
         return data;
     },
+
     async deleteActivities(idsArray) {
         if (!currentUser) throw new Error("Niet ingelogd");
         const { error } = await supabaseClient

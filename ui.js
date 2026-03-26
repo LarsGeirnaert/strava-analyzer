@@ -333,6 +333,7 @@ window.deleteRoute = async function(id) {
 async function updateDashboard() {
     if(!window.supabaseAuth.getCurrentUser()) return;
 
+    window.checkProfileSetup();
     document.getElementById('dashboard-list').innerHTML = `<div class="skeleton skeleton-list-item"></div><div class="skeleton skeleton-list-item"></div>`;
     
     const loaders = `<span class="skeleton skeleton-val" style="width: 60%;"></span>`;
@@ -2023,3 +2024,137 @@ function renderYTDChart(activities) {
         }
     });
 }
+
+// ==========================================================================
+// SOCIALE FUNCTIES (COMMUNITY)
+// ==========================================================================
+
+// 1. Check of de gebruiker al een naam heeft gekozen
+window.checkProfileSetup = async function() {
+    const profile = await window.supabaseAuth.getProfile();
+    if (!profile || !profile.display_name) {
+        document.getElementById('profile-modal').classList.add('show');
+    } else {
+        window.currentDisplayName = profile.display_name;
+    }
+};
+
+// 2. Naam opslaan vanuit de Pop-up
+window.saveProfileName = async function() {
+    const name = document.getElementById('profile-name-input').value.trim();
+    if (!name) {
+        alert("Vul een naam in!");
+        return;
+    }
+    
+    const btn = event.target;
+    btn.innerText = "Opslaan...";
+    btn.disabled = true;
+
+    try {
+        await window.supabaseAuth.updateProfile(name);
+        document.getElementById('profile-modal').classList.remove('show');
+        window.currentDisplayName = name;
+        alert("Profiel succesvol opgeslagen!");
+    } catch (e) {
+        console.error(e);
+        alert("Fout bij opslaan profiel: " + e.message);
+        btn.innerText = "Opslaan & Verder";
+        btn.disabled = false;
+    }
+};
+
+// 3. Andere gebruikers zoeken
+window.searchCommunity = async function() {
+    const term = document.getElementById('community-search').value.trim();
+    const resultsContainer = document.getElementById('community-results');
+    
+    if (!term) {
+        resultsContainer.innerHTML = '<p style="text-align:center; color:var(--text-muted); padding:20px;">Typ een naam om te zoeken.</p>';
+        return;
+    }
+
+    resultsContainer.innerHTML = '<div class="skeleton skeleton-list-item"></div>';
+
+    try {
+        const users = await window.supabaseAuth.searchProfiles(term);
+        
+        if (users.length === 0) {
+            resultsContainer.innerHTML = '<p style="text-align:center; color:var(--text-muted); padding:20px;">Niemand gevonden met die naam.</p>';
+            return;
+        }
+
+        // Toon de gevonden gebruikers met werkende Bekijk knop!
+        resultsContainer.innerHTML = users.map(u => `
+            <div class="dash-list-item" style="align-items:center; cursor:default;">
+                <div style="font-size: 2rem; margin-right: 15px;">👤</div>
+                <div style="flex:1;">
+                    <strong style="display:block; font-size:1.1rem; color:var(--text-main);">${u.display_name}</strong>
+                </div>
+                <button class="sub-nav-btn" style="font-size:0.8rem;" onclick="openPublicProfile('${u.id}', '${u.display_name}')">👁️ Bekijk</button>
+            </div>
+        `).join('');
+
+    } catch (e) {
+        console.error(e);
+        resultsContainer.innerHTML = '<p style="color:#ff4444; text-align:center;">Fout bij zoeken.</p>';
+    }
+};
+
+// 4. Open het profiel van een andere fietser
+window.openPublicProfile = async function(userId, displayName) {
+    // 1. Verberg alles en toon het openbare profiel
+    document.querySelectorAll('.view-section').forEach(v => v.classList.add('hidden'));
+    document.getElementById('view-public-profile').classList.remove('hidden');
+    
+    // 2. Naam updaten en laadschermen tonen
+    document.getElementById('public-profile-name').innerText = `👤 Profiel van ${displayName}`;
+    document.getElementById('public-total-dist').innerHTML = '<span class="skeleton skeleton-val"></span>';
+    document.getElementById('public-total-elev').innerHTML = '<span class="skeleton skeleton-val"></span>';
+    document.getElementById('public-total-rides').innerHTML = '<span class="skeleton skeleton-val"></span>';
+    document.getElementById('public-activities-list').innerHTML = '<div class="skeleton skeleton-list-item"></div><div class="skeleton skeleton-list-item"></div>';
+
+    try {
+        // 3. Haal de activiteiten van DEZE specifieke speler op uit de database
+        const { data, error } = await window.supabase.from('activities')
+            .select('id, file_name, summary, ride_date')
+            .eq('user_id', userId)
+            .order('ride_date', { ascending: false });
+        
+        if (error) throw error;
+
+        // Filter alleen de echte ritten
+        const realRides = data.filter(a => a.summary && a.summary.type !== 'route');
+        
+        let dist = 0; let elev = 0;
+        realRides.forEach(r => {
+            dist += parseFloat(r.summary.distanceKm || 0);
+            elev += parseFloat(r.summary.elevationGain || 0);
+        });
+
+        // Vul de dashboard statistieken in
+        document.getElementById('public-total-dist').innerHTML = `${Math.round(dist)} <small>km</small>`;
+        document.getElementById('public-total-elev').innerHTML = `${Math.round(elev)} <small>m</small>`;
+        document.getElementById('public-total-rides').innerHTML = realRides.length;
+
+        // Vul de lijst met recente ritten
+        if (realRides.length === 0) {
+            document.getElementById('public-activities-list').innerHTML = '<p style="color:var(--text-muted); padding: 15px; text-align: center;">Nog geen ritten gefietst.</p>';
+        } else {
+            document.getElementById('public-activities-list').innerHTML = realRides.map(act => `
+                <div class="dash-list-item" style="cursor: default;">
+                    <div style="flex:1; display:flex; justify-content:space-between; align-items:center;">
+                        <div style="display:flex; flex-direction:column;">
+                            <strong>🚴 ${act.file_name}</strong>
+                            <small style="font-size:0.75rem; color:var(--text-muted);">${new Date(act.ride_date).toLocaleDateString()}</small>
+                        </div>
+                        <span style="font-weight:bold; color:var(--primary);">${parseFloat(act.summary.distanceKm).toFixed(1)} km</span>
+                    </div>
+                </div>
+            `).join('');
+        }
+    } catch(e) {
+        console.error(e);
+        document.getElementById('public-activities-list').innerHTML = '<p style="color:#ff4444; padding: 15px;">Kon ritten niet inladen.</p>';
+    }
+};
