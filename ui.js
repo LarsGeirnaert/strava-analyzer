@@ -1109,7 +1109,13 @@ function renderActivityList(acts) {
 window.toggleSelection = (id) => { if(selectedRides.has(id)) selectedRides.delete(id); else selectedRides.add(id); document.getElementById('delete-btn').classList.toggle('hidden', selectedRides.size === 0); };
 window.deleteSelectedRides = async function() { if(confirm("Verwijderen?")) { await window.supabaseAuth.deleteActivities(Array.from(selectedRides)); selectedRides.clear(); updateDashboard(); } };
 window.triggerUpload = () => document.getElementById('gpxInput').click();
-window.toggleTheme = () => { document.body.classList.toggle('dark-mode'); localStorage.setItem('theme', document.body.classList.contains('dark-mode') ? 'dark' : 'light'); };
+window.toggleTheme = () => { 
+    document.body.classList.toggle('dark-mode'); 
+    localStorage.setItem('theme', document.body.classList.contains('dark-mode') ? 'dark' : 'light'); 
+    
+    // Voeg deze regel toe om de grafieken opnieuw te kleuren:
+    if (window.updateDashboard) window.updateDashboard();
+};
 
 window.toggleTiles = function() {
     // Als ze al zichtbaar zijn, verwijder ze dan (toggle)
@@ -1555,12 +1561,6 @@ window.populateRideSummary = function(act) {
     document.getElementById('sum-elev').innerHTML = `${Math.round(act.summary.elevationGain || 0)} <small>m</small>`;
     document.getElementById('sum-power').innerHTML = `${Math.round(act.summary.avgPower || 0)} <small>W</small>`;
 
-    // --- ELEVATE FEATURE: TRAP-EFFICIËNTIE ---
-    let efficiency = 100;
-    if (elapsedHours > 0 && movingHours > 0 && movingHours < elapsedHours) {
-        efficiency = Math.round((movingHours / elapsedHours) * 100);
-    }
-    document.getElementById('sum-eff').innerHTML = `${efficiency} <small>%</small>`;
 
     // Fysisch model voor Vermogen
     const massKg = 85; 
@@ -1668,6 +1668,12 @@ function renderMonthlyComparisonChart(activities) {
         };
     });
 
+    // Bepaal de kleuren voor de weergave (Dark Mode check)
+    const isDark = document.body.classList.contains('dark-mode');
+    const chartTextColor = isDark ? '#f0f0f0' : '#333333';
+    const chartTextMuted = isDark ? '#aaaaaa' : '#666666';
+    const chartGridColor = isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)';
+
     // 4. Teken de grafiek als Lijn
     activeCharts['monthlyCompChart'] = new Chart(ctx, {
         type: 'line', // Terug naar lijn in plaats van bar
@@ -1681,7 +1687,7 @@ function renderMonthlyComparisonChart(activities) {
             plugins: {
                 legend: { 
                     position: 'top', 
-                    labels: { color: 'var(--text-main)', usePointStyle: true, boxWidth: 8 } 
+                    labels: { color: chartTextColor, usePointStyle: true, padding: 20 } 
                 },
                 tooltip: {
                     mode: 'index',
@@ -1694,11 +1700,11 @@ function renderMonthlyComparisonChart(activities) {
             scales: {
                 x: { 
                     grid: { display: false }, 
-                    ticks: { color: 'var(--text-muted)' } 
+                    ticks: { color: chartTextMuted } 
                 },
                 y: { 
-                    grid: { color: 'rgba(255,255,255,0.05)' }, 
-                    ticks: { color: 'var(--text-muted)' } 
+                    grid: { color: chartGridColor }, 
+                    ticks: { color: chartTextMuted } 
                 }
             }
         }
@@ -1811,6 +1817,12 @@ function renderYTDChart(activities) {
         };
     });
 
+    // Bepaal de kleuren voor de weergave (Dark Mode check)
+    const isDark = document.body.classList.contains('dark-mode');
+    const chartTextColor = isDark ? '#f0f0f0' : '#333333';
+    const chartTextMuted = isDark ? '#aaaaaa' : '#666666';
+    const chartGridColor = isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)';
+
     // 6. Teken de grafiek
     activeCharts['ytdChart'] = new Chart(ctx, {
         type: 'line',
@@ -1824,7 +1836,7 @@ function renderYTDChart(activities) {
             plugins: {
                 legend: { 
                     position: 'top', 
-                    labels: { color: 'var(--text-main)', usePointStyle: true, boxWidth: 8 } 
+                    labels: { color: chartTextColor, usePointStyle: true, padding: 20 } 
                 },
                 tooltip: {
                     mode: 'index',      // Dit zorgt ervoor dat je bij hoveren álle jaren tegelijk in 1 tooltip ziet!
@@ -1837,11 +1849,11 @@ function renderYTDChart(activities) {
             scales: {
                 x: { 
                     grid: { display: false }, 
-                    ticks: { color: 'var(--text-muted)' } 
+                    ticks: { color: chartTextMuted } 
                 },
                 y: { 
-                    grid: { color: 'rgba(255,255,255,0.05)' }, 
-                    ticks: { color: 'var(--text-muted)' } 
+                    grid: { color: chartGridColor }, 
+                    ticks: { color: chartTextMuted } 
                 }
             }
         }
