@@ -6,6 +6,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Strava 3.0 - Dashboard</title>
 
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <link rel="stylesheet" href="style.css">
 
@@ -18,37 +22,35 @@
 
     <div id="login-screen" class="login-container">
         <div class="login-box">
-            <h1>🚴 Strava 2.0</h1>
-            <p id="auth-title">Log in om verder te gaan</p>
-            <input type="email" id="email" placeholder="Email adres">
-            <input type="password" id="password" placeholder="Wachtwoord">
-            <button id="auth-action-btn" class="auth-btn">Inloggen</button>
-
-            <p id="auth-error" style="color: #ff4444; display: none; margin-top: 10px; font-size: 0.9rem;"></p>
-
-            <div style="margin-top: 20px; font-size: 0.9rem;">
-                <span id="auth-toggle-text">Nog geen account?</span>
-                <a href="#" id="toggle-auth-btn" style="color: var(--primary); font-weight: bold; cursor:pointer;">Maak
-                    account</a>
+            <h1>Strava 3.0</h1>
+            <p id="auth-title" class="sub-text">Log in om verder te gaan</p>
+            <input type="email" id="email" placeholder="Email adres" class="input-text">
+            <input type="password" id="password" placeholder="Wachtwoord" class="input-text">
+            <button id="auth-action-btn" class="btn-primary full-width">Inloggen</button>
+            <p id="auth-error" class="error-msg"></p>
+            <div class="auth-toggle-container">
+                <span id="auth-toggle-text" class="sub-text">Nog geen account?</span>
+                <a href="#" id="toggle-auth-btn" class="auth-link primary-text">Maak account</a>
             </div>
         </div>
     </div>
 
     <div class="app-container hidden">
-        <nav class="main-nav">
-            <div class="nav-logo">🚴</div>
-            <button class="nav-btn active" data-target="dashboard" title="Dashboard">🏠</button>
-            <button class="nav-btn" data-target="recap" title="Mijn Recap">📊</button>
-            <button class="nav-btn" data-target="routes" title="Routes">✏️</button>
-            <button class="nav-btn" data-target="analysis" title="Analyse">🗺️</button>
-            <button class="nav-btn" data-target="rankings" title="Ranglijsten">🏆</button>
-            <button class="nav-btn" data-target="achievements" title="Achievements">🎖️</button>
-            <button class="nav-btn" data-target="community" title="Community">👥</button>
-            <button class="nav-btn" data-target="municipalities" title="Wereld Jager">🌍</button>
 
-            <div style="margin-top: auto;">
-                <button id="theme-btn" class="nav-btn" onclick="toggleTheme()">🌙</button>
-                <button id="logout-btn" class="nav-btn">🚪</button>
+        <nav class="main-nav">
+            <div class="nav-logo">Strava 3.0</div>
+            <div class="nav-items">
+                <button class="nav-btn active" data-target="dashboard">Dashboard</button>
+                <button class="nav-btn" data-target="recap">Mijn Recap</button>
+                <button class="nav-btn" data-target="routes">Route Planner</button>
+                <button class="nav-btn" data-target="analysis">Analyse</button>
+                <button class="nav-btn" data-target="rankings">Ranglijsten</button>
+                <button class="nav-btn" data-target="community">Community</button>
+                <button class="nav-btn" data-target="municipalities">Wereld Jager</button>
+            </div>
+            <div class="nav-footer">
+                <button id="theme-btn" class="nav-btn" onclick="toggleTheme()">Thema Wisselen</button>
+                <button id="logout-btn" class="nav-btn danger-text">Uitloggen</button>
             </div>
         </nav>
 
@@ -56,228 +58,176 @@
 
             <div id="view-dashboard" class="view-section">
                 <div class="welcome-banner animate-in">
-                    <div style="flex:1;">
-                        <h1 id="welcome-msg">Hoi! 👋</h1>
-                        <p id="quote-msg" style="opacity:0.9; font-style:italic;">"Pijn is fijn, je moet alleen even de
-                            knop omzetten."</p>
+                    <div class="welcome-text">
+                        <h1 id="welcome-msg">Hoi!</h1>
+                        <p id="quote-msg" class="quote">"Consistentie is de sleutel tot progressie."</p>
                     </div>
                     <div class="streak-box">
-                        <span style="font-size:2rem;">🔥</span>
-                        <div>
-                            <strong id="streak-count"><span class="skeleton skeleton-val"
+                        <div class="streak-info">
+                            <strong id="streak-count" class="primary-text"><span class="skeleton skeleton-val"
                                     style="width: 30px;"></span></strong>
-                            <small>Weken Streak</small>
+                            <small class="sub-text">Weken Streak</small>
                         </div>
                     </div>
                 </div>
 
-                <div style="padding: 20px 40px;">
-                    <header class="view-header" style="margin-bottom:20px;">
-                        <h2>📈 Jouw Statistieken</h2>
+                <div class="pad-view limit-width-large">
+                    <header class="view-header margin-bottom">
+                        <h2>Jouw Statistieken</h2>
                     </header>
 
                     <div class="dashboard-grid">
-                        <div class="dash-card stat-total pop-in" style="animation-delay: 0.3s;"
+                        <div class="dash-card stat-total pop-in" style="animation-delay: 0.1s;"
                             onclick="switchTab('municipalities'); setTimeout(() => setWorldMode('tiles'), 100);">
-                            <div class="dash-icon" style="background:#e0f7fa; color:#00acc1;">🗺️</div>
-                            <div class="dash-info" style="width: 100%;">
+                            <div class="dash-info">
                                 <h3>Explorer Tiles</h3>
                                 <p id="total-tiles"><span class="skeleton skeleton-val"></span></p>
                             </div>
                         </div>
-
                         <div class="dash-card stat-total pop-in" style="animation-delay: 0.1s;"
                             onclick="switchTab('rankings'); switchRankingTab('distance');">
-                            <div class="dash-icon" style="background:#e3f2fd; color:#007bff;">📏</div>
-                            <div class="dash-info" style="width: 100%;">
+                            <div class="dash-info">
                                 <h3>Totaal Afstand</h3>
                                 <p id="total-dist"><span class="skeleton skeleton-val"></span></p>
                             </div>
                         </div>
-
                         <div class="dash-card stat-total pop-in" style="animation-delay: 0.2s;"
                             onclick="switchTab('rankings'); switchRankingTab('elevation');">
-                            <div class="dash-icon" style="background:#fff3cd; color:#ffc107;">⛰️</div>
-                            <div class="dash-info" style="width: 100%;">
+                            <div class="dash-info">
                                 <h3>Totaal Hoogte</h3>
                                 <p id="total-elev"><span class="skeleton skeleton-val"></span></p>
                             </div>
                         </div>
-
                         <div class="dash-card stat-total pop-in" style="animation-delay: 0.3s;"
                             onclick="switchTab('analysis')">
-                            <div class="dash-icon" style="background:#d4edda; color:#28a745;">🚴</div>
-                            <div class="dash-info" style="width: 100%;">
+                            <div class="dash-info">
                                 <h3>Ritten</h3>
                                 <p id="total-rides"><span class="skeleton skeleton-val"></span></p>
                             </div>
                         </div>
-
                         <div class="dash-card action-card pop-in" style="animation-delay: 0.4s;"
                             onclick="triggerUpload()">
-                            <h3>📂 Uploaden</h3>
-                            <small>Sleep of klik hier</small>
+                            <h3>+ Uploaden</h3>
+                            <small class="sub-text">Sleep of klik hier</small>
                         </div>
                     </div>
 
-                    <div class="chart-box wide animate-in"
-                        style="margin-bottom:40px; height: 400px; display: flex; flex-direction: column; border-color: var(--primary);">
-                        <div
-                            style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-                            <h3 style="margin: 0; color: var(--text-main);">📈 Jaarlijkse Vergelijking</h3>
-                            <div style="display: flex; gap: 8px;">
-                                <button id="btn-chart-ytd" class="upload-btn"
-                                    style="padding: 6px 15px; font-size: 0.85rem;"
+                    <div class="chart-box wide animate-in section-spacing">
+                        <div class="chart-header">
+                            <h3>Jaarlijkse Vergelijking</h3>
+                            <div class="btn-group">
+                                <button id="btn-chart-ytd" class="btn-tab active"
                                     onclick="switchCompareChart('ytd')">YTD Progressie</button>
-                                <button id="btn-chart-month" class="upload-btn"
-                                    style="padding: 6px 15px; font-size: 0.85rem; background: var(--bg-nav);"
-                                    onclick="switchCompareChart('month')">Per Maand</button>
+                                <button id="btn-chart-month" class="btn-tab" onclick="switchCompareChart('month')">Per
+                                    Maand</button>
                             </div>
                         </div>
-                        <div id="wrapper-ytd" style="flex: 1; min-height: 0;">
+                        <div id="wrapper-ytd" class="chart-wrapper">
                             <canvas id="ytdProgressChart"></canvas>
                         </div>
-                        <div id="wrapper-month" class="hidden" style="flex: 1; min-height: 0;">
+                        <div id="wrapper-month" class="chart-wrapper hidden">
                             <canvas id="monthlyComparisonChart"></canvas>
                         </div>
                     </div>
 
-                    <div class="calendar-container animate-in" style="margin-bottom: 30px;">
+                    <div class="calendar-container animate-in section-spacing">
                         <div class="calendar-header">
-                            <h3 style="margin: 0;">📅 Fietskalender</h3>
-                            <div style="display:flex; gap:10px; align-items:center;">
-                                <button class="page-btn" style="padding: 5px 12px;"
-                                    onclick="changeCalendarMonth(-1)">◀</button>
-                                <strong id="calendar-month-year"
-                                    style="min-width: 130px; text-align: center; font-size: 1.1rem; color: var(--text-main);">Maand
-                                    Jaar</strong>
-                                <button class="page-btn" style="padding: 5px 12px;"
-                                    onclick="changeCalendarMonth(1)">▶</button>
+                            <h3>Fietskalender</h3>
+                            <div class="calendar-controls">
+                                <button class="btn-secondary btn-small"
+                                    onclick="changeCalendarMonth(-1)">Vorige</button>
+                                <strong id="calendar-month-year">Maand Jaar</strong>
+                                <button class="btn-secondary btn-small"
+                                    onclick="changeCalendarMonth(1)">Volgende</button>
                             </div>
                         </div>
                         <div id="calendar-grid" class="calendar-grid"></div>
                     </div>
 
                     <div class="recent-section animate-in">
-                        <div style="display:flex; flex-direction:column; gap:10px; margin-bottom:15px;">
-                            <div style="display:flex; justify-content:space-between; align-items:center;">
-                                <div style="display:flex; align-items:center; gap:10px;">
-                                    <h3>📜 Activiteiten</h3>
-                                </div>
-                                <div style="display:flex; gap:5px;">
-                                    <button id="delete-btn" class="delete-btn hidden"
-                                        onclick="deleteSelectedRides()">🗑️ Selectie</button>
-                                </div>
-                            </div>
-                            <input type="text" id="activity-search" class="search-bar" placeholder="🔍 Zoek op naam..."
-                                onkeyup="filterActivities()">
+                        <div class="flex-header margin-bottom">
+                            <h3>Activiteiten</h3>
+                            <button id="delete-btn" class="btn-danger hidden" onclick="deleteSelectedRides()">Selectie
+                                Verwijderen</button>
                         </div>
-
-                        <div id="dashboard-list" class="dashboard-list" style="max-height: 600px; overflow-y: auto;">
-                            <div class="skeleton skeleton-list-item"></div>
+                        <input type="text" id="activity-search" class="search-bar margin-bottom"
+                            placeholder="Zoek op naam..." onkeyup="filterActivities()">
+                        <div id="dashboard-list" class="dashboard-list margin-bottom">
                             <div class="skeleton skeleton-list-item"></div>
                             <div class="skeleton skeleton-list-item"></div>
                         </div>
-
                         <div class="pagination-controls">
-                            <button id="prev-page-btn" class="page-btn" onclick="changeActivityPage(-1)">◀
-                                Vorige</button>
-                            <span id="page-info"
-                                style="font-size: 0.95rem; font-weight: bold; color: var(--text-muted);">Pagina 1 /
-                                1</span>
-                            <button id="next-page-btn" class="page-btn" onclick="changeActivityPage(1)">Volgende
-                                ▶</button>
+                            <button id="prev-page-btn" class="btn-secondary"
+                                onclick="changeActivityPage(-1)">Vorige</button>
+                            <span id="page-info" class="sub-text font-medium">Pagina 1 / 1</span>
+                            <button id="next-page-btn" class="btn-secondary"
+                                onclick="changeActivityPage(1)">Volgende</button>
                         </div>
-                    </div>
-                </div>
-            </div>
-
-            <div id="view-achievements" class="view-section hidden">
-                <div class="view-header" style="padding: 40px; padding-bottom: 20px;">
-                    <h2>🎖️ Jouw Achievements</h2>
-                    <p>Verzamel ze allemaal door kilometers te vreten en hoogtemeters te trotseren.</p>
-                </div>
-
-                <div style="padding: 0 40px 40px 40px;">
-                    <div id="achievements-page-container" class="badges-grid"
-                        style="display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 20px; border: none; padding: 0; background: transparent;">
                     </div>
                 </div>
             </div>
 
             <div id="view-community" class="view-section hidden">
-                <div style="padding: 40px; max-width: 800px; margin: 0 auto;">
-                    <header class="view-header" style="margin-bottom: 30px;">
-                        <h2>👥 Community</h2>
-                        <p>Zoek andere fietsers en vergelijk statistieken.</p>
+                <div class="pad-view limit-width">
+                    <header class="view-header margin-bottom">
+                        <h2>Community</h2>
+                        <p class="sub-text">Zoek andere fietsers en vergelijk statistieken.</p>
                     </header>
-
-                    <div style="display:flex; gap:10px; margin-bottom:20px;">
+                    <div class="search-row margin-bottom">
                         <input type="text" id="community-search" class="search-bar"
-                            placeholder="🔍 Zoek een fietser op naam..."
+                            placeholder="Zoek een fietser op naam..."
                             onkeyup="if(event.key === 'Enter') searchCommunity()">
-                        <button class="upload-btn" style="width:auto; padding:0 20px;"
-                            onclick="searchCommunity()">Zoeken</button>
+                        <button class="btn-primary" onclick="searchCommunity()">Zoeken</button>
                     </div>
-
                     <div id="community-results" class="dashboard-list">
-                        <p style="text-align:center; color:var(--text-muted); padding:20px;">Typ een naam en druk op
-                            zoeken.</p>
+                        <div class="empty-state">Typ een naam en druk op zoeken.</div>
                     </div>
                 </div>
             </div>
 
             <div id="view-public-profile" class="view-section hidden">
-                <div style="padding: 40px; max-width: 900px; margin: 0 auto;">
-                    <button class="upload-btn"
-                        style="background: #555; width: auto; padding: 5px 15px; margin-bottom: 20px;"
-                        onclick="switchTab('community')">⬅️ Terug naar Zoeken</button>
-
-                    <header class="view-header" style="margin-bottom:30px;">
-                        <h2 id="public-profile-name">👤 Profiel Naam</h2>
+                <div class="pad-view limit-width">
+                    <button class="btn-secondary margin-bottom" onclick="switchTab('community')">Terug naar
+                        Zoeken</button>
+                    <header class="view-header margin-bottom">
+                        <h2 id="public-profile-name">Profiel</h2>
                     </header>
-
-                    <div class="dashboard-grid">
+                    <div class="dashboard-grid margin-bottom">
                         <div class="dash-card stat-total">
-                            <div class="dash-icon" style="background:#e3f2fd; color:#007bff;">📏</div>
-                            <div class="dash-info" style="width: 100%;">
+                            <div class="dash-info">
                                 <h3>Totaal Afstand</h3>
                                 <p id="public-total-dist"><span class="skeleton skeleton-val"></span></p>
                             </div>
                         </div>
                         <div class="dash-card stat-total">
-                            <div class="dash-icon" style="background:#fff3cd; color:#ffc107;">⛰️</div>
-                            <div class="dash-info" style="width: 100%;">
+                            <div class="dash-info">
                                 <h3>Totaal Hoogte</h3>
                                 <p id="public-total-elev"><span class="skeleton skeleton-val"></span></p>
                             </div>
                         </div>
                         <div class="dash-card stat-total">
-                            <div class="dash-icon" style="background:#d4edda; color:#28a745;">🚴</div>
-                            <div class="dash-info" style="width: 100%;">
+                            <div class="dash-info">
                                 <h3>Aantal Ritten</h3>
                                 <p id="public-total-rides"><span class="skeleton skeleton-val"></span></p>
                             </div>
                         </div>
                     </div>
-
-                    <div class="recent-section" style="margin-top: 30px;">
-                        <h3>📜 Recente Activiteiten</h3>
-                        <div id="public-activities-list" class="dashboard-list" style="max-height: 400px;">
-                            <p style="color:var(--text-muted); padding: 15px;">Laden...</p>
+                    <div class="recent-section section-spacing">
+                        <h3 class="margin-bottom">Recente Activiteiten</h3>
+                        <div id="public-activities-list" class="dashboard-list">
+                            <div class="empty-state">Laden...</div>
                         </div>
                     </div>
                 </div>
             </div>
 
             <div id="view-recap" class="view-section hidden">
-                <div style="padding: 20px; max-width: 1200px; margin: 0 auto;">
-                    <header class="view-header"
-                        style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:15px; margin-bottom: 20px;">
-                        <h2>📊 Uitgebreid Overzicht</h2>
-                        <div style="display:flex; gap:10px;">
-                            <select id="recap-month-select" class="recap-select" onchange="updateRecapView()">
-                                <option value="all">📅 Hele Jaar</option>
+                <div class="pad-view limit-width-large">
+                    <header class="flex-header margin-bottom">
+                        <h2>Uitgebreid Overzicht</h2>
+                        <div class="filter-group">
+                            <select id="recap-month-select" class="input-select" onchange="updateRecapView()">
+                                <option value="all">Hele Jaar</option>
                                 <option value="0">Januari</option>
                                 <option value="1">Februari</option>
                                 <option value="2">Maart</option>
@@ -291,8 +241,8 @@
                                 <option value="10">November</option>
                                 <option value="11">December</option>
                             </select>
-                            <select id="recap-year-select" class="recap-select" onchange="updateRecapView()">
-                                <option value="all">🌍 Alle Jaren</option>
+                            <select id="recap-year-select" class="input-select" onchange="updateRecapView()">
+                                <option value="all">Alle Jaren</option>
                                 <option value="2026">2026</option>
                                 <option value="2025">2025</option>
                                 <option value="2024">2024</option>
@@ -300,63 +250,54 @@
                         </div>
                     </header>
 
-                    <div
-                        style="display:grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap:20px; margin-bottom:30px;">
-                        <div class="dash-card"
-                            style="flex-direction:column; align-items:flex-start; background:linear-gradient(135deg, #fc4c02 0%, #ff8c00 100%); color:white; border:none;">
-                            <h4 id="recap-period-title" style="opacity:0.9;">Overzicht</h4>
-                            <h1 id="recap-dist" style="font-size:3rem; margin:10px 0;">0 km</h1>
-                            <div style="display:flex; gap:15px; font-size:0.9rem;">
-                                <span>⛰️ <span id="recap-elev">0</span> m</span>
-                                <span>🚴 <span id="recap-count">0</span> ritten</span>
+                    <div class="recap-highlight-grid section-spacing">
+                        <div class="dash-card highlight-card primary-bg">
+                            <h4 id="recap-period-title">Overzicht</h4>
+                            <h1 id="recap-dist">0 km</h1>
+                            <div class="highlight-stats">
+                                <span><span id="recap-elev">0</span> m Hoogte</span>
+                                <span><span id="recap-count">0</span> Ritten</span>
                             </div>
                         </div>
-
-                        <div class="dash-card" style="flex-direction:column; align-items:flex-start;">
-                            <h4 style="color:var(--text-muted); margin-bottom:10px;">🏅 Hoogtepunten</h4>
-                            <div style="width:100%;">
-                                <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
-                                    <span>Langste Rit:</span> <strong id="recap-longest">0 km</strong>
-                                </div>
-                                <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
-                                    <span>Hoogste Rit:</span> <strong id="recap-highest">0 m</strong>
-                                </div>
-                                <div style="display:flex; justify-content:space-between;">
-                                    <span>Snelste Rit:</span> <strong id="recap-fastest">0 km/u</strong>
-                                </div>
+                        <div class="dash-card highlight-card">
+                            <h4 class="margin-bottom">Hoogtepunten</h4>
+                            <div class="stat-list">
+                                <div class="stat-row"><span class="sub-text">Langste Rit:</span> <strong
+                                        id="recap-longest">0 km</strong></div>
+                                <div class="stat-row"><span class="sub-text">Hoogste Rit:</span> <strong
+                                        id="recap-highest">0 m</strong></div>
+                                <div class="stat-row"><span class="sub-text">Snelste Rit:</span> <strong
+                                        id="recap-fastest">0 km/u</strong></div>
                             </div>
                         </div>
-
-                        <div class="dash-card" style="flex-direction:column; justify-content:center;">
-                            <div style="display:flex; justify-content:space-between; width:100%; margin-bottom:5px;">
-                                <strong id="recap-goal-label">Doel</strong>
-                                <span id="recap-goal-percent" style="color:var(--primary); font-weight:bold;">0%</span>
+                        <div class="dash-card highlight-card">
+                            <div class="stat-row margin-bottom">
+                                <strong id="recap-goal-label">Doel Progressie</strong>
+                                <span id="recap-goal-percent" class="primary-text">0%</span>
                             </div>
-                            <div class="progress-bar-bg" style="height:10px; background:#e0e0e0; width:100%;">
+                            <div class="progress-bar-bg margin-bottom">
                                 <div id="recap-goal-fill" class="progress-bar-fill"></div>
                             </div>
-                            <div style="text-align:right; margin-top:5px; font-size:0.8rem; color:var(--text-muted);">
-                                <span id="recap-goal-val">--</span> km <span style="cursor:pointer;"
-                                    onclick="editGoal()">✏️</span>
+                            <div class="goal-edit sub-text text-right">
+                                Doel: <span id="recap-goal-val" class="font-bold">--</span> km
                             </div>
                         </div>
                     </div>
 
-                    <div style="display:grid; grid-template-columns: 2fr 1fr; gap:20px; margin-bottom:30px;">
-                        <div class="chart-box wide" style="height:300px;">
-                            <h4>📈 Afstand Verloop</h4>
-                            <canvas id="recapComparisonChart"></canvas>
+                    <div class="charts-grid section-spacing">
+                        <div class="chart-box wide">
+                            <h4 class="text-center margin-bottom sub-text">Afstand Verloop</h4>
+                            <div class="chart-wrapper"><canvas id="recapComparisonChart"></canvas></div>
                         </div>
-                        <div class="chart-box" style="height:300px;">
-                            <h4>🍰 Afstand Verdeling</h4>
-                            <canvas id="recapDistributionChart"></canvas>
+                        <div class="chart-box">
+                            <h4 class="text-center margin-bottom sub-text">Afstand Verdeling</h4>
+                            <div class="chart-wrapper"><canvas id="recapDistributionChart"></canvas></div>
                         </div>
                     </div>
 
-                    <div>
-                        <h3>🏆 Top 5 Ritten (Geselecteerde Periode)</h3>
-                        <div id="recap-best-list" class="ranking-list">
-                            <div class="skeleton skeleton-list-item"></div>
+                    <div class="section-spacing">
+                        <h3 class="margin-bottom">Top 5 Ritten (Geselecteerde Periode)</h3>
+                        <div id="recap-best-list" class="dashboard-list">
                             <div class="skeleton skeleton-list-item"></div>
                         </div>
                     </div>
@@ -366,43 +307,38 @@
             <div id="view-routes" class="view-section hidden">
                 <div class="analysis-layout">
                     <aside class="inner-sidebar">
-                        <div style="margin-bottom:20px;">
-                            <h2>✏️ Route Planner</h2>
-                            <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:15px;">Klik op de kaart
-                                om te tekenen. Sleep punten om aan te passen.</p>
-                            <div class="stats-grid" style="margin-bottom:20px;">
-                                <div class="stat-widget"><span class="stat-label">Afstand</span><span
-                                        class="stat-value"><span id="routeDist">0</span> <small>km</small></span></div>
-                                <div class="stat-widget"><span class="stat-label">Tijd (22km/u)</span><span
-                                        class="stat-value" id="routeTime">0:00</span></div>
-                                <div class="stat-widget">
-                                    <span class="stat-label">Hoogtemeters</span>
-                                    <span class="stat-value">
-                                        <span id="routeElev">0</span> <small>m</small>
-                                    </span>
-                                </div>
-                            </div>
-                            <div style="display:flex; gap:5px; margin-bottom:15px;">
-                                <button class="upload-btn" style="background:#dc3545; flex:1;"
-                                    onclick="undoLastRoutePoint()">↩️ Stap Terug</button>
-                                <button class="upload-btn" style="background:#555; flex:1;" onclick="clearRoute()">❌
-                                    Nieuw</button>
-                            </div>
-                            <input type="text" id="route-name-input" placeholder="Naam van je route..."
-                                class="search-bar">
-                            <button id="save-route-btn" class="upload-btn" style="background:var(--green);"
-                                onclick="saveCreatedRoute()">💾 Route Opslaan</button>
+                        <h2>Route Planner</h2>
+                        <p class="sub-text margin-bottom">Klik op de kaart om te tekenen. Sleep punten om aan te passen.
+                        </p>
+
+                        <div class="stats-grid margin-bottom">
+                            <div class="stat-widget"><span class="stat-label">Afstand</span><span
+                                    class="stat-value"><span id="routeDist">0</span> <small>km</small></span></div>
+                            <div class="stat-widget"><span class="stat-label">Tijd (22km/u)</span><span
+                                    class="stat-value" id="routeTime">0:00</span></div>
+                            <div class="stat-widget"><span class="stat-label">Hoogtemeters</span><span
+                                    class="stat-value"><span id="routeElev">0</span> <small>m</small></span></div>
                         </div>
-                        <div style="border-top:1px solid var(--border-color); padding-top:20px;">
-                            <h3>📂 Mijn Routes</h3>
-                            <div id="saved-routes-list" class="dashboard-list"
-                                style="max-height:300px; overflow-y:auto; margin-top:10px;">
-                                <div class="skeleton skeleton-list-item"></div>
-                            </div>
+
+                        <div class="btn-group margin-bottom">
+                            <button class="btn-secondary" style="flex:1;" onclick="undoLastRoutePoint()">Stap
+                                Terug</button>
+                            <button class="btn-secondary" style="flex:1;" onclick="clearRoute()">Nieuw</button>
+                        </div>
+                        <input type="text" id="route-name-input" placeholder="Naam van je route..."
+                            class="input-text margin-bottom">
+                        <button id="save-route-btn" class="btn-success full-width margin-bottom"
+                            onclick="saveCreatedRoute()">Route Opslaan</button>
+
+                        <div class="sidebar-divider"></div>
+
+                        <h3>Mijn Routes</h3>
+                        <div id="saved-routes-list" class="dashboard-list compact-list margin-top">
+                            <div class="skeleton skeleton-list-item"></div>
                         </div>
                     </aside>
                     <main class="inner-main">
-                        <div id="map-routes" style="height:100%; width:100%;"></div>
+                        <div id="map-routes" class="map-container"></div>
                     </main>
                 </div>
             </div>
@@ -412,7 +348,7 @@
                 <div id="ride-summary-dashboard" class="ride-summary-container hidden">
                     <div class="summary-header">
                         <h1 id="sum-title">Rit Naam</h1>
-                        <p id="sum-date">Datum</p>
+                        <p id="sum-date" class="sub-text">Datum</p>
                     </div>
 
                     <div class="summary-stats-grid">
@@ -428,37 +364,31 @@
                                 id="sum-elev">0 <small>m</small></span></div>
                         <div class="summary-stat-box"><span class="label">Vermogen</span><span class="value"
                                 id="sum-power">0 <small>W</small></span></div>
-
                     </div>
 
+                    <h3 class="summary-section-title">Jouw Positie (All-Time)</h3>
+                    <div id="sum-badges" class="premium-badges-container"></div>
 
-                    <h3 class="summary-section-title">🏆 Jouw Positie (All-Time)</h3>
-                    <div id="sum-badges" class="premium-badges-container" style="margin-bottom: 30px;">
-                    </div>
+                    <h3 class="summary-section-title">Beste Segmenten</h3>
+                    <div id="sum-segments" class="segments-preview-container margin-bottom"></div>
 
-                    <h3 class="summary-section-title">⚡ Beste Segmenten (Preview)</h3>
-                    <div id="sum-segments">
-                    </div>
-
-                    <button class="big-action-btn" onclick="showMapAnalysis()">
-                        🗺️ Klik hier voor de Interactieve Kaart & Grafieken
-                    </button>
+                    <button class="btn-primary btn-large margin-top" onclick="showMapAnalysis()">Open Interactieve Kaart
+                        & Grafieken</button>
                 </div>
 
                 <div id="ride-map-view" class="analysis-layout hidden">
                     <aside class="inner-sidebar">
-                        <button class="upload-btn" style="width:100%; margin-bottom: 15px; background: #555;"
-                            onclick="backToSummary()">⬅️ Terug naar Overzicht</button>
+                        <button class="btn-secondary full-width margin-bottom" onclick="backToSummary()">Terug naar
+                            Overzicht</button>
 
                         <div class="upload-section hidden" id="manual-upload-section">
                             <input type="file" id="gpxInput" multiple class="hidden-input">
-                            <label for="gpxInput" class="upload-btn">📄 Kies Bestanden</label>
+                            <label for="gpxInput" class="btn-secondary full-width margin-bottom">Kies Bestanden</label>
                             <input type="file" id="folderInput" webkitdirectory directory multiple class="hidden-input">
-                            <label for="folderInput" class="upload-btn" style="background: #007bff; margin-top:10px;">📂
-                                Map Uploaden (> 2024)</label>
+                            <label for="folderInput" class="btn-primary full-width">Map Uploaden</label>
                         </div>
 
-                        <div class="stats-grid" id="statsPanel">
+                        <div class="stats-grid margin-bottom" id="statsPanel">
                             <div class="stat-widget"><span class="stat-label">Afstand</span><span
                                     class="stat-value"><span id="statDist">0</span> <small>km</small></span></div>
                             <div class="stat-widget"><span class="stat-label">Tijd</span><span class="stat-value"
@@ -472,112 +402,120 @@
                             <div class="stat-widget"><span class="stat-label">Vermogen</span><span
                                     class="stat-value"><span id="statPower">0</span> <small>W</small></span></div>
                         </div>
-                        <div id="save-section" class="hidden"><button id="save-cloud-btn" class="save-btn">💾 Rit
-                                Opslaan</button></div>
+
+                        <div id="save-section" class="hidden margin-bottom">
+                            <button id="save-cloud-btn" class="btn-success full-width">Rit Opslaan</button>
+                        </div>
+
                         <div id="current-segments-section" class="hidden">
-                            <h3>⚡ Segmenten</h3>
-                            <button id="clear-segment-btn" class="upload-btn hidden"
-                                style="background:#dc3545; width:100%; margin-bottom:10px; font-size:0.8rem;"
-                                onclick="clearSegmentHighlight()">❌ Wis Selectie</button>
-                            <div id="segments-list"></div>
+                            <div class="sidebar-divider"></div>
+                            <h3 class="margin-bottom">Segmenten</h3>
+                            <button id="clear-segment-btn" class="btn-danger full-width margin-bottom hidden"
+                                onclick="clearSegmentHighlight()">Wis Selectie</button>
+                            <div id="segments-list" class="segments-sidebar-list"></div>
                         </div>
                     </aside>
+
                     <main class="inner-main">
-                        <div id="map"></div>
-                        <div class="charts-view hidden" id="chartsPanel"><canvas id="elevationChart"></canvas></div>
+                        <div id="map" class="map-container"></div>
+                        <div class="charts-view hidden" id="chartsPanel">
+                            <canvas id="elevationChart"></canvas>
+                        </div>
                     </main>
                 </div>
             </div>
 
             <div id="view-rankings" class="view-section hidden">
-                <div style="padding: 20px; max-width: 1200px; margin: 0 auto;">
-
-                    <header class="view-header"
-                        style="display:flex; justify-content:space-between; align-items:center;">
-                        <h2>🏆 Ranglijsten</h2>
-                        <button id="fix-data-btn" class="upload-btn"
-                            style="width:auto; background:#666; font-size:0.8rem;" onclick="fixMaxSpeeds()">
-                            🛠️ Fix Max Snelheden
-                        </button>
+                <div class="pad-view limit-width-large">
+                    <header class="flex-header margin-bottom">
+                        <h2>Ranglijsten</h2>
+                        <button id="fix-data-btn" class="btn-secondary" onclick="fixMaxSpeeds()">Fix Data</button>
                     </header>
 
                     <div class="sub-nav-container">
-                        <button class="sub-nav-btn active" onclick="switchRankingTab('segments')">⚡ Records</button>
-                        <button class="sub-nav-btn" onclick="switchRankingTab('distance')">📏 Afstanden</button>
-                        <button class="sub-nav-btn" onclick="switchRankingTab('elevation')">⛰️ Hoogte</button>
-                        <button class="sub-nav-btn" onclick="switchRankingTab('speed')">🚀 Max Snelheid</button>
-                        <button class="sub-nav-btn" onclick="switchRankingTab('suffer')">🥵 Suffer Score</button>
+                        <button class="sub-nav-btn active" onclick="switchRankingTab('segments')">Records</button>
+                        <button class="sub-nav-btn" onclick="switchRankingTab('distance')">Afstanden</button>
+                        <button class="sub-nav-btn" onclick="switchRankingTab('elevation')">Hoogte</button>
+                        <button class="sub-nav-btn" onclick="switchRankingTab('speed')">Max Snelheid</button>
+                        <button class="sub-nav-btn" onclick="switchRankingTab('suffer')">Suffer Score</button>
                     </div>
 
                     <div id="rank-tab-segments" class="rank-tab-content">
-                        <div class="ranking-controls"
-                            style="display:flex; gap:10px; background:var(--bg-card); padding:15px; border-radius:8px; margin-bottom:20px;">
-                            <select id="segmentSelector" class="segment-select" onchange="loadRankings()"></select>
-                            <select id="segmentTrendFilter" class="segment-select" onchange="loadRankings()">
-                                <option value="all">Trend: Alles</option>
-                                <option value="5">Trend: Laatste 5</option>
-                                <option value="10" selected>Trend: Laatste 10</option>
-                                <option value="20">Trend: Laatste 20</option>
+                        <div class="filter-controls margin-bottom">
+                            <select id="segmentSelector" class="input-select" onchange="loadRankings()"></select>
+
+                            <select id="segmentTopFilter" class="input-select" onchange="loadRankings()">
+                                <option value="all">Alles</option>
+                                <option value="5">Top 5</option>
+                                <option value="10" selected>Top 10</option>
+                                <option value="20">Top 20</option>
                             </select>
-                            <input type="number" id="segmentMaxElev" class="small-input" placeholder="Max Klim (m)"
+
+                            <input type="number" id="segmentMaxElev" class="input-text" placeholder="Max Klim (m)"
                                 oninput="loadRankings()">
                         </div>
-                        <div id="segment-progression-container" class="chart-box wide"
-                            style="height:300px; display:none;">
-                            <canvas id="segmentProgressionChart"></canvas>
+                        <div id="segment-progression-container" class="chart-box wide hidden section-spacing">
+                            <div class="chart-wrapper"><canvas id="segmentProgressionChart"></canvas></div>
                         </div>
-                        <div id="ranking-list" class="ranking-list">
+                        <div id="ranking-list" class="dashboard-list">
                             <div class="skeleton skeleton-list-item"></div>
                         </div>
                     </div>
 
                     <div id="rank-tab-distance" class="rank-tab-content hidden">
-                        <div class="ranking-controls">
-                            <select id="distanceTopFilter" class="segment-select"
-                                onchange="switchRankingTab('distance')">
+                        <div class="filter-controls margin-bottom">
+                            <select id="distanceTopFilter" class="input-select" onchange="switchRankingTab('distance')">
                                 <option value="all">Alles</option>
                                 <option value="5">Top 5</option>
                                 <option value="10">Top 10</option>
                             </select>
                         </div>
-                        <div class="chart-box wide"><canvas id="distanceTrendChart"></canvas></div>
+                        <div class="chart-box wide section-spacing">
+                            <div class="chart-wrapper"><canvas id="distanceTrendChart"></canvas></div>
+                        </div>
                         <div id="distance-table-body"></div>
                     </div>
 
                     <div id="rank-tab-elevation" class="rank-tab-content hidden">
-                        <div class="ranking-controls">
-                            <select id="elevationTopFilter" class="segment-select"
+                        <div class="filter-controls margin-bottom">
+                            <select id="elevationTopFilter" class="input-select"
                                 onchange="switchRankingTab('elevation')">
                                 <option value="all">Alles</option>
                                 <option value="5">Top 5</option>
                                 <option value="10">Top 10</option>
                             </select>
                         </div>
-                        <div class="chart-box wide"><canvas id="elevationTrendChart"></canvas></div>
+                        <div class="chart-box wide section-spacing">
+                            <div class="chart-wrapper"><canvas id="elevationTrendChart"></canvas></div>
+                        </div>
                         <div id="elevation-table-body"></div>
                     </div>
 
                     <div id="rank-tab-speed" class="rank-tab-content hidden">
-                        <div class="ranking-controls">
-                            <select id="speedTopFilter" class="segment-select" onchange="switchRankingTab('speed')">
+                        <div class="filter-controls margin-bottom">
+                            <select id="speedTopFilter" class="input-select" onchange="switchRankingTab('speed')">
                                 <option value="all">Alles</option>
                                 <option value="5">Top 5</option>
                                 <option value="10">Top 10</option>
                             </select>
                         </div>
-                        <div class="chart-box wide"><canvas id="speedTrendChart"></canvas></div>
+                        <div class="chart-box wide section-spacing">
+                            <div class="chart-wrapper"><canvas id="speedTrendChart"></canvas></div>
+                        </div>
                         <div id="speed-table-body"></div>
                     </div>
 
                     <div id="rank-tab-suffer" class="rank-tab-content hidden">
-                        <div class="ranking-controls">
-                            <select id="sufferTopFilter" class="segment-select" onchange="switchRankingTab('suffer')">
+                        <div class="filter-controls margin-bottom">
+                            <select id="sufferTopFilter" class="input-select" onchange="switchRankingTab('suffer')">
                                 <option value="all">Alles</option>
                                 <option value="5">Top 5</option>
                                 <option value="10">Top 10</option>
                             </select>
                         </div>
-                        <div class="chart-box wide"><canvas id="sufferTrendChart"></canvas></div>
+                        <div class="chart-box wide section-spacing">
+                            <div class="chart-wrapper"><canvas id="sufferTrendChart"></canvas></div>
+                        </div>
                         <div id="suffer-table-body"></div>
                     </div>
                 </div>
@@ -585,66 +523,45 @@
 
             <div id="view-municipalities" class="view-section hidden">
                 <div class="muni-container">
-                    <header class="view-header" style="padding: 20px; display:flex; flex-direction:column; gap:15px;">
-                        <div
-                            style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
-                            <h2>🌍 Wereld Jager</h2>
-
-                            <div class="mode-switcher">
-                                <button class="mode-btn active" onclick="setWorldMode('muni')">🏛️ Gemeentes</button>
-                                <button class="mode-btn" onclick="setWorldMode('heatmap')">🔥 Heatmap</button>
-                                <button class="mode-btn" onclick="setWorldMode('tiles')">🗺️ Tegels</button>
-                            </div>
+                    <header class="pad-view flex-header" style="padding-bottom: 16px;">
+                        <h2>Wereld Jager</h2>
+                        <div class="btn-group">
+                            <button class="btn-tab active mode-btn" onclick="setWorldMode('muni')">Gemeentes</button>
+                            <button class="btn-tab mode-btn" onclick="setWorldMode('heatmap')">Heatmap</button>
+                            <button class="btn-tab mode-btn" onclick="setWorldMode('tiles')">Tegels</button>
                         </div>
-
                         <div class="progress-wrapper">
                             <div class="progress-text" id="world-stats-text">Laden...</div>
                             <div class="progress-bar-bg">
                                 <div id="world-progress-fill" class="progress-bar-fill"></div>
                             </div>
                         </div>
-
-                        <div style="display:flex; justify-content:space-between; align-items:center;">
-                            <p id="muni-loading" style="display:none; color:var(--primary); margin:0;">⏳ Data
-                                verwerken...</p>
-
-                            <button id="world-action-btn" class="upload-btn"
-                                style="width:auto; padding:5px 15px; font-size:0.8rem; display:none;"
-                                onclick="drawHeatmap()">🚀 Genereer Heatmap</button>
+                        <div class="flex-row">
+                            <p id="muni-loading" class="primary-text hidden text-sm font-medium">Data verwerken...</p>
+                            <button id="world-action-btn" class="btn-primary hidden" onclick="drawHeatmap()">Genereer
+                                Heatmap</button>
                         </div>
                     </header>
-                    <div id="map-municipalities"></div>
+                    <div class="map-wrapper" style="flex: 1; min-height: 500px; position: relative;">
+                        <div id="map-municipalities"
+                            style="position: absolute; top:0; left:0; width:100%; height:100%;"></div>
+                    </div>
                 </div>
             </div>
 
         </div>
     </div>
 
-    <div id="badge-modal" class="modal" onclick="closeBadgeModal(event)">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h2><span id="modal-badge-title-icon">🏆</span> <span id="modal-badge-name">Badge Naam</span></h2>
-                <button class="close-modal" onclick="closeBadgeModal()">&times;</button>
-            </div>
-            <div class="modal-body">
-                <span id="modal-badge-icon">🥉</span>
-                <p id="modal-badge-desc">Hier komt de uitleg van hoe je deze badge hebt verdiend.</p>
-            </div>
-        </div>
-    </div>
-
     <div id="profile-modal" class="modal">
         <div class="modal-content">
             <div class="modal-header">
-                <h2>👤 Welkom bij de Community!</h2>
+                <h2>Welkom bij de Community</h2>
             </div>
-            <div class="modal-body" style="text-align: left;">
-                <p style="margin-bottom: 15px; color: var(--text-muted);">Kies een weergavenaam zodat andere fietsers je
-                    kunnen vinden.</p>
-                <input type="text" id="profile-name-input" class="search-bar"
-                    placeholder="Jouw Weergavenaam (bijv. Lars G)">
-                <button class="upload-btn" style="margin-top: 10px; background: var(--primary);"
-                    onclick="saveProfileName()">Opslaan & Verder</button>
+            <div class="modal-body">
+                <p class="sub-text margin-bottom">Kies een weergavenaam zodat andere fietsers je kunnen vinden.</p>
+                <input type="text" id="profile-name-input" class="input-text margin-bottom"
+                    placeholder="Jouw Weergavenaam">
+                <button class="btn-primary full-width" onclick="saveProfileName()">Opslaan & Verder</button>
             </div>
         </div>
     </div>
