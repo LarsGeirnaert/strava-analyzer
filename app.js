@@ -37,11 +37,47 @@ window.openRide = async function(activity) {
         if(sumDash) sumDash.classList.remove('hidden');
         if(mapView) mapView.classList.add('hidden');
 
-        if(window.populateRideSummary) window.populateRideSummary(activity);
+        // --- DE FIX: LAADSCHERM ---
+        // 1. We zetten direct de titel, maar we maken de statistieken leeg met een laad-animatie
+        document.getElementById('sum-title').innerText = activity.fileName || "Rit laden...";
+        document.getElementById('sum-date').innerText = "Gegevens berekenen...";
+        
+        const loaderHtml = `<span class="skeleton skeleton-val" style="width: 60px; height: 24px; display: inline-block;"></span>`;
+        document.getElementById('sum-dist').innerHTML = loaderHtml;
+        document.getElementById('sum-time').innerHTML = loaderHtml;
+        document.getElementById('sum-avg').innerHTML = loaderHtml;
+        document.getElementById('sum-max').innerHTML = loaderHtml;
+        document.getElementById('sum-elev').innerHTML = loaderHtml;
+        document.getElementById('sum-power').innerHTML = loaderHtml;
+        document.getElementById('sum-badges').innerHTML = '';
+        document.getElementById('sum-segments').innerHTML = '<p class="sub-text">Segmenten berekenen...</p>';
 
+        // 2. Haal de ruwe GPX file op uit de cloud
         const fileBlob = await window.supabaseAuth.getActivityFile(activity.id);
         const text = await fileBlob.text();
+        
+        // 3. Verwerk data en teken kaart (hier wordt de échte beweegtijd berekend)
         processGPXAndRender(text, activity.fileName, true, activity.summary);
+
+        // 4. Update de summary met de juiste gegevens en auto-fix de database
+        if (currentRideData && currentRideData.summary) {
+            const dbTime = activity.summary.durationSec || 0;
+            const realTime = currentRideData.summary.durationSec || 0;
+            
+            activity.summary = currentRideData.summary;
+            
+            if (Math.abs(dbTime - realTime) > 60) {
+                window.supabaseAuth.updateActivitySummary(activity.id, currentRideData.summary).catch(e => console.warn("Auto-fix mislukt:", e));
+                
+                if (allActivitiesCache) {
+                    const cacheIdx = allActivitiesCache.findIndex(a => a.id === activity.id);
+                    if(cacheIdx !== -1) allActivitiesCache[cacheIdx].summary = currentRideData.summary;
+                }
+            }
+        }
+
+        // 5. Vul nu pas écht de UI in met de 100% correcte cijfers (geen geflikker meer!)
+        if(window.populateRideSummary) window.populateRideSummary(activity);
 
         const saveSection = document.getElementById('save-section');
         if(saveSection) saveSection.classList.add('hidden');
@@ -139,8 +175,28 @@ function processGPXAndRender(xmlString, fileName, isExistingRide = false, existi
     document.getElementById('statsPanel')?.classList.remove('hidden');
     document.getElementById('chartsPanel')?.classList.remove('hidden');
     document.getElementById('current-segments-section')?.classList.remove('hidden');
+    
+    // --- START VAN DE FIX ---
     const saveSection = document.getElementById('save-section');
-    if(saveSection && !isExistingRide) saveSection.classList.remove('hidden');
+    if (saveSection) {
+        if (!isExistingRide) {
+            // Het is een nieuwe upload, toon de knop!
+            saveSection.classList.remove('hidden');
+            
+            // Haal de knop op en reset hem volledig
+            const saveBtn = document.getElementById('save-cloud-btn');
+            if (saveBtn) {
+                saveBtn.innerText = "Rit Opslaan";          // Reset tekst
+                saveBtn.disabled = false;                   // Maak weer klikbaar
+                saveBtn.classList.remove('btn-success');    // Haal de 'succes' kleur weg
+                saveBtn.classList.add('btn-primary');       // Zet de standaard kleur terug
+            }
+        } else {
+            // Het is een bestaande rit uit de cloud, verberg de opslaan knop
+            saveSection.classList.add('hidden');
+        }
+    }
+    // --- EINDE VAN DE FIX ---
 }
 
 function updateStats(dist, timeMs, speed, ele, power, maxSpeed) {
@@ -220,6 +276,9 @@ function parseGPXData(xmlString, fileName, isExistingRide = false) {
     let rawSpeeds = [], rawPowers = [];
     let totalDist = 0, elevationGain = 0;
     let startTime = null, endTime = null;
+    
+    // NIEUW: Teller voor de tijd dat je écht fietst
+    let movingTimeMs = 0; 
 
     const riderWeight = 75; const bikeWeight = 9; const totalWeight = riderWeight + bikeWeight;
 
@@ -248,7 +307,8 @@ function parseGPXData(xmlString, fileName, isExistingRide = false) {
                 const eleDiff = ele - prevEle;
                 if (eleDiff > 0) elevationGain += eleDiff;
 
-                const timeDiffHours = (t - times[i-1]) / 3600000;
+                const timeDiffMs = t - times[i-1];
+                const timeDiffHours = timeDiffMs / 3600000;
 
                 if (timeDiffHours > 0.0000001 && distDiff > 0) {
                     currentSpeed = distDiff / timeDiffHours;
@@ -256,6 +316,11 @@ function parseGPXData(xmlString, fileName, isExistingRide = false) {
 
                 if(currentSpeed > 100 || isNaN(currentSpeed)) {
                     currentSpeed = rawSpeeds[i-1] || 0;
+                }
+
+                // NIEUW: Als je sneller gaat dan 2 km/u, tel de tijd dan op bij de beweegtijd
+                if (currentSpeed > 2.0) {
+                    movingTimeMs += timeDiffMs;
                 }
 
                 const v = currentSpeed / 3.6;
@@ -287,8 +352,10 @@ function parseGPXData(xmlString, fileName, isExistingRide = false) {
     }
 
     const segments = calculateFastestSegments(distances, times);
-    const durationMs = (endTime - startTime);
-    const avgSpeed = durationMs > 0 ? totalDist / (durationMs / 3600000) : 0;
+    
+    // AANGEPAST: Gebruik nu movingTimeMs voor de gemiddelde snelheid!
+    const movingHours = movingTimeMs / 3600000;
+    const avgSpeed = movingHours > 0 ? totalDist / movingHours : 0;
 
     return {
         xmlString: xmlString,
@@ -296,14 +363,15 @@ function parseGPXData(xmlString, fileName, isExistingRide = false) {
         summary: {
             distanceKm: totalDist.toFixed(2),
             elevationGain: Math.round(elevationGain),
-            avgSpeed: avgSpeed.toFixed(1),
+            avgSpeed: avgSpeed.toFixed(1), // Dit klopt nu veel beter!
             maxSpeed: parseFloat(rideMaxSpeed.toFixed(1)),
-            durationSec: durationMs / 1000,
+            durationSec: movingTimeMs / 1000, // We slaan nu de BEWEEGTIJD op
+            elapsedSec: (endTime - startTime) / 1000, // En de originele verstreken tijd voor de zekerheid
             rideDate: startTime ? startTime.toISOString() : new Date().toISOString(),
             segments: segments,
             type: 'ride'
         },
-        uiData: { latlngs, elevations, distances, speeds: smoothSpeeds, powers: smoothPowers, durationMs }
+        uiData: { latlngs, elevations, distances, speeds: smoothSpeeds, powers: smoothPowers, durationMs: movingTimeMs }
     };
 }
 
@@ -484,23 +552,23 @@ window.updateSegmentsUI = function(segments) {
 function updateMap(latlngs) {
     if (!map || !latlngs || latlngs.length === 0) return;
 
+    if (window.resetPlayback) window.resetPlayback();
     if (polyline) map.removeLayer(polyline);
     if (segmentLayer) { map.removeLayer(segmentLayer); segmentLayer = null; }
 
-    polyline = L.polyline([], {color: '#FC5200', weight: 4, lineCap: 'round'}).addTo(map);
+    // Teken in één klap de volledige route (veel sneller!)
+    polyline = L.polyline(latlngs, {color: '#FC5200', weight: 4, lineCap: 'round'}).addTo(map);
 
     const boundsPolyline = L.polyline(latlngs);
     map.fitBounds(boundsPolyline.getBounds(), {
         paddingTopLeft: [20, 20],
-        paddingBottomRight: [20, 20], // FIX: Was [20, 280], is nu 20
+        paddingBottomRight: [20, 20],
         animate: true
     });
 
-    L.circleMarker(latlngs[0], { radius: 6, fillColor: "#fff", color: "#000", weight: 2, opacity: 1, fillOpacity: 1 }).addTo(map);
-
-    setTimeout(() => {
-        animatePathOnMap(latlngs, map, polyline);
-    }, 300); 
+    // Start- en eindpunt markeren
+    L.circleMarker(latlngs[0], { radius: 6, fillColor: "#10B981", color: "#fff", weight: 2, opacity: 1, fillOpacity: 1 }).addTo(map); // Groen (Start)
+    L.circleMarker(latlngs[latlngs.length - 1], { radius: 6, fillColor: "#EF4444", color: "#fff", weight: 2, opacity: 1, fillOpacity: 1 }).addTo(map); // Rood (Eind)
 }
 
 function highlightSegment(startIdx, endIdx, dist) {
@@ -626,3 +694,103 @@ window.fixMaxSpeeds = async function() {
 };
 
 window.parseGPXData = parseGPXData;
+
+// --- AFSPEEL VARIABELEN & FUNCTIES ---
+let playbackAnimationId = null;
+let playbackIndex = 0;
+let isPlaying = false;
+let playbackSpeedSetting = 10; // Standaard op 10x
+let playbackPolyline = null;   // NIEUW: De groeiende lijn
+
+// Luistert naar het dropdown menu
+window.changePlaybackSpeed = function() {
+    const select = document.getElementById('playback-speed');
+    if (select) {
+        playbackSpeedSetting = parseFloat(select.value);
+    }
+};
+
+window.togglePlayback = function() {
+    if (!currentRideData || !currentRideData.uiData || !currentRideData.uiData.latlngs) return;
+    
+    const btn = document.getElementById('playback-btn');
+    
+    if (isPlaying) {
+        // Pauzeren
+        isPlaying = false;
+        cancelAnimationFrame(playbackAnimationId);
+        btn.innerHTML = '▶ Hervatten';
+    } else {
+        // Afspelen
+        isPlaying = true;
+        btn.innerHTML = '⏸ Pauze';
+        
+        // Reset als hij aan het einde was
+        if (playbackIndex >= currentRideData.uiData.latlngs.length - 1) {
+            playbackIndex = 0; 
+        }
+
+        // NIEUW: Verberg de volledige route van de kaart
+        if (polyline && map.hasLayer(polyline)) {
+            map.removeLayer(polyline);
+        }
+
+        // NIEUW: Maak de "groeiende" lijn aan als deze nog niet bestaat
+        if (!playbackPolyline) {
+            playbackPolyline = L.polyline([], {color: '#FC5200', weight: 4, lineCap: 'round'}).addTo(map);
+        } else if (!map.hasLayer(playbackPolyline)) {
+            playbackPolyline.addTo(map);
+        }
+
+        animatePlayback();
+    }
+};
+
+window.resetPlayback = function() {
+    isPlaying = false;
+    cancelAnimationFrame(playbackAnimationId);
+    playbackIndex = 0;
+    
+    const btn = document.getElementById('playback-btn');
+    if(btn) btn.innerHTML = '▶ Speel Af';
+    
+    hidePointOnMap(); 
+
+    // NIEUW: Verwijder de groeiende lijn en herstel de volledige route
+    if (playbackPolyline && map.hasLayer(playbackPolyline)) {
+        map.removeLayer(playbackPolyline);
+        playbackPolyline.setLatLngs([]); // Maak hem leeg voor de volgende keer
+    }
+    if (polyline && !map.hasLayer(polyline)) {
+        polyline.addTo(map);
+    }
+};
+
+function animatePlayback() {
+    if (!isPlaying || !currentRideData || !map) return;
+    
+    const latlngs = currentRideData.uiData.latlngs;
+    
+    const baseSpeedMultiplier = Math.max(0.1, (latlngs.length / 400) / 10); 
+    playbackIndex += (baseSpeedMultiplier * playbackSpeedSetting);
+    
+    if (playbackIndex >= latlngs.length - 1) {
+        playbackIndex = latlngs.length - 1;
+        isPlaying = false;
+        document.getElementById('playback-btn').innerHTML = '🔄 Opnieuw';
+    }
+    
+    const currentIndex = Math.floor(playbackIndex);
+
+    // NIEUW: Laat de lijn groeien tot het huidige punt!
+    if (playbackPolyline) {
+        const currentPath = latlngs.slice(0, currentIndex + 1);
+        playbackPolyline.setLatLngs(currentPath);
+    }
+
+    showPointOnMap(currentIndex);
+
+    if (isPlaying) {
+        playbackAnimationId = requestAnimationFrame(animatePlayback);
+    }
+}

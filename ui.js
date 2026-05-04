@@ -290,7 +290,6 @@ async function updateDashboard() {
     document.getElementById('total-dist').innerHTML = loaders;
     document.getElementById('total-elev').innerHTML = loaders;
     document.getElementById('total-rides').innerHTML = loaders;
-    if(document.getElementById('total-tiles')) document.getElementById('total-tiles').innerHTML = loaders;
 
     allActivitiesCache = await window.supabaseAuth.listActivities();
     const realRides = allActivitiesCache.filter(a => a.summary.type !== 'route');
@@ -306,14 +305,6 @@ async function updateDashboard() {
     document.getElementById('total-rides').innerText = realRides.length;
 
     const user = window.supabaseAuth.getCurrentUser();
-    const cacheKey = `heatmap_coords_${user.id}`;
-    const heatmapCache = JSON.parse(localStorage.getItem(cacheKey) || "{}");
-    const uniqueTiles = new Set();
-    Object.values(heatmapCache).forEach(points => {
-        points.forEach(p => { uniqueTiles.add(`${Math.floor(p[0] * 100) / 100},${Math.floor(p[1] * 100) / 100}`); });
-    });
-    if(document.getElementById('total-tiles')) animateValue("total-tiles", 0, uniqueTiles.size, 1000, "");
-
     const hour = new Date().getHours();
     let greeting = "Goedenacht";
     if (hour >= 6 && hour < 12) greeting = "Goedemorgen";
@@ -707,11 +698,41 @@ function renderDistributionChart(activities) {
     });
 }
 
+let muniBaseLayer = null;
+
 async function initMuniMap() {
-    if (muniMap) { muniMap.invalidateSize(); return; }
-    muniMap = L.map('map-municipalities').setView([50.85, 4.35], 8);
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png').addTo(muniMap);
-    loadFeatures();
+    if (muniMap) { 
+        muniMap.invalidateSize(); 
+        updateMuniMapTheme(); 
+        return; 
+    }
+    muniMap = L.map('map-municipalities').setView([51.185, 3.565], 11);
+    updateMuniMapTheme();
+}
+
+// Nieuwe helper functie om de juiste kaart te laden
+function updateMuniMapTheme() {
+    if (!muniMap) return;
+    
+    const isDark = document.body.classList.contains('dark-mode');
+    const tileUrl = isDark 
+        ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png' 
+        : 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png';
+    
+    // Verwijder oude laag als die bestaat
+    if (muniBaseLayer) {
+        muniMap.removeLayer(muniBaseLayer);
+    }
+    
+    // Voeg nieuwe correcte laag toe
+    muniBaseLayer = L.tileLayer(tileUrl, { 
+        attribution: '©OpenStreetMap, ©CartoDB' 
+    }).addTo(muniMap);
+    
+    // Zorg dat de oranje heatmap lijnen ALTIJD bovenop de base map blijven
+    if (heatmapLayerGroup) {
+        heatmapLayerGroup.bringToFront();
+    }
 }
 
 async function loadFeatures() {
@@ -832,7 +853,10 @@ window.triggerUpload = () => document.getElementById('gpxInput').click();
 window.toggleTheme = () => {
     document.body.classList.toggle('dark-mode');
     localStorage.setItem('theme', document.body.classList.contains('dark-mode') ? 'dark' : 'light');
+    
     if (window.updateDashboard) window.updateDashboard();
+    // NIEUW: Update de heatmap kaart direct als het thema wijzigt
+    if (typeof updateMuniMapTheme === 'function') updateMuniMapTheme(); 
 };
 
 window.toggleTiles = function() {
@@ -885,27 +909,20 @@ function drawTilesOnMap() {
 }
 
 window.setWorldMode = function(mode) {
-    currentWorldMode = mode;
-    document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
-    const activeBtn = document.querySelector(`.mode-btn[onclick="setWorldMode('${mode}')"]`);
-    if(activeBtn) activeBtn.classList.add('active');
-
+    // We negeren de mode parameter omdat we nu alleen heatmap hebben
+    currentWorldMode = 'heatmap';
+    
+    // UI opschonen
     if(geoJsonLayer) muniMap.removeLayer(geoJsonLayer);
-    if(heatmapLayerGroup) muniMap.removeLayer(heatmapLayerGroup);
     if(tileLayerGroup) muniMap.removeLayer(tileLayerGroup);
 
-    document.getElementById('world-action-btn').style.display = 'none';
-    document.getElementById('muni-loading').style.display = 'none';
-
-    if (mode === 'muni') {
-        loadFeatures();
-    } else if (mode === 'heatmap') {
-        document.getElementById('world-action-btn').style.display = 'inline-block';
-        updateWorldStats('heatmap');
-        const user = window.supabaseAuth.getCurrentUser();
-        if(localStorage.getItem(`heatmap_coords_${user.id}`)) drawHeatmap();
-    } else if (mode === 'tiles') {
-        drawTiles(); 
+    // Direct heatmap tekenen als we data hebben
+    const user = window.supabaseAuth.getCurrentUser();
+    if(localStorage.getItem(`heatmap_coords_${user.id}`)) {
+        drawHeatmap();
+    } else {
+        // Indien geen cache, laat de gebruiker op de knop drukken of trigger automatisch
+        drawHeatmap();
     }
 };
 
@@ -926,67 +943,162 @@ function updateWorldStats(mode, count = 0, total = 0) {
     }
 }
 
+let currentHeatmapMode = 'frequency';
+
+// Nieuwe functie: Luistert naar de dropdown
+window.changeHeatmapMode = function() {
+    const select = document.getElementById('heatmap-mode');
+    if (select) currentHeatmapMode = select.value;
+    
+    // Alleen opnieuw tekenen als er al een kaart open staat
+    if (heatmapLayerGroup && heatmapLayerGroup.getLayers().length > 0) {
+        drawHeatmap();
+    }
+};
+
+// Helper: Blauwe weergave voor Snelheid (zoals Afb 2)
+function getSpeedColor(speed) {
+    if (speed > 32) return '#ffffff'; // Wit (Sprint / Zeer snel)
+    if (speed > 27) return '#66ccff'; // Helder lichtblauw (Vlot)
+    if (speed > 22) return '#0088ff'; // Blauw (Gemiddeld)
+    if (speed > 16) return '#0033aa'; // Donkerblauw (Rustig)
+    return '#001144';                 // Zeer donkerblauw (Traag)
+}
+
+// Helper: Rode weergave voor Klim% (zoals Afb 3)
+function getGradientColor(grad) {
+    if (grad > 8) return '#ffffff';  // Wit (Muur / Zeer steil)
+    if (grad > 5) return '#ff8888';  // Lichtrood/Roze (Steil)
+    if (grad > 2) return '#ff0000';  // Helder Rood (Bergop)
+    if (grad > -2) return '#880000'; // Donkerrood (Vlak / Vals plat)
+    return '#330000';                // Zeer donkerrood (Dalen)
+}
+
+// De vernieuwde tekenfunctie
 window.drawHeatmap = async function() {
-    document.getElementById('muni-loading').style.display = 'block';
+    const loader = document.getElementById('muni-loading');
+    if(loader) loader.classList.remove('hidden');
 
     if(heatmapLayerGroup) muniMap.removeLayer(heatmapLayerGroup);
     heatmapLayerGroup = L.layerGroup().addTo(muniMap);
 
     let acts = allActivitiesCache || await window.supabaseAuth.listActivities();
-    acts = acts.filter(a => a.summary.type !== 'route');
+    acts = acts.filter(a => a.summary.type !== 'route' && a.summary.distanceKm > 0);
 
     const user = window.supabaseAuth.getCurrentUser();
-    const cacheKey = `heatmap_coords_${user.id}`;
+    const cacheKey = `heatmap_data_v2_${user.id}`; 
     let cached = JSON.parse(localStorage.getItem(cacheKey) || "{}");
+    let cacheUpdated = false;
 
-    for (let i = 0; i < acts.length; i++) {
-        let pts = cached[acts[i].id];
+    for (let act of acts) {
+        let pts = cached[act.id];
+        
         if (!pts) {
             try {
-                const b = await window.supabaseAuth.getActivityFile(acts[i].id);
+                const b = await window.supabaseAuth.getActivityFile(act.id);
                 const t = await b.text();
-                const c = []; const r = /lat="([\d\.-]+)"\s+lon="([\d\.-]+)"/g; let m;
-                while ((m = r.exec(t)) !== null) c.push([parseFloat(m[1]), parseFloat(m[2])]);
-                pts = c.filter((_, idx) => idx % 10 === 0);
-                cached[acts[i].id] = pts;
-            } catch (e) {}
+                const parsed = window.parseGPXData(t, act.fileName, true);
+                
+                if (parsed && parsed.uiData) {
+                    pts = [];
+                    const { latlngs, speeds, elevations, distances } = parsed.uiData;
+                    
+                    for(let j = 0; j < latlngs.length; j += 5) {
+                        let grad = 0;
+                        if (j >= 5 && distances[j] > distances[j-5]) {
+                            const distDiff = distances[j] - distances[j-5];
+                            const eleDiff = elevations[j] - elevations[j-5];
+                            grad = (eleDiff / (distDiff * 1000)) * 100; 
+                        }
+                        
+                        pts.push([
+                            parseFloat(latlngs[j][0].toFixed(5)), 
+                            parseFloat(latlngs[j][1].toFixed(5)), 
+                            parseFloat((speeds[j] || 0).toFixed(1)), 
+                            parseFloat(grad.toFixed(1))           
+                        ]);
+                    }
+                    cached[act.id] = pts;
+                    cacheUpdated = true;
+                }
+            } catch (e) { console.error("Fout bij inladen rit voor heatmap:", e); }
         }
-        if (pts) L.polyline(pts, { color: '#FC5200', opacity: 0.35, weight: 2.5 }).addTo(heatmapLayerGroup);
+
+        if (pts && pts.length > 0) {
+            if (currentHeatmapMode === 'frequency') {
+                // Modus 1: Frequentie (Afb 1) - Diep oranje met glow
+                const coords = pts.map(p => [p[0], p[1]]);
+                L.polyline(coords, { 
+                    color: '#ff4400', 
+                    weight: 3, 
+                    opacity: 0.15, // Laag gehouden zodat het overlappend licht opbouwt!
+                    lineCap: 'round',
+                    lineJoin: 'round',
+                    className: 'heatmap-glow',
+                    interactive: false
+                }).addTo(heatmapLayerGroup);
+            } else {
+                // Modus 2 & 3: Snelheid (Afb 2) & Klimmen (Afb 3)
+                let currentBucketCoords = [];
+                let currentColor = null;
+
+                for (let i = 0; i < pts.length; i++) {
+                    const p = pts[i];
+                    const coord = [p[0], p[1]];
+                    const pointColor = currentHeatmapMode === 'speed' ? getSpeedColor(p[2]) : getGradientColor(p[3]);
+
+                    if (currentColor === null) {
+                        currentColor = pointColor;
+                        currentBucketCoords.push(coord);
+                    } else if (currentColor === pointColor) {
+                        currentBucketCoords.push(coord);
+                    } else {
+                        currentBucketCoords.push(coord); 
+                        L.polyline(currentBucketCoords, { 
+                            color: currentColor, 
+                            weight: 3, 
+                            opacity: 0.5, // Hoger want we willen hier de kleurwaarde goed zien
+                            lineCap: 'round',
+                            lineJoin: 'round',
+                            className: 'heatmap-value-line',
+                            interactive: false
+                        }).addTo(heatmapLayerGroup);
+                        
+                        currentBucketCoords = [coord];
+                        currentColor = pointColor;
+                    }
+                }
+                if (currentBucketCoords.length > 1) {
+                    L.polyline(currentBucketCoords, { 
+                        color: currentColor, 
+                        weight: 3, 
+                        opacity: 0.5,
+                        lineCap: 'round',
+                        lineJoin: 'round',
+                        className: 'heatmap-value-line',
+                        interactive: false
+                    }).addTo(heatmapLayerGroup);
+                }
+            }
+        }
     }
 
-    localStorage.setItem(cacheKey, JSON.stringify(cached));
-    document.getElementById('muni-loading').style.display = 'none';
+    if (cacheUpdated) {
+        try {
+            localStorage.setItem(cacheKey, JSON.stringify(cached));
+        } catch(e) {
+            localStorage.removeItem(`heatmap_coords_${user.id}`);
+            localStorage.setItem(cacheKey, JSON.stringify(cached));
+        }
+    }
+
+    if(loader) loader.classList.add('hidden');
+    
+    if (heatmapLayerGroup.getLayers().length > 0) {
+        const bounds = L.featureGroup(heatmapLayerGroup.getLayers()).getBounds();
+        muniMap.flyToBounds(bounds, { padding: [30, 30] });
+    }
 };
-
-function drawTiles() {
-    const user = window.supabaseAuth.getCurrentUser();
-    const cacheKey = `heatmap_coords_${user.id}`;
-    const heatmapCache = JSON.parse(localStorage.getItem(cacheKey) || "{}");
-
-    const uniqueTiles = new Set();
-    Object.values(heatmapCache).forEach(points => {
-        points.forEach(p => {
-            const latGrid = Math.floor(p[0] * 100) / 100;
-            const lonGrid = Math.floor(p[1] * 100) / 100;
-            uniqueTiles.add(`${latGrid},${lonGrid}`);
-        });
-    });
-
-    if(tileLayerGroup) muniMap.removeLayer(tileLayerGroup);
-    tileLayerGroup = L.layerGroup().addTo(muniMap);
-
-    uniqueTiles.forEach(coordKey => {
-        const [lat, lon] = coordKey.split(',').map(parseFloat);
-        const bounds = [[lat, lon], [lat + 0.01, lon + 0.01]];
-        L.rectangle(bounds, { color: "#00acc1", weight: 1, fillColor: "#00acc1", fillOpacity: 0.3 }).addTo(tileLayerGroup);
-    });
-
-    updateWorldStats('tiles', uniqueTiles.size);
-    if(uniqueTiles.size > 0) {
-        const first = Array.from(uniqueTiles)[0].split(',').map(parseFloat);
-        muniMap.setView(first, 10);
-    }
-}
 
 function updateStats(dist, timeMs, speed, ele, power, maxSpeed) { 
     const d = document.getElementById('statDist');
@@ -1180,25 +1292,13 @@ window.populateRideSummary = function(act) {
 
     document.getElementById('sum-dist').innerHTML = `${parseFloat(act.summary.distanceKm).toFixed(1)} <small>km</small>`;
 
+    // WATERDICHTE TIJDSBEREKENING
     let timeStr = "0:00";
-    let elapsedHours = 0;
-    let movingHours = 0;
-
     if (act.summary.durationSec) {
-        elapsedHours = act.summary.durationSec / 3600;
-        const h = Math.floor(elapsedHours);
+        // durationSec is dankzij de eerdere fix nu gegarandeerd de zuivere beweegtijd
+        const h = Math.floor(act.summary.durationSec / 3600);
         const m = Math.floor((act.summary.durationSec % 3600) / 60);
         timeStr = `${h}:${m.toString().padStart(2, '0')}`;
-    }
-
-    if (act.summary.distanceKm && act.summary.avgSpeed) {
-        movingHours = act.summary.distanceKm / act.summary.avgSpeed;
-        if (elapsedHours === 0) {
-            elapsedHours = movingHours;
-            const h = Math.floor(elapsedHours);
-            const m = Math.floor((elapsedHours % 1) * 60);
-            timeStr = `${h}:${m.toString().padStart(2, '0')}`;
-        }
     }
 
     document.getElementById('sum-time').innerText = timeStr;
@@ -1215,6 +1315,7 @@ window.populateRideSummary = function(act) {
     act.summary.avgPower = Math.round(powerW);
     document.getElementById('sum-power').innerHTML = `${act.summary.avgPower} <small>W</small>`;
 
+    // --- (De rest van je badges en segmenten code blijft hier ongewijzigd) ---
     const badgesContainer = document.getElementById('sum-badges');
     badgesContainer.innerHTML = '';
     if (allActivitiesCache) {
@@ -1230,7 +1331,7 @@ window.populateRideSummary = function(act) {
         badgesContainer.innerHTML += createBadge(distIdx, 'Langste Rit');
 
         const elevIdx = [...rides].sort((a,b) => (parseFloat(b.summary.elevationGain)||0) - (parseFloat(a.summary.elevationGain)||0)).findIndex(a => a.id === act.id);
-        if ((parseFloat(act.summary.elevationGain)||0) > 0) badgesContainer.innerHTML += createBadge(elevIdx, 'Hoogste Rit');
+        if ((parseFloat(act.summary.elevationGain)||0) > 50) badgesContainer.innerHTML += createBadge(elevIdx, 'Hoogste Rit');
 
         const spdIdx = [...rides].sort((a,b) => (parseFloat(b.summary.avgSpeed)||0) - (parseFloat(a.summary.avgSpeed)||0)).findIndex(a => a.id === act.id);
         badgesContainer.innerHTML += createBadge(spdIdx, 'Snelste Rit');
@@ -1465,6 +1566,9 @@ window.showMapAnalysis = function() {
 
 
 window.backToSummary = function() {
+    // NIEUW: Stop afspelen als je het scherm sluit
+    if (window.resetPlayback) window.resetPlayback(); 
+    
     document.getElementById('ride-map-view').classList.add('hidden');
     document.getElementById('ride-summary-dashboard').classList.remove('hidden');
 };

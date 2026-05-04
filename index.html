@@ -21,19 +21,33 @@
 <body class="dark-mode">
 
     <div id="login-screen" class="login-container">
-        <div class="login-box">
+        <div class="login-glass-bg"></div> <!-- Extra element voor animatie/blur -->
+        <div class="login-box animate-pop">
+            <div class="brand-badge">BETA</div>
             <h1>Strava 3.0</h1>
-            <p id="auth-title" class="sub-text">Log in om verder te gaan</p>
-            <input type="email" id="email" placeholder="Email adres" class="input-text">
-            <input type="password" id="password" placeholder="Wachtwoord" class="input-text">
-            <button id="auth-action-btn" class="btn-primary full-width">Inloggen</button>
+            <p id="auth-title" class="sub-text">Welkom terug, fietser!</p>
+
+            <div class="input-group">
+                <input type="email" id="email" placeholder="Email adres" class="input-text">
+                <span class="input-icon">✉</span>
+            </div>
+
+            <div class="input-group">
+                <input type="password" id="password" placeholder="Wachtwoord" class="input-text">
+                <span class="input-icon">🔒</span>
+            </div>
+
+            <button id="auth-action-btn" class="btn-primary full-width shadow-orange">Inloggen</button>
+
             <p id="auth-error" class="error-msg"></p>
-            <div class="auth-toggle-container">
-                <span id="auth-toggle-text" class="sub-text">Nog geen account?</span>
-                <a href="#" id="toggle-auth-btn" class="auth-link primary-text">Maak account</a>
+
+            <div class="auth-footer">
+                <span id="auth-toggle-text">Nog geen account?</span>
+                <a href="#" id="toggle-auth-btn" class="auth-link">Maak account</a>
             </div>
         </div>
     </div>
+
 
     <div class="app-container hidden">
 
@@ -77,13 +91,6 @@
                     </header>
 
                     <div class="dashboard-grid">
-                        <div class="dash-card stat-total pop-in" style="animation-delay: 0.1s;"
-                            onclick="switchTab('municipalities'); setTimeout(() => setWorldMode('tiles'), 100);">
-                            <div class="dash-info">
-                                <h3>Explorer Tiles</h3>
-                                <p id="total-tiles"><span class="skeleton skeleton-val"></span></p>
-                            </div>
-                        </div>
                         <div class="dash-card stat-total pop-in" style="animation-delay: 0.1s;"
                             onclick="switchTab('rankings'); switchRankingTab('distance');">
                             <div class="dash-info">
@@ -381,6 +388,22 @@
                         <button class="btn-secondary full-width margin-bottom" onclick="backToSummary()">Terug naar
                             Overzicht</button>
 
+                        <!-- NIEUW: Afspeel Controls met Snelheid -->
+                        <div class="margin-bottom" style="display: flex; gap: 10px; align-items: center;">
+                            <button id="playback-btn" class="btn-primary" style="flex: 1;" onclick="togglePlayback()">▶
+                                Speel Af</button>
+                            <button class="btn-secondary" style="padding: 0 15px;" onclick="resetPlayback()">⏹</button>
+
+                            <select id="playback-speed" class="input-select" style="width: auto; padding: 6px 10px;"
+                                onchange="changePlaybackSpeed()">
+                                <option value="1">1x Snelheid</option>
+                                <option value="2">2x Snelheid</option>
+                                <option value="3">3x Snelheid</option>
+                                <option value="5">5x Snelheid</option>
+                                <option value="10" selected>10x Snelheid (Max)</option>
+                            </select>
+                        </div>
+
                         <div class="upload-section hidden" id="manual-upload-section">
                             <input type="file" id="gpxInput" multiple class="hidden-input">
                             <label for="gpxInput" class="btn-secondary full-width margin-bottom">Kies Bestanden</label>
@@ -523,28 +546,37 @@
 
             <div id="view-municipalities" class="view-section hidden">
                 <div class="muni-container">
-                    <header class="pad-view flex-header" style="padding-bottom: 16px;">
-                        <h2>Wereld Jager</h2>
-                        <div class="btn-group">
-                            <button class="btn-tab active mode-btn" onclick="setWorldMode('muni')">Gemeentes</button>
-                            <button class="btn-tab mode-btn" onclick="setWorldMode('heatmap')">Heatmap</button>
-                            <button class="btn-tab mode-btn" onclick="setWorldMode('tiles')">Tegels</button>
-                        </div>
-                        <div class="progress-wrapper">
-                            <div class="progress-text" id="world-stats-text">Laden...</div>
-                            <div class="progress-bar-bg">
-                                <div id="world-progress-fill" class="progress-bar-fill"></div>
+                    <header class="pad-view flex-header">
+                        <div>
+                            <h2>Heatmap Verkenner</h2>
+                            <p class="sub-text">Je volledige fietsgeschiedenis op één kaart</p>
+
+                            <!-- NIEUW: Dropdown voor de heatmap modi -->
+                            <div class="heatmap-filters"
+                                style="display: flex; gap: 10px; align-items: center; margin-top: 15px;">
+                                <label class="sub-text font-medium">Kleurcodering:</label>
+                                <select id="heatmap-mode" class="input-select" onchange="changeHeatmapMode()"
+                                    style="width: auto; padding: 6px 12px;">
+                                    <option value="frequency">Frequentie (Vaak = Feller)</option>
+                                    <option value="speed">Snelheid (Groen = Snel, Rood = Traag)</option>
+                                    <option value="gradient">Klim % (Rood = Steil, Blauw = Dalen)</option>
+                                </select>
                             </div>
                         </div>
-                        <div class="flex-row">
-                            <p id="muni-loading" class="primary-text hidden text-sm font-medium">Data verwerken...</p>
-                            <button id="world-action-btn" class="btn-primary hidden" onclick="drawHeatmap()">Genereer
-                                Heatmap</button>
+                        <div class="world-actions">
+                            <button id="world-action-btn" class="btn-primary" onclick="drawHeatmap()">
+                                <span class="icon">🔄</span> Bereken Heatmap
+                            </button>
                         </div>
+                    </header>
                     </header>
                     <div class="map-wrapper" style="flex: 1; min-height: 500px; position: relative;">
                         <div id="map-municipalities"
                             style="position: absolute; top:0; left:0; width:100%; height:100%;"></div>
+                        <div id="muni-loading" class="map-overlay-loader hidden">
+                            <div class="spinner"></div>
+                            <p>Data ophalen uit de cloud...</p>
+                        </div>
                     </div>
                 </div>
             </div>
