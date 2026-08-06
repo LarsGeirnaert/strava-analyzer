@@ -12,13 +12,20 @@
 
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <link rel="stylesheet" href="style.css">
+    <script>
+    if (localStorage.getItem('theme') === 'light') {
+        document.documentElement.classList.remove('dark-mode');
+    } else {
+        document.documentElement.classList.add('dark-mode'); 
+    }
+    </script>
 
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js"></script>
     <script src="https://unpkg.com/topojson-client@3"></script>
 </head>
 
-<body class="dark-mode">
+<body>
 
     <div id="login-screen" class="login-container">
         <div class="login-glass-bg"></div> <!-- Extra element voor animatie/blur -->
@@ -154,8 +161,13 @@
                     <div class="recent-section animate-in">
                         <div class="flex-header margin-bottom">
                             <h3>Activiteiten</h3>
-                            <button id="delete-btn" class="btn-danger hidden" onclick="deleteSelectedRides()">Selectie
-                                Verwijderen</button>
+                            <div style="display: flex; gap: 10px;">
+                                <!-- NIEUW: Vergelijk knop -->
+                                <button id="compare-btn" class="btn-primary hidden"
+                                    onclick="compareSelectedRides()">Vergelijk (2)</button>
+                                <button id="delete-btn" class="btn-danger hidden"
+                                    onclick="deleteSelectedRides()">Selectie Verwijderen</button>
+                            </div>
                         </div>
                         <input type="text" id="activity-search" class="search-bar margin-bottom"
                             placeholder="Zoek op naam..." onkeyup="filterActivities()">
@@ -170,6 +182,55 @@
                             <button id="next-page-btn" class="btn-secondary"
                                 onclick="changeActivityPage(1)">Volgende</button>
                         </div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="view-compare" class="view-section hidden">
+                <div class="pad-view limit-width-large">
+                    <button class="btn-secondary margin-bottom" onclick="switchTab('dashboard')">Terug naar
+                        Dashboard</button>
+                    <header class="view-header margin-bottom">
+                        <h2>Ritten Vergelijken</h2>
+                    </header>
+
+                    <div class="dashboard-grid margin-bottom">
+                        <!-- Rit 1 -->
+                        <div class="dash-card" style="border-top: 4px solid #FC5200;">
+                            <h3 id="comp-name-1">Rit 1</h3>
+                            <p class="sub-text margin-bottom" id="comp-date-1">Datum</p>
+                            <div class="stat-row"><span>Afstand:</span> <strong id="comp-dist-1" class="primary-text">0
+                                    km</strong></div>
+                            <div class="stat-row"><span>Tijd:</span> <strong id="comp-time-1">0:00</strong></div>
+                            <div class="stat-row"><span>Gem. Snelheid:</span> <strong id="comp-avg-1">0 km/u</strong>
+                            </div>
+                            <div class="stat-row"><span>Max Snelheid:</span> <strong id="comp-max-1">0 km/u</strong>
+                            </div>
+                            <div class="stat-row"><span>Hoogte:</span> <strong id="comp-elev-1">0 m</strong></div>
+                        </div>
+                        <!-- Rit 2 -->
+                        <div class="dash-card" style="border-top: 4px solid #3B82F6;">
+                            <h3 id="comp-name-2">Rit 2</h3>
+                            <p class="sub-text margin-bottom" id="comp-date-2">Datum</p>
+                            <div class="stat-row"><span>Afstand:</span> <strong id="comp-dist-2"
+                                    style="color: #3B82F6;">0 km</strong></div>
+                            <div class="stat-row"><span>Tijd:</span> <strong id="comp-time-2">0:00</strong></div>
+                            <div class="stat-row"><span>Gem. Snelheid:</span> <strong id="comp-avg-2">0 km/u</strong>
+                            </div>
+                            <div class="stat-row"><span>Max Snelheid:</span> <strong id="comp-max-2">0 km/u</strong>
+                            </div>
+                            <div class="stat-row"><span>Hoogte:</span> <strong id="comp-elev-2">0 m</strong></div>
+                        </div>
+                    </div>
+
+                    <!-- De gedeelde kaart -->
+                    <div id="map-compare" class="map-container margin-bottom"
+                        style="height: 450px; border-radius: 12px;"></div>
+
+                    <!-- De grafiek -->
+                    <div class="chart-box wide section-spacing">
+                        <h4 class="text-center margin-bottom sub-text">Snelheidsverloop (km/u) over Afstand (km)</h4>
+                        <div class="chart-wrapper"><canvas id="compareSpeedChart"></canvas></div>
                     </div>
                 </div>
             </div>
@@ -315,27 +376,40 @@
                 <div class="analysis-layout">
                     <aside class="inner-sidebar">
                         <h2>Route Planner</h2>
-                        <p class="sub-text margin-bottom">Klik op de kaart om te tekenen. Sleep punten om aan te passen.
-                        </p>
+                        <p class="sub-text margin-bottom">Klik op de kaart om te tekenen. Sleep punten om aan te passen.</p>
 
                         <div class="stats-grid margin-bottom">
-                            <div class="stat-widget"><span class="stat-label">Afstand</span><span
-                                    class="stat-value"><span id="routeDist">0</span> <small>km</small></span></div>
-                            <div class="stat-widget"><span class="stat-label">Tijd (22km/u)</span><span
-                                    class="stat-value" id="routeTime">0:00</span></div>
-                            <div class="stat-widget"><span class="stat-label">Hoogtemeters</span><span
-                                    class="stat-value"><span id="routeElev">0</span> <small>m</small></span></div>
+                            <div class="stat-widget">
+                                <span class="stat-label">Afstand</span>
+                                <span class="stat-value"><span id="routeDist">0</span> <small>km</small></span>
+                            </div>
+                            <div class="stat-widget">
+                                <span class="stat-label">Tijd (<span id="pred-speed">--</span> km/u)</span>
+                                <span class="stat-value" id="routeTime">0:00</span>
+                            </div>
+                            <div class="stat-widget">
+                                <span class="stat-label">Hoogtemeters</span>
+                                <span class="stat-value"><span id="routeElev">0</span> <small>m</small></span>
+                            </div>
+                        </div>
+
+                        <!-- Actuele Wind Widget (past zich aan op route) -->
+                        <div class="stat-widget margin-bottom" style="background: rgba(59, 130, 246, 0.1); border-color: #3B82F6;">
+                            <span class="stat-label" id="routeWindLabel" style="color: #3B82F6;">Actuele Wind</span>
+                            <span class="stat-value" id="routeWindInfo" style="font-size: 1rem;">Teken route voor weer</span>
                         </div>
 
                         <div class="btn-group margin-bottom">
-                            <button class="btn-secondary" style="flex:1;" onclick="undoLastRoutePoint()">Stap
-                                Terug</button>
-                            <button class="btn-secondary" style="flex:1;" onclick="clearRoute()">Nieuw</button>
+                            <button class="btn-secondary" style="flex:1;" onclick="undoLastRoutePoint()">Stap Terug</button>
+                            <button class="btn-secondary" style="flex:1;" onclick="clearRoute()">Wis Alles</button>
                         </div>
-                        <input type="text" id="route-name-input" placeholder="Naam van je route..."
-                            class="input-text margin-bottom">
-                        <button id="save-route-btn" class="btn-success full-width margin-bottom"
-                            onclick="saveCreatedRoute()">Route Opslaan</button>
+                        
+                        <input type="text" id="route-name-input" placeholder="Naam van je route..." class="input-text margin-bottom">
+                        
+                        <div class="btn-group margin-bottom" style="gap: 10px; background: transparent; border: none;">
+                            <button id="save-route-btn" class="btn-success" style="flex:2;" onclick="saveCreatedRoute()">Opslaan in Cloud</button>
+                            <button class="btn-primary" style="flex:1;" onclick="downloadRouteGPX()">GPX</button>
+                        </div>
 
                         <div class="sidebar-divider"></div>
 

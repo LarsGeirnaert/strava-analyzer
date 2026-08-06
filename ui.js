@@ -60,6 +60,31 @@ function setupSegmentSelector() {
     }
 }
 
+window.showToast = function(message, type = 'success') {
+    let container = document.getElementById('toast-container');
+    if (!container) {
+        container = document.createElement('div');
+        container.id = 'toast-container';
+        document.body.appendChild(container);
+    }
+    
+    const toast = document.createElement('div');
+    toast.className = `toast ${type}`;
+    toast.innerText = message;
+    container.appendChild(toast);
+    
+    // Animaties
+    requestAnimationFrame(() => {
+        setTimeout(() => toast.classList.add('show'), 10);
+    });
+    
+    // Verwijder na 3.5 seconden
+    setTimeout(() => {
+        toast.classList.remove('show');
+        setTimeout(() => toast.remove(), 300);
+    }, 3500);
+};
+
 function calculateTrendLine(data) {
     const n = data.length;
     if (n < 2) return data;
@@ -112,10 +137,24 @@ window.switchTab = function(tabName) {
 };
 
 function initRouteMap() {
-    if (routeMap) { routeMap.invalidateSize(); return; }
-    routeMap = L.map('map-routes').setView([50.85, 4.35], 8);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap' }).addTo(routeMap);
+    if (routeMap) { 
+        routeMap.invalidateSize(); 
+        // Ververs de actuele windgegevens telkens wanneer je de tab opnieuw opent
+        if (typeof fetchCurrentWind === 'function') fetchCurrentWind();
+        return; 
+    }
+    
+    // Kaart start gecentreerd op regio Eeklo
+    routeMap = L.map('map-routes').setView([51.185, 3.565], 11);
+    
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { 
+        attribution: '© OpenStreetMap' 
+    }).addTo(routeMap);
+    
     routeMap.on('click', handleRouteMapClick);
+
+    // Initialiseer de wind-widget bij de eerste keer laden
+    if (typeof fetchCurrentWind === 'function') fetchCurrentWind();
 }
 
 async function handleRouteMapClick(e) {
@@ -174,14 +213,223 @@ async function recalculateFullRoute() {
     }
     drawFullRoute();
 }
+// Voeg dit bovenaan toe bij je andere variabelen in app.js of ui.js
+let statsUpdateTimeout = null;
+let currentAbortController = null;
+let lastWindCoord = null;
 
-function drawFullRoute() {
+async function drawFullRoute() {
     if (routePolyline) routeMap.removeLayer(routePolyline);
     const fullPath = routeSegments.flat();
+    
+    if (fullPath.length === 0) {
+        document.getElementById('routeDist').innerText = "0";
+        document.getElementById('routeTime').innerText = "0:00";
+        document.getElementById('routeElev').innerText = "0";
+        if (document.getElementById('pred-speed')) document.getElementById('pred-speed').innerText = "--";
+        return;
+    }
+    
     routePolyline = L.polyline(fullPath, {color: '#FC5200', weight: 5}).addTo(routeMap);
-    updateRouteStats(fullPath);
-    fetchElevationForRoute(fullPath);
+
+    // 1. Afstand direct berekenen voor snelle feedback
+    let totalDist = 0;
+    for(let i = 1; i < fullPath.length; i++) {
+        totalDist += routeMap.distance(fullPath[i-1], fullPath[i]);
+    }
+    const distKm = totalDist / 1000;
+    document.getElementById('routeDist').innerText = distKm.toFixed(2);
+    document.getElementById('routeElev').innerText = "...";
+    
+    // 2. Annuleer oude API calls als je snel achter elkaar klikt/sleept (voorkomt 429 errors!)
+    clearTimeout(statsUpdateTimeout);
+    if (currentAbortController) {
+        currentAbortController.abort(); 
+    }
+    currentAbortController = new AbortController();
+    const signal = currentAbortController.signal;
+    
+    // 3. Wacht 1.5 seconden nadat je klaar bent met tekenen of slepen
+    statsUpdateTimeout = setTimeout(async () => {
+        try {
+            const startPoint = fullPath[0];
+            fetchRouteWind(startPoint[0], startPoint[1], signal);
+
+            // Haal hoogte op (geforceerd op maximaal 1 API call per 1.5s)
+            const elevM = await fetchElevationForRoute(fullPath, distKm, signal);
+
+            // Voorspel de snelheid
+            const predictedSpeed = predictAverageSpeed(distKm, elevM);
+            const speedSpan = document.getElementById('pred-speed');
+            if (speedSpan) speedSpan.innerText = predictedSpeed.toFixed(1);
+
+            // Tijdsduur berekenen
+            if (predictedSpeed > 0) {
+                const hours = distKm / predictedSpeed;
+                const h = Math.floor(hours);
+                const m = Math.floor((hours % 1) * 60).toString().padStart(2, '0');
+                document.getElementById('routeTime').innerText = `${h}:${m}`;
+            }
+        } catch (err) {
+            // Negeer errors die expres door de AbortController worden gegooid als je opnieuw klikt
+            if (err.name !== 'AbortError') console.error(err);
+        }
+    }, 1500); 
 }
+
+async function fetchRouteWind(lat, lon, signal) {
+    const windEl = document.getElementById('routeWindInfo');
+    
+    // Vernieuw de wind pas als je het startpunt minstens een paar kilometer verplaatst
+    if (lastWindCoord) {
+        const latDiff = Math.abs(lastWindCoord.lat - lat);
+        const lonDiff = Math.abs(lastWindCoord.lon - lon);
+        if (latDiff < 0.05 && lonDiff < 0.05) return; 
+    }
+    
+    if (windEl) windEl.innerText = "Weer ophalen...";
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true&windspeed_unit=kmh`;
+    
+    try {
+        const res = await fetch(url, { signal });
+        if (!res.ok) throw new Error("Rate limit");
+        const data = await res.json();
+        
+        lastWindCoord = { lat, lon };
+        const windDir = data.current_weather.winddirection;
+        const windSpeed = data.current_weather.windspeed;
+        const directions = ['N', 'NNO', 'NO', 'ONO', 'O', 'OZO', 'ZO', 'ZZO', 'Z', 'ZZW', 'ZW', 'WZW', 'W', 'WNW', 'NW', 'NNW'];
+        const dirString = directions[Math.round(windDir / 22.5) % 16];
+        
+        if(windEl) windEl.innerHTML = `<strong>${windSpeed.toFixed(1)} km/u</strong> uit <strong>${dirString}</strong>`;
+    } catch(e) {
+        if (e.name !== 'AbortError' && windEl) windEl.innerText = "Weer tijdelijk onbeschikbaar";
+    }
+}
+
+async function fetchElevationForRoute(latlngs, distKm, signal) {
+    const el = document.getElementById('routeElev');
+    if(!latlngs || latlngs.length < 2) return 0;
+
+    // Open-Meteo accepteert maximaal 100 coördinaten per keer in de gratis tier.
+    const maxPoints = 100;
+    let sampledPoints = [];
+    if (latlngs.length <= maxPoints) {
+        sampledPoints = latlngs;
+    } else {
+        const step = latlngs.length / maxPoints;
+        for (let i = 0; i < maxPoints; i++) {
+            sampledPoints.push(latlngs[Math.floor(i * step)]);
+        }
+    }
+
+    const lats = sampledPoints.map(p => p[0].toFixed(5)).join(',');
+    const lons = sampledPoints.map(p => p[1].toFixed(5)).join(',');
+    const url = `https://api.open-meteo.com/v1/elevation?latitude=${lats}&longitude=${lons}`;
+
+    try {
+        const res = await fetch(url, { signal });
+        if (!res.ok) throw new Error("API Fout");
+        const data = await res.json();
+        
+        if (!data.elevation) return 0;
+        
+        let gain = 0;
+        const ev = data.elevation;
+        
+        // Bereken stijging: tel elke positieve verandering op
+        for (let i = 1; i < ev.length; i++) {
+            const diff = ev[i] - ev[i-1];
+            if (diff > 0) gain += diff;
+        }
+        
+        // OPLOSSING VOOR DALENDE HOOGTEMETERS:
+        // Omdat we bij langere routes punten "overslaan" (downsampling), missen we de kleinere heuvels.
+        // We compenseren dit wiskundig op basis van hoe ver de meetpunten uit elkaar liggen.
+        const metersPerPoint = (distKm * 1000) / sampledPoints.length;
+        if (metersPerPoint > 150) {
+            // Voor elke 100m extra afstand tussen meetpunten, schalen we de stijging op
+            const scale = 1 + ((metersPerPoint - 150) / 1000); 
+            gain = gain * Math.min(scale, 2.5); // Beperk de vermenigvuldiger tot maximaal x2.5
+        }
+
+        const finalGain = Math.round(gain);
+        if(el) el.innerText = finalGain;
+        window.currentRouteElevation = finalGain;
+        return finalGain;
+        
+    } catch (e) {
+        if (e.name !== 'AbortError') console.error("Hoogte fout:", e);
+        if (el) el.innerText = window.currentRouteElevation || "0";
+        return window.currentRouteElevation || 0;
+    }
+}
+
+function predictAverageSpeed(distKm, elevM) {
+    const routeGradient = distKm > 0 ? (elevM / (distKm * 1000)) * 100 : 0;
+    let predicted = 25.0 - (routeGradient * 1.5); // Terugval formule als er geen rit-historiek is
+
+    // Probeer de cache in te laden als die onverhoopt nog leeg is
+    if (!window.allActivitiesCache && window.supabaseAuth) {
+        window.supabaseAuth.listActivities().then(data => window.allActivitiesCache = data).catch(()=>{});
+    }
+
+    if (window.allActivitiesCache && window.allActivitiesCache.length > 0) {
+        // Filter op echte ritten die langer zijn dan 5km
+        const rides = window.allActivitiesCache.filter(a => a.summary && a.summary.type !== 'route' && parseFloat(a.summary.distanceKm) > 5);
+        
+        if (rides.length > 0) {
+            const ridesWithGrad = rides.map(r => {
+                const d = parseFloat(r.summary.distanceKm) || 1;
+                const e = parseFloat(r.summary.elevationGain) || 0;
+                let s = parseFloat(r.summary.avgSpeed);
+                
+                // Veiligheidscheck voor vervuilde data
+                if (isNaN(s) || s < 10) s = 25.0; 
+                
+                const g = (e / (d * 1000)) * 100;
+                return { speed: s, grad: g };
+            });
+            
+            // Zoek de 3 ritten uit jouw verleden die qua klimpercentage het meest op deze nieuwe route lijken
+            ridesWithGrad.sort((a, b) => Math.abs(a.grad - routeGradient) - Math.abs(b.grad - routeGradient));
+            const top3 = ridesWithGrad.slice(0, 3);
+            
+            predicted = top3.reduce((sum, r) => sum + r.speed, 0) / top3.length;
+        }
+    }
+    
+    // Blokkeer onmogelijke voorspellingen
+    return Math.max(15, Math.min(predicted, 40)); 
+}
+
+// Nieuw: Exporteer als native GPX file
+window.downloadRouteGPX = function() {
+    if (waypoints.length < 2) { 
+        alert("Teken eerst een route voordat je kan downloaden!"); 
+        return; 
+    }
+
+    const name = document.getElementById('route-name-input').value || "Mijn_Route";
+    const flatCoords = routeSegments.flat();
+    
+    let gpxContent = `<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="Strava 3.0">\n  <trk>\n    <name>${name}</name>\n    <trkseg>\n`;
+    
+    flatCoords.forEach(c => { 
+        gpxContent += `      <trkpt lat="${c[0]}" lon="${c[1]}"></trkpt>\n`; 
+    });
+    gpxContent += `    </trkseg>\n  </trk>\n</gpx>`;
+
+    const blob = new Blob([gpxContent], {type: 'application/gpx+xml'});
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${name.replace(/\s+/g, '_')}.gpx`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+};
 
 function updateRouteStats(latlngs) {
     let totalDist = 0;
@@ -847,7 +1095,19 @@ function renderTrendGraph(activities, key, tableId, chartId, filterId, label) {
 }
 
 
-window.toggleSelection = (id) => { if(selectedRides.has(id)) selectedRides.delete(id); else selectedRides.add(id); document.getElementById('delete-btn').classList.toggle('hidden', selectedRides.size === 0); };
+window.toggleSelection = (id) => { 
+    if(selectedRides.has(id)) selectedRides.delete(id); 
+    else selectedRides.add(id); 
+    
+    // Verwijder knop tonen/verbergen
+    document.getElementById('delete-btn').classList.toggle('hidden', selectedRides.size === 0); 
+    
+    // NIEUW: Vergelijk knop pas tonen als er EXACT 2 ritten geselecteerd zijn
+    const compBtn = document.getElementById('compare-btn');
+    if(compBtn) {
+        compBtn.classList.toggle('hidden', selectedRides.size !== 2);
+    }
+};
 window.deleteSelectedRides = async function() { if(confirm("Verwijderen?")) { await window.supabaseAuth.deleteActivities(Array.from(selectedRides)); selectedRides.clear(); updateDashboard(); } };
 window.triggerUpload = () => document.getElementById('gpxInput').click();
 window.toggleTheme = () => {
@@ -980,6 +1240,8 @@ window.drawHeatmap = async function() {
     if(loader) loader.classList.remove('hidden');
 
     if(heatmapLayerGroup) muniMap.removeLayer(heatmapLayerGroup);
+
+    const canvasRenderer = L.canvas({ padding: 0.5 });
     heatmapLayerGroup = L.layerGroup().addTo(muniMap);
 
     let acts = allActivitiesCache || await window.supabaseAuth.listActivities();
@@ -1029,6 +1291,7 @@ window.drawHeatmap = async function() {
                 // Modus 1: Frequentie (Afb 1) - Diep oranje met glow
                 const coords = pts.map(p => [p[0], p[1]]);
                 L.polyline(coords, { 
+                    renderer: canvasRenderer,
                     color: '#ff4400', 
                     weight: 3, 
                     opacity: 0.15, // Laag gehouden zodat het overlappend licht opbouwt!
@@ -1054,7 +1317,8 @@ window.drawHeatmap = async function() {
                         currentBucketCoords.push(coord);
                     } else {
                         currentBucketCoords.push(coord); 
-                        L.polyline(currentBucketCoords, { 
+                        L.polyline(currentBucketCoords, {
+                            renderer: canvasRenderer, 
                             color: currentColor, 
                             weight: 3, 
                             opacity: 0.5, // Hoger want we willen hier de kleurwaarde goed zien
@@ -1122,76 +1386,6 @@ function updateStats(dist, timeMs, speed, ele, power, maxSpeed) {
     if(p) p.innerText = power || 0;
 }
 
-// ui.js - VERVANG DE OUDE FUNCTIE DOOR DIT BLOK
-
-async function fetchElevationForRoute(latlngs) {
-    const el = document.getElementById('routeElev');
-    if(!latlngs || latlngs.length < 2) {
-        if(el) el.innerText = "0";
-        return;
-    }
-
-    if(el) el.innerText = "..."; 
-
-    // 1. We pakken tot 250 punten voor een veel hogere nauwkeurigheid (betere heuvel-detectie)
-    const maxPoints = 250;
-    const step = Math.max(1, Math.ceil(latlngs.length / maxPoints));
-    const sampledPoints = latlngs.filter((_, i) => i % step === 0);
-
-    // 2. Om de "400 Bad Request" te vermijden, hakken we dit op in chunks van 50!
-    const chunkSize = 50;
-    const chunks = [];
-    for (let i = 0; i < sampledPoints.length; i += chunkSize) {
-        chunks.push(sampledPoints.slice(i, i + chunkSize));
-    }
-
-    try {
-        let allElevations = [];
-        
-        // 3. Haal alle pakketjes tegelijk (parallel) op
-        const fetchPromises = chunks.map(chunk => {
-            const lats = chunk.map(p => p[0]).join(',');
-            const lons = chunk.map(p => p[1]).join(',');
-            const url = `https://api.open-meteo.com/v1/elevation?latitude=${lats}&longitude=${lons}`;
-            
-            return fetch(url).then(res => {
-                if (!res.ok) throw new Error("API Fout");
-                return res.json();
-            });
-        });
-
-        // Wacht tot alle chunks binnen zijn
-        const results = await Promise.all(fetchPromises);
-        
-        // 4. Plak alle hoogtes weer netjes aan elkaar in de juiste volgorde
-        results.forEach(res => {
-            if (res.elevation) allElevations = allElevations.concat(res.elevation);
-        });
-
-        // 5. Bereken de stijging, maar filter de ruis eruit
-        let gain = 0;
-        
-        // Lichte smoothing om GPS/API-ruis af te vlakken
-        const smoothed = smoothRouteElevation(allElevations, 2); 
-
-        for(let i = 1; i < smoothed.length; i++) {
-            const diff = smoothed[i] - smoothed[i-1];
-            
-            // Telt alleen als de stijging meer is dan 0.5 meter per meetpunt 
-            // (negeert nep-heuveltjes op vals plat)
-            if(diff > 0.5) { 
-                gain += diff; 
-            }
-        }
-
-        if(el) el.innerText = Math.round(gain);
-        window.currentRouteElevation = Math.round(gain);
-        
-    } catch (e) {
-        console.error("Fout bij ophalen hoogte:", e);
-        if(el) el.innerText = "?";
-    }
-}
 
 // NIEUWE HELPER: Zorgt ervoor dat schommelingen de hoogtemeters niet kunstmatig opblazen
 function smoothRouteElevation(data, windowSize) {
@@ -1766,3 +1960,4 @@ window.openPublicProfile = async function(userId, displayName) {
         document.getElementById('public-activities-list').innerHTML = '<p class="error-msg">Kon ritten niet inladen.</p>';
     }
 };
+

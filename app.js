@@ -88,13 +88,31 @@ window.openRide = async function(activity) {
     }
 };
 
+// Voorbeeld voor handleFileUpload
 async function handleFileUpload(e) {
     const files = e.target.files;
     if (!files || files.length === 0) return;
     if(window.switchTab) window.switchTab('analysis');
+    
     const file = files[0];
     const text = await file.text();
-    processGPXAndRender(text, file.name);
+    
+    // Initialiseer worker
+    const worker = new Worker('gpxWorker.js');
+    
+    worker.onmessage = function(e) {
+        const parsedData = e.data;
+        if (parsedData) {
+            // Nu pas renderen op de UI
+            currentRideData = parsedData;
+            // Je rendering logica hier...
+            processParsedDataAndRender(parsedData, file.name);
+        }
+        worker.terminate(); // Ruim worker netjes op
+    };
+    
+    // Stuur zware taak naar de achtergrond
+    worker.postMessage({ xmlString: text, fileName: file.name, isExistingRide: false });
 }
 
 async function handleFolderUpload(e) {
@@ -385,26 +403,30 @@ function calculateFastestSegments(distances, times) {
         if (totalDist < k) break;
 
         let bestTimeMs = Infinity;
-        let found = false;
-        let startIdx = 0;
         let bestStartIdx = 0;
         let bestEndIdx = 0;
+        let found = false;
 
-        for (let endIdx = 1; endIdx < distances.length; endIdx++) {
+        let startIdx = 0;
+        let endIdx = 1;
+
+        // Sliding window: schuif het "raam" van K kilometer efficiënt over de array
+        while (endIdx < distances.length) {
             const currentDist = distances[endIdx] - distances[startIdx];
 
-            while (startIdx < endIdx && (distances[endIdx] - distances[startIdx + 1]) >= k) {
-                startIdx++;
-            }
-
-            if ((distances[endIdx] - distances[startIdx]) >= k) {
+            if (currentDist >= k) {
                 const timeDiff = times[endIdx] - times[startIdx];
                 if (timeDiff < bestTimeMs) {
                     bestTimeMs = timeDiff;
                     bestStartIdx = startIdx;
-                    bestEndIdx = endIdx;     
+                    bestEndIdx = endIdx;
                     found = true;
                 }
+                // Raam is groot genoeg, krimp vanaf links om te zoeken naar een snellere start
+                startIdx++; 
+            } else {
+                // Raam is nog te klein, breid uit naar rechts
+                endIdx++; 
             }
         }
 
@@ -412,9 +434,9 @@ function calculateFastestSegments(distances, times) {
             results.push({
                 distance: k,
                 timeMs: bestTimeMs,
-                speed: k / (bestTimeMs / 3600000), 
-                startIdx: bestStartIdx, 
-                endIdx: bestEndIdx      
+                speed: k / (bestTimeMs / 3600000),
+                startIdx: bestStartIdx,
+                endIdx: bestEndIdx
             });
         }
     }
@@ -793,4 +815,132 @@ function animatePlayback() {
     if (isPlaying) {
         playbackAnimationId = requestAnimationFrame(animatePlayback);
     }
+}
+
+// --- VERGELIJK VARIABELEN ---
+let compareMap = null;
+let compBaseLayer = null;
+let compLayer1 = null;
+let compLayer2 = null;
+
+window.compareSelectedRides = async function() {
+    if (selectedRides.size !== 2) return;
+    
+    const ids = Array.from(selectedRides);
+    const act1 = allActivitiesCache.find(a => a.id === ids[0]);
+    const act2 = allActivitiesCache.find(a => a.id === ids[1]);
+
+    // UI wisselen
+    document.querySelectorAll('.view-section').forEach(v => v.classList.add('hidden'));
+    document.getElementById('view-compare').classList.remove('hidden');
+
+    // Skeletons
+    document.getElementById('comp-name-1').innerText = "Gegevens inladen...";
+    document.getElementById('comp-name-2').innerText = "Gegevens inladen...";
+
+    try {
+        // Haal beide GPX files vers op uit de cloud
+        const b1 = await window.supabaseAuth.getActivityFile(act1.id);
+        const b2 = await window.supabaseAuth.getActivityFile(act2.id);
+        
+        const t1 = await b1.text();
+        const t2 = await b2.text();
+
+        const d1 = window.parseGPXData(t1, act1.fileName, true);
+        const d2 = window.parseGPXData(t2, act2.fileName, true);
+
+        renderCompareUI(d1, d2);
+    } catch (e) {
+        console.error(e);
+        alert("Fout bij ophalen van data voor vergelijking.");
+    }
+};
+
+function renderCompareUI(data1, data2) {
+    // Helper voor de tijd
+    const formatTime = (sec) => {
+        const h = Math.floor(sec / 3600);
+        const m = Math.floor((sec % 3600) / 60);
+        return `${h}:${m.toString().padStart(2, '0')}`;
+    };
+
+    // --- VUL TEKST IN ---
+    document.getElementById('comp-name-1').innerText = data1.fileName;
+    document.getElementById('comp-date-1').innerText = new Date(data1.summary.rideDate).toLocaleDateString('nl-NL');
+    document.getElementById('comp-dist-1').innerText = parseFloat(data1.summary.distanceKm).toFixed(2) + " km";
+    document.getElementById('comp-time-1').innerText = formatTime(data1.summary.durationSec);
+    document.getElementById('comp-avg-1').innerText = parseFloat(data1.summary.avgSpeed).toFixed(1) + " km/u";
+    document.getElementById('comp-max-1').innerText = parseFloat(data1.summary.maxSpeed).toFixed(1) + " km/u";
+    document.getElementById('comp-elev-1').innerText = data1.summary.elevationGain + " m";
+
+    document.getElementById('comp-name-2').innerText = data2.fileName;
+    document.getElementById('comp-date-2').innerText = new Date(data2.summary.rideDate).toLocaleDateString('nl-NL');
+    document.getElementById('comp-dist-2').innerText = parseFloat(data2.summary.distanceKm).toFixed(2) + " km";
+    document.getElementById('comp-time-2').innerText = formatTime(data2.summary.durationSec);
+    document.getElementById('comp-avg-2').innerText = parseFloat(data2.summary.avgSpeed).toFixed(1) + " km/u";
+    document.getElementById('comp-max-2').innerText = parseFloat(data2.summary.maxSpeed).toFixed(1) + " km/u";
+    document.getElementById('comp-elev-2').innerText = data2.summary.elevationGain + " m";
+
+    // --- MAP INITIALISEREN ---
+    if (!compareMap) {
+        compareMap = L.map('map-compare').setView([50.85, 4.35], 8);
+        const isDark = document.body.classList.contains('dark-mode');
+        const tileUrl = isDark ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png' : 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png';
+        compBaseLayer = L.tileLayer(tileUrl, { attribution: '©OpenStreetMap, ©CartoDB' }).addTo(compareMap);
+    }
+    setTimeout(() => compareMap.invalidateSize(), 100);
+
+    if (compLayer1) compareMap.removeLayer(compLayer1);
+    if (compLayer2) compareMap.removeLayer(compLayer2);
+
+    // Teken rit 1 (Oranje) en rit 2 (Blauw)
+    compLayer1 = L.polyline(data1.uiData.latlngs, {color: '#FC5200', weight: 4, opacity: 0.8}).addTo(compareMap);
+    compLayer2 = L.polyline(data2.uiData.latlngs, {color: '#3B82F6', weight: 4, opacity: 0.8}).addTo(compareMap);
+
+    // Zoom uit zodat beide ritten in beeld passen!
+    const group = new L.featureGroup([compLayer1, compLayer2]);
+    compareMap.fitBounds(group.getBounds(), {padding: [30, 30]});
+
+    // --- GRAFIEK GENEREREN ---
+    const ctx = document.getElementById('compareSpeedChart').getContext('2d');
+    if (activeCharts['compChart']) activeCharts['compChart'].destroy();
+
+    // Chart.js snapt dat de x-as niet gelijk oploopt als we coördinaten {x, y} meegeven
+    const set1 = data1.uiData.distances.map((dist, i) => ({ x: dist, y: data1.uiData.speeds[i] }));
+    const set2 = data2.uiData.distances.map((dist, i) => ({ x: dist, y: data2.uiData.speeds[i] }));
+
+    const step1 = Math.max(1, Math.floor(set1.length / 400));
+    const step2 = Math.max(1, Math.floor(set2.length / 400));
+
+    activeCharts['compChart'] = new Chart(ctx, {
+        type: 'line',
+        data: {
+            datasets: [
+                {
+                    label: data1.fileName,
+                    data: set1.filter((_, i) => i % step1 === 0),
+                    borderColor: '#FC5200',
+                    borderWidth: 2,
+                    pointRadius: 0,
+                    tension: 0.4
+                },
+                {
+                    label: data2.fileName,
+                    data: set2.filter((_, i) => i % step2 === 0),
+                    borderColor: '#3B82F6',
+                    borderWidth: 2,
+                    pointRadius: 0,
+                    tension: 0.4
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                x: { type: 'linear', title: { display: true, text: 'Afstand (km)' } },
+                y: { title: { display: true, text: 'Snelheid (km/u)' } }
+            }
+        }
+    });
 }
