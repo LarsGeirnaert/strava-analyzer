@@ -13,11 +13,11 @@
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <link rel="stylesheet" href="style.css">
     <script>
-    if (localStorage.getItem('theme') === 'light') {
-        document.documentElement.classList.remove('dark-mode');
-    } else {
-        document.documentElement.classList.add('dark-mode'); 
-    }
+        if (localStorage.getItem('theme') === 'light') {
+            document.documentElement.classList.remove('dark-mode');
+        } else {
+            document.documentElement.classList.add('dark-mode');
+        }
     </script>
 
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -28,7 +28,7 @@
 <body>
 
     <div id="login-screen" class="login-container">
-        <div class="login-glass-bg"></div> <!-- Extra element voor animatie/blur -->
+        <div class="login-glass-bg"></div>
         <div class="login-box animate-pop">
             <div class="brand-badge">BETA</div>
             <h1>Strava 3.0</h1>
@@ -65,6 +65,7 @@
                 <button class="nav-btn" data-target="recap">Mijn Recap</button>
                 <button class="nav-btn" data-target="routes">Route Planner</button>
                 <button class="nav-btn" data-target="analysis">Analyse</button>
+                <button class="nav-btn" data-target="segment-builder">Mijn Segmenten</button>
                 <button class="nav-btn" data-target="rankings">Ranglijsten</button>
                 <button class="nav-btn" data-target="community">Community</button>
                 <button class="nav-btn" data-target="municipalities">Wereld Jager</button>
@@ -162,7 +163,6 @@
                         <div class="flex-header margin-bottom">
                             <h3>Activiteiten</h3>
                             <div style="display: flex; gap: 10px;">
-                                <!-- NIEUW: Vergelijk knop -->
                                 <button id="compare-btn" class="btn-primary hidden"
                                     onclick="compareSelectedRides()">Vergelijk (2)</button>
                                 <button id="delete-btn" class="btn-danger hidden"
@@ -223,11 +223,9 @@
                         </div>
                     </div>
 
-                    <!-- De gedeelde kaart -->
                     <div id="map-compare" class="map-container margin-bottom"
                         style="height: 450px; border-radius: 12px;"></div>
 
-                    <!-- De grafiek -->
                     <div class="chart-box wide section-spacing">
                         <h4 class="text-center margin-bottom sub-text">Snelheidsverloop (km/u) over Afstand (km)</h4>
                         <div class="chart-wrapper"><canvas id="compareSpeedChart"></canvas></div>
@@ -376,7 +374,8 @@
                 <div class="analysis-layout">
                     <aside class="inner-sidebar">
                         <h2>Route Planner</h2>
-                        <p class="sub-text margin-bottom">Klik op de kaart om te tekenen. Sleep punten om aan te passen.</p>
+                        <p class="sub-text margin-bottom">Klik op de kaart om te tekenen. Sleep punten om aan te passen.
+                        </p>
 
                         <div class="stats-grid margin-bottom">
                             <div class="stat-widget">
@@ -393,21 +392,25 @@
                             </div>
                         </div>
 
-                        <!-- Actuele Wind Widget (past zich aan op route) -->
-                        <div class="stat-widget margin-bottom" style="background: rgba(59, 130, 246, 0.1); border-color: #3B82F6;">
+                        <div class="stat-widget margin-bottom"
+                            style="background: rgba(59, 130, 246, 0.1); border-color: #3B82F6;">
                             <span class="stat-label" id="routeWindLabel" style="color: #3B82F6;">Actuele Wind</span>
-                            <span class="stat-value" id="routeWindInfo" style="font-size: 1rem;">Teken route voor weer</span>
+                            <span class="stat-value" id="routeWindInfo" style="font-size: 1rem;">Teken route voor
+                                weer</span>
                         </div>
 
                         <div class="btn-group margin-bottom">
-                            <button class="btn-secondary" style="flex:1;" onclick="undoLastRoutePoint()">Stap Terug</button>
+                            <button class="btn-secondary" style="flex:1;" onclick="undoLastRoutePoint()">Stap
+                                Terug</button>
                             <button class="btn-secondary" style="flex:1;" onclick="clearRoute()">Wis Alles</button>
                         </div>
-                        
-                        <input type="text" id="route-name-input" placeholder="Naam van je route..." class="input-text margin-bottom">
-                        
+
+                        <input type="text" id="route-name-input" placeholder="Naam van je route..."
+                            class="input-text margin-bottom">
+
                         <div class="btn-group margin-bottom" style="gap: 10px; background: transparent; border: none;">
-                            <button id="save-route-btn" class="btn-success" style="flex:2;" onclick="saveCreatedRoute()">Opslaan in Cloud</button>
+                            <button id="save-route-btn" class="btn-success" style="flex:2;"
+                                onclick="saveCreatedRoute()">Opslaan in Cloud</button>
                             <button class="btn-primary" style="flex:1;" onclick="downloadRouteGPX()">GPX</button>
                         </div>
 
@@ -421,6 +424,83 @@
                     <main class="inner-main">
                         <div id="map-routes" class="map-container"></div>
                     </main>
+                </div>
+            </div>
+
+            <div id="view-segment-builder" class="view-section hidden">
+                <div class="analysis-layout">
+
+                    <aside class="inner-sidebar">
+                        <div class="flex-header margin-bottom">
+                            <h2>Mijn Segmenten</h2>
+                        </div>
+
+                        <!-- Compacte Map Tools -->
+                        <div class="margin-bottom"
+                            style="background: var(--bg-body); padding: 12px; border-radius: var(--radius-sm); border: 1px solid var(--border-color);">
+                            <div style="display: flex; gap: 8px; margin-bottom: 10px;">
+                                <input type="text" id="cs-location-search" class="input-text"
+                                    placeholder="Zoek locatie (bijv. Koppenberg)"
+                                    style="padding: 8px 12px; font-size: 0.85rem;"
+                                    onkeyup="if(event.key === 'Enter') searchLocationCS()">
+                                <button class="btn-secondary" onclick="searchLocationCS()"
+                                    style="padding: 8px 12px;">🔍</button>
+                            </div>
+                            <label
+                                style="display: flex; align-items: center; gap: 8px; font-size: 0.85rem; cursor: pointer; color: var(--text-muted);">
+                                <!-- FIX: accent-color in plaats van accent-var -->
+                                <input type="checkbox" id="cs-heatmap-toggle" onchange="toggleCSHeatmap(this.checked)"
+                                    style="accent-color: var(--primary); cursor: pointer; width: 16px; height: 16px;">
+                                Toon gereden wegen (Heatmap)
+                            </label>
+                        </div>
+
+                        <p class="sub-text margin-bottom" id="cs-instruction">1. Klik op de weg om de route te traceren.
+                        </p>
+
+                        <!-- Knoppen (met iconen voor ruimte) -->
+                        <div class="btn-group margin-bottom"
+                            style="display: flex; gap: 6px; background: transparent; border: none;">
+                            <button id="btn-draw-cs" class="btn-primary" style="flex:1; padding: 10px 5px;"
+                                onclick="toggleCSDrawing()">✏️ Teken</button>
+                            <button id="btn-undo-cs" class="btn-secondary hidden" style="flex:1; padding: 10px 5px;"
+                                onclick="undoLastCSPoint()">↺ Terug</button>
+                            <button id="btn-finish-cs" class="btn-success hidden" style="flex:1; padding: 10px 5px;"
+                                onclick="finishCSDrawing()">🚀 Zoek</button>
+                        </div>
+
+                        <!-- Compacte Stats -->
+                        <div class="stats-grid margin-bottom" style="gap: 8px;">
+                            <div class="stat-widget" style="padding: 10px;">
+                                <span class="stat-label">Afstand</span>
+                                <span class="stat-value" style="font-size: 1.1rem;"><span id="cs-dist">0</span>
+                                    <small>km</small></span>
+                            </div>
+                            <div class="stat-widget" style="padding: 10px;">
+                                <span class="stat-label">Pogingen</span>
+                                <span class="stat-value" id="cs-efforts" style="font-size: 1.1rem;">0</span>
+                            </div>
+                            <div class="stat-widget" style="padding: 10px;">
+                                <span class="stat-label">Jouw PR</span>
+                                <span class="stat-value" id="cs-pr"
+                                    style="color: var(--medal-gold); font-size: 1.1rem;">--:--</span>
+                            </div>
+                        </div>
+
+                        <div class="sidebar-divider" style="margin: 16px 0;"></div>
+
+                        <h3 style="font-size: 1rem;">Leaderboard</h3>
+                        <div id="cs-results-list" class="dashboard-list compact-list margin-top">
+                            <div class="empty-state">Teken eerst een segment.</div>
+                        </div>
+                    </aside>
+
+
+                    <!-- HET GROTE SCHERM MET DE KAART (RECHTS) -->
+                    <main class="inner-main">
+                        <div id="map-custom-segments" class="map-container"></div>
+                    </main>
+
                 </div>
             </div>
 
@@ -462,7 +542,6 @@
                         <button class="btn-secondary full-width margin-bottom" onclick="backToSummary()">Terug naar
                             Overzicht</button>
 
-                        <!-- NIEUW: Afspeel Controls met Snelheid -->
                         <div class="margin-bottom" style="display: flex; gap: 10px; align-items: center;">
                             <button id="playback-btn" class="btn-primary" style="flex: 1;" onclick="togglePlayback()">▶
                                 Speel Af</button>
@@ -506,7 +585,7 @@
 
                         <div id="current-segments-section" class="hidden">
                             <div class="sidebar-divider"></div>
-                            <h3 class="margin-bottom">Segmenten</h3>
+                            <h3 class="margin-bottom">Beste Segmenten</h3>
                             <button id="clear-segment-btn" class="btn-danger full-width margin-bottom hidden"
                                 onclick="clearSegmentHighlight()">Wis Selectie</button>
                             <div id="segments-list" class="segments-sidebar-list"></div>
@@ -625,7 +704,6 @@
                             <h2>Heatmap Verkenner</h2>
                             <p class="sub-text">Je volledige fietsgeschiedenis op één kaart</p>
 
-                            <!-- NIEUW: Dropdown voor de heatmap modi -->
                             <div class="heatmap-filters"
                                 style="display: flex; gap: 10px; align-items: center; margin-top: 15px;">
                                 <label class="sub-text font-medium">Kleurcodering:</label>
@@ -642,7 +720,6 @@
                                 <span class="icon">🔄</span> Bereken Heatmap
                             </button>
                         </div>
-                    </header>
                     </header>
                     <div class="map-wrapper" style="flex: 1; min-height: 500px; position: relative;">
                         <div id="map-municipalities"

@@ -389,7 +389,7 @@ function parseGPXData(xmlString, fileName, isExistingRide = false) {
             segments: segments,
             type: 'ride'
         },
-        uiData: { latlngs, elevations, distances, speeds: smoothSpeeds, powers: smoothPowers, durationMs: movingTimeMs }
+        uiData: { latlngs, elevations, distances, speeds: smoothSpeeds, powers: smoothPowers, durationMs: movingTimeMs, times}
     };
 }
 
@@ -944,3 +944,677 @@ function renderCompareUI(data1, data2) {
         }
     });
 }
+
+
+let mapboxMap = null;
+let cinematicFrameId = null;
+let currentMarker = null;
+let ghostMarker = null;
+
+// Functie om de snelste eerdere rit te vinden op (ongeveer) dezelfde route
+function findGhostRide(currentRide) {
+    if (!window.allActivitiesCache) return null;
+    
+    const dist = parseFloat(currentRide.summary.distanceKm);
+    
+    // Zoek ritten die qua afstand max 2% afwijken
+    const possibleGhosts = window.allActivitiesCache.filter(act => {
+        if (act.id === currentRide.id || act.summary.type === 'route') return false;
+        const actDist = parseFloat(act.summary.distanceKm);
+        return Math.abs(actDist - dist) < (dist * 0.02); 
+    });
+
+    if (possibleGhosts.length === 0) return null;
+
+    // Sorteer op snelheid (snelste is je PR / Ghost)
+    possibleGhosts.sort((a, b) => parseFloat(b.summary.avgSpeed) - parseFloat(a.summary.avgSpeed));
+    return possibleGhosts[0];
+}
+
+window.startCinematicReplay = async function() {
+    if (!currentRideData || !currentRideData.uiData) return;
+
+    // Haal je gratis API key op via mapbox.com
+    mapboxgl.accessToken = 'VUL_HIER_JE_MAPBOX_TOKEN_IN'; 
+
+    const ghostRideMeta = findGhostRide(currentRideData);
+    let ghostData = null;
+
+    // Haal de GPS data van de Ghost rit op uit de cloud
+    if (ghostRideMeta) {
+        try {
+            const blob = await window.supabaseAuth.getActivityFile(ghostRideMeta.id);
+            const text = await blob.text();
+            ghostData = window.parseGPXData(text, ghostRideMeta.fileName, true);
+        } catch (e) { console.warn("Kon ghost data niet inladen", e); }
+    }
+
+    // UI klaarmaken
+    document.querySelectorAll('.view-section').forEach(v => v.classList.add('hidden'));
+    document.getElementById('view-cinematic').classList.remove('hidden');
+    document.getElementById('ghost-ui-overlay').classList.remove('hidden');
+
+    const startCoord = currentRideData.uiData.latlngs[0];
+
+    // Initialiseer Mapbox als deze nog niet bestaat
+    if (!mapboxMap) {
+        mapboxMap = new mapboxgl.Map({
+            container: 'mapbox-container',
+            style: 'mapbox://styles/mapbox/satellite-streets-v12', // Realistische satellietbeelden
+            center: [startCoord[1], startCoord[0]], // [Lng, Lat] in Mapbox!
+            zoom: 14,
+            pitch: 65, // 3D Kanteling
+            bearing: 0
+        });
+
+        mapboxMap.on('load', () => {
+            // 3D Terrein toevoegen
+            mapboxMap.addSource('mapbox-dem', {
+                'type': 'raster-dem',
+                'url': 'mapbox://mapbox.mapbox-terrain-dem-v1',
+                'tileSize': 512,
+                'maxzoom': 14
+            });
+            mapboxMap.setTerrain({ 'source': 'mapbox-dem', 'exaggeration': 1.5 });
+
+            // Sky laag voor een realistische horizon
+            mapboxMap.addLayer({
+                'id': 'sky',
+                'type': 'sky',
+                'paint': { 'sky-type': 'atmosphere', 'sky-atmosphere-sun': [0.0, 0.0], 'sky-atmosphere-sun-intensity': 15 }
+            });
+
+            runCinematicAnimation(currentRideData, ghostData);
+        });
+    } else {
+        runCinematicAnimation(currentRideData, ghostData);
+    }
+};
+
+function runCinematicAnimation(currentRide, ghostRide) {
+    if (currentMarker) currentMarker.remove();
+    if (ghostMarker) ghostMarker.remove();
+    cancelAnimationFrame(cinematicFrameId);
+
+    // Voeg markers toe aan Mapbox
+    const elCurrent = document.createElement('div');
+    elCurrent.className = 'marker-current';
+    currentMarker = new mapboxgl.Marker(elCurrent).setLngLat([0,0]).addTo(mapboxMap);
+
+    let hasGhost = !!(ghostRide && ghostRide.uiData);
+    if (hasGhost) {
+        const elGhost = document.createElement('div');
+        elGhost.className = 'marker-ghost';
+        ghostMarker = new mapboxgl.Marker(elGhost).setLngLat([0,0]).addTo(mapboxMap);
+    } else {
+        document.getElementById('replay-time-gap').innerText = "Geen PR gevonden";
+        document.getElementById('replay-time-gap').style.color = "#888";
+    }
+
+    let progressIndex = 0;
+    const path = currentRide.uiData.latlngs;
+    const speeds = currentRide.uiData.speeds;
+    const distances = currentRide.uiData.distances;
+    
+    // Animatiesnelheid (afhankelijk van route lengte)
+    const speedMultiplier = Math.max(0.5, (path.length / 500));
+
+    function animate() {
+        progressIndex += speedMultiplier;
+        if (progressIndex >= path.length - 1) progressIndex = 0; // Loop de animatie
+
+        const idx = Math.floor(progressIndex);
+        const currentPos = path[idx];
+        const currentLngLat = [currentPos[1], currentPos[0]];
+
+        // Update blauwe stip
+        currentMarker.setLngLat(currentLngLat);
+        document.getElementById('replay-current-speed').innerText = `${(speeds[idx]||0).toFixed(1)} km/u`;
+
+        // Ghost Logica
+        if (hasGhost) {
+            const currentDist = distances[idx];
+            const ghostDistances = ghostRide.uiData.distances;
+            
+            // Zoek waar de Ghost was op exact deze afstand
+            let ghostIdx = ghostDistances.findIndex(d => d >= currentDist);
+            if (ghostIdx === -1) ghostIdx = ghostDistances.length - 1;
+
+            const ghostPos = ghostRide.uiData.latlngs[ghostIdx];
+            ghostMarker.setLngLat([ghostPos[1], ghostPos[0]]);
+            document.getElementById('replay-ghost-speed').innerText = `${(ghostRide.uiData.speeds[ghostIdx]||0).toFixed(1)} km/u`;
+
+            // Bereken live tijdsverschil
+            // Hier gaan we ervan uit dat 1 index stap ongeveer overeenkomt met 1 seconde (hangt af van GPX file)
+            // Nauwkeuriger zou zijn om de echte timestamps uit de XML te halen, maar dit is een werkbare proxy
+            const timeDiffSec = ghostIdx - idx; 
+            const gapEl = document.getElementById('replay-time-gap');
+            
+            if (timeDiffSec > 0) {
+                gapEl.innerText = `+${timeDiffSec}s (Achter)`;
+                gapEl.style.color = "#EF4444"; // Rood
+            } else {
+                gapEl.innerText = `${timeDiffSec}s (Voor)`;
+                gapEl.style.color = "#10B981"; // Groen
+            }
+        }
+
+        // Helikopter Camera Beweging
+        // Bereken bearing (kijkrichting) naar het volgende puntg
+        let bearing = mapboxMap.getBearing();
+        if (idx < path.length - 5) {
+            const nextPos = path[idx + 5];
+            const angle = Math.atan2(nextPos[1] - currentPos[1], nextPos[0] - currentPos[0]) * 180 / Math.PI;
+            bearing = (90 - angle + 360) % 360;
+        }
+
+        mapboxMap.easeTo({
+            center: currentLngLat,
+            bearing: bearing,
+            pitch: 65,
+            duration: 0, // 0 voor vloeiende framerate updates
+            zoom: 15.5
+        });
+
+        cinematicFrameId = requestAnimationFrame(animate);
+    }
+    animate();
+}
+
+window.stopCinematicReplay = function() {
+    cancelAnimationFrame(cinematicFrameId);
+    document.getElementById('view-cinematic').classList.add('hidden');
+    document.getElementById('ghost-ui-overlay').classList.add('hidden');
+    document.getElementById('ride-map-view').classList.remove('hidden');
+    
+    // Forceer Leaflet map fix
+    if (typeof map !== 'undefined' && map) setTimeout(() => map.invalidateSize(), 100);
+};
+
+// --- MIJN SEGMENTEN TAB (CUSTOM SEGMENTS) ---
+let csMap = null;
+let isDrawingCS = false;
+let csDrawnPoints = [];
+let csRoadSegments = []; // Array om te kunnen "undo-en"
+let csPolyline = null;
+let csMarkers = [];
+let csHoverLine = null;
+let csHoverFullPath = null;
+
+// Multi-select variabelen
+let csSelectedIndices = new Set();
+let csSelectedPolylines = [];
+
+const originalSwitchTab = window.switchTab;
+window.switchTab = function(tabName) {
+    originalSwitchTab(tabName);
+    if (tabName === 'segment-builder') setTimeout(initCSMap, 150);
+};
+
+function initCSMap() {
+    if (csMap) { csMap.invalidateSize(); updateCSMapTheme(); return; }
+    csMap = L.map('map-custom-segments').setView([51.185, 3.565], 11);
+    updateCSMapTheme();
+}
+
+function updateCSMapTheme() {
+    if (!csMap) return;
+    const isDark = document.body.classList.contains('dark-mode');
+    const tileUrl = isDark ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png' : 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png';
+    csMap.eachLayer(layer => { if (layer instanceof L.TileLayer) csMap.removeLayer(layer); });
+    L.tileLayer(tileUrl, { attribution: '©OpenStreetMap, ©CartoDB' }).addTo(csMap).setZIndex(0);
+}
+
+const originalToggleTheme = window.toggleTheme;
+window.toggleTheme = () => { originalToggleTheme(); updateCSMapTheme(); };
+
+window.toggleCSDrawing = function() {
+    const btnDraw = document.getElementById('btn-draw-cs');
+    const btnFinish = document.getElementById('btn-finish-cs');
+    const btnUndo = document.getElementById('btn-undo-cs');
+    const instr = document.getElementById('cs-instruction');
+    const resultsDiv = document.getElementById('cs-results-list');
+
+    if (!isDrawingCS) {
+        isDrawingCS = true;
+        csDrawnPoints = [];
+        csRoadSegments = [];
+        
+        if (csPolyline) csMap.removeLayer(csPolyline);
+        clearCSHoverAndSelected();
+        csMarkers.forEach(m => csMap.removeLayer(m));
+        csMarkers = [];
+        
+        document.getElementById('cs-dist').innerText = "0";
+        document.getElementById('cs-efforts').innerText = "0";
+        document.getElementById('cs-pr').innerText = "--:--";
+        resultsDiv.innerHTML = '<div class="empty-state">Lijn aan het tekenen...</div>';
+        
+        btnDraw.innerText = "Wis Lijn";
+        btnDraw.classList.replace('btn-primary', 'btn-danger');
+        btnFinish.classList.remove('hidden');
+        btnUndo.classList.remove('hidden');
+        instr.innerText = "1. Klik op de weg om de route te traceren.";
+        
+        csMap.on('click', handleCSDrawClick);
+    } else {
+        isDrawingCS = false;
+        btnDraw.innerText = "Teken Lijn";
+        btnDraw.classList.replace('btn-danger', 'btn-primary');
+        btnFinish.classList.add('hidden');
+        btnUndo.classList.add('hidden');
+        instr.innerText = "Teken een route op de kaart om al je eerdere tijden op dit stuk te vinden.";
+        csMap.off('click', handleCSDrawClick);
+    }
+};
+
+window.undoLastCSPoint = function() {
+    if (csDrawnPoints.length === 0) return;
+    
+    // Verwijder laatste bolletje en lijnsegment
+    const marker = csMarkers.pop();
+    csMap.removeLayer(marker);
+    csDrawnPoints.pop();
+    csRoadSegments.pop();
+    
+    redrawCSLine();
+    
+    if (csDrawnPoints.length === 0) {
+        document.getElementById('cs-instruction').innerText = "1. Klik op de weg om de route te traceren.";
+    }
+};
+
+async function handleCSDrawClick(e) {
+    const newPt = e.latlng;
+    const marker = L.circleMarker(newPt, { radius: 5, fillColor: "#FC5200", color: "#fff", weight: 2, fillOpacity: 1 }).addTo(csMap);
+    csMarkers.push(marker);
+
+    document.getElementById('cs-instruction').innerText = "Lijn berekenen...";
+    let newSegment = [];
+
+    // Bereken het route-stukje tussen dit en het vorige punt
+    if (csDrawnPoints.length > 0) {
+        const prevPt = csDrawnPoints[csDrawnPoints.length - 1];
+        const url = `https://routing.openstreetmap.de/routed-bike/route/v1/driving/${prevPt.lng},${prevPt.lat};${newPt.lng},${newPt.lat}?overview=full&geometries=geojson`;
+        try {
+            const res = await fetch(url);
+            const data = await res.json();
+            if (data.routes && data.routes.length > 0) {
+                newSegment = data.routes[0].geometry.coordinates.map(c => [c[1], c[0]]);
+            } else newSegment = [[newPt.lat, newPt.lng]];
+        } catch(err) { newSegment = [[newPt.lat, newPt.lng]]; }
+    } else {
+        newSegment = [[newPt.lat, newPt.lng]];
+    }
+    
+    csRoadSegments.push(newSegment);
+    csDrawnPoints.push(newPt);
+    redrawCSLine();
+    document.getElementById('cs-instruction').innerText = "Klik verder of druk op 'Zoeken' als je klaar bent.";
+}
+
+function redrawCSLine() {
+    if (csPolyline) csMap.removeLayer(csPolyline);
+    const fullPath = csRoadSegments.flat();
+    if (fullPath.length > 0) {
+        csPolyline = L.polyline(fullPath, { color: '#10B981', weight: 6, opacity: 0.6 }).addTo(csMap);
+    }
+    let dist = 0;
+    for(let i = 1; i < fullPath.length; i++) dist += csMap.distance(fullPath[i-1], fullPath[i]);
+    document.getElementById('cs-dist').innerText = (dist/1000).toFixed(2);
+}
+
+window.finishCSDrawing = async function() {
+    const fullPath = csRoadSegments.flat();
+    if (fullPath.length < 2) {
+        if(window.showToast) window.showToast("Teken minstens 2 punten!", "error");
+        return;
+    }
+
+    const btnFinish = document.getElementById('btn-finish-cs');
+    const btnUndo = document.getElementById('btn-undo-cs');
+    const instr = document.getElementById('cs-instruction');
+    
+    btnFinish.innerText = "Laden..."; 
+    btnFinish.disabled = true;
+    csMap.off('click', handleCSDrawClick);
+
+    // --- Bereken de exacte afstand van jouw getekende lijn ---
+    let drawnDist = 0;
+    for(let i = 1; i < fullPath.length; i++) {
+        drawnDist += csMap.distance(fullPath[i-1], fullPath[i]);
+    }
+    const drawnDistKm = drawnDist / 1000;
+
+    const segmentBounds = L.polyline(fullPath).getBounds().pad(0.05); 
+    const user = window.supabaseAuth.getCurrentUser();
+    const cacheKey = `heatmap_data_v2_${user ? user.id : ''}`;
+    const cachedHeatmap = JSON.parse(localStorage.getItem(cacheKey) || "{}");
+
+    if (!window.allActivitiesCache) window.allActivitiesCache = await window.supabaseAuth.listActivities();
+    const ridesToScan = window.allActivitiesCache.filter(a => a.summary.type !== 'route');
+    
+    let processed = 0;
+    const results = [];
+
+    for (const act of ridesToScan) {
+        processed++;
+        instr.innerText = `Scannen: Rit ${processed} van ${ridesToScan.length}...`;
+
+        if (cachedHeatmap[act.id]) {
+            const pts = cachedHeatmap[act.id];
+            let inBounds = false;
+            for (let p of pts) {
+                if (segmentBounds.contains([p[0], p[1]])) {
+                    inBounds = true; 
+                    break;
+                }
+            }
+            if (!inBounds) continue; 
+        }
+
+        try {
+            const blob = await window.supabaseAuth.getActivityFile(act.id);
+            const text = await blob.text();
+            const data = window.parseGPXData(text, act.fileName, true);
+            if (!data || !data.uiData || !data.uiData.times) continue;
+
+            const latlngs = data.uiData.latlngs;
+            const times = data.uiData.times;
+            const distances = data.uiData.distances;
+
+            const targetStartPt = L.latLng(fullPath[0][0], fullPath[0][1]);
+            const targetEndPt = L.latLng(fullPath[fullPath.length - 1][0], fullPath[fullPath.length - 1][1]);
+
+            let searchIndex = 0; // Hiermee "wandelen" we door de rit
+
+            // Blijf zoeken zolang we niet aan het einde van de rit zijn (voor meerdere laps!)
+            while (searchIndex < latlngs.length) {
+                let startMatchIndex = -1;
+                let endMatchIndex = -1;
+                let bestStartDist = Infinity;
+                let bestEndDist = Infinity;
+
+                // 1. Zoek de eerstvolgende passage van de startlijn
+                let foundStartZone = false;
+                for (let i = searchIndex; i < latlngs.length; i++) {
+                    const d = csMap.distance(latlngs[i], targetStartPt);
+                    if (d < 45) {
+                        foundStartZone = true;
+                        // Zoek het allerbeste punt BINNEN deze specifieke passage
+                        if (d < bestStartDist) {
+                            bestStartDist = d;
+                            startMatchIndex = i;
+                        }
+                    } else if (foundStartZone && d > 100) {
+                        // We zijn weer weg van de startlijn, stop met zoeken voor deze passage
+                        break;
+                    }
+                }
+
+                // 2. Als we een start hebben gevonden, zoek de bijbehorende finish
+                if (startMatchIndex !== -1) {
+                    let foundEndZone = false;
+                    for (let i = startMatchIndex; i < latlngs.length; i++) {
+                        const d = csMap.distance(latlngs[i], targetEndPt);
+                        if (d < 45) {
+                            foundEndZone = true;
+                            if (d < bestEndDist) {
+                                bestEndDist = d;
+                                endMatchIndex = i;
+                            }
+                        } else if (foundEndZone && d > 100) {
+                            // We zijn de finish gepasseerd, stop met zoeken
+                            break;
+                        }
+                    }
+                }
+
+                // 3. Controleer de rit en sla op
+                if (startMatchIndex !== -1 && endMatchIndex !== -1 && endMatchIndex > startMatchIndex) {
+                    const timeMs = times[endMatchIndex].getTime() - times[startMatchIndex].getTime();
+                    const distKm = distances[endMatchIndex] - distances[startMatchIndex];
+                    const distRatio = distKm / drawnDistKm;
+
+                    if (timeMs > 0 && distKm > 0.05 && distRatio > 0.75 && distRatio < 1.25) {
+                        const speedKmh = distKm / (timeMs / 3600000);
+                        const trace = latlngs.slice(startMatchIndex, endMatchIndex + 1);
+                        results.push({ act, timeMs, speed: speedKmh, dist: distKm, date: new Date(act.summary.rideDate), trace, fullPath: latlngs });
+                    }
+                    
+                    // 4. DE FIX: Zet de scanner VOORBIJ deze finishlijn om een eventuele 2e (of 3e) poging te vinden!
+                    searchIndex = endMatchIndex + 1;
+                } else {
+                    // Er is geen geldige start of finish meer in de rest van deze rit, stop de while-loop
+                    break; 
+                }
+            }
+        } catch (e) {}
+    }
+
+    results.sort((a, b) => a.timeMs - b.timeMs);
+    
+    btnFinish.innerText = "Zoeken"; 
+    btnFinish.disabled = false;
+    btnFinish.classList.add('hidden');
+    btnUndo.classList.add('hidden');
+    isDrawingCS = false;
+    document.getElementById('btn-draw-cs').innerText = "Nieuwe Lijn";
+    document.getElementById('btn-draw-cs').classList.replace('btn-danger', 'btn-primary');
+    
+    if (csPolyline) csMap.fitBounds(csPolyline.getBounds(), { padding: [50, 50] });
+    renderCSResults(results);
+};
+
+function renderCSResults(results) {
+    const resultsDiv = document.getElementById('cs-results-list');
+    const instr = document.getElementById('cs-instruction');
+    document.getElementById('cs-efforts').innerText = results.length;
+    
+    clearCSHoverAndSelected();
+
+    if (results.length === 0) {
+        instr.innerText = "Geen ritten gevonden.";
+        document.getElementById('cs-pr').innerText = "--:--";
+        resultsDiv.innerHTML = '<div class="empty-state">Je hebt dit segment nog nooit gereden.</div>';
+        return;
+    }
+
+    instr.innerText = `Klik op ritten om ze samen op de kaart te leggen.`;
+    const prSec = Math.floor(results[0].timeMs / 1000);
+    document.getElementById('cs-pr').innerText = `${Math.floor(prSec / 60)}:${(prSec % 60).toString().padStart(2,'0')}`;
+    window.csCurrentResults = results;
+
+    resultsDiv.innerHTML = results.map((r, i) => {
+        const totSec = Math.floor(r.timeMs / 1000);
+        const m = Math.floor(totSec / 60);
+        const s = totSec % 60;
+        const color = i === 0 ? 'var(--medal-gold)' : i === 1 ? 'var(--medal-silver)' : i === 2 ? 'var(--medal-bronze)' : 'var(--text-main)';
+        
+        const stringifiedAct = JSON.stringify(r.act).replace(/"/g, '&quot;');
+
+        // Klikken triggert multi-select. Knop erin springt naar Analyse.
+        return `
+        <div id="cs-item-${i}" class="cs-result-item" 
+             onmouseenter="showGhostTrace(${i})" 
+             onmouseleave="hideGhostTrace()"
+             onclick="toggleCSSelection(${i})">
+            <div style="display:flex; align-items:center; gap:12px;">
+                <span class="cs-rank" style="color: ${color};">${i+1}</span>
+                <div>
+                    <strong style="display:block; color:var(--text-main); font-size: 1rem;">${m}:${s.toString().padStart(2,'0')}</strong>
+                    <span class="sub-text">${r.date.toLocaleDateString()}</span>
+                </div>
+            </div>
+            <div style="text-align: right; display:flex; flex-direction:column; align-items:flex-end;">
+                <strong class="primary-text">${r.speed.toFixed(1)} <small>km/u</small></strong>
+                <button class="btn-secondary btn-small" style="margin-top:4px; padding:2px 6px; font-size:0.7rem;" 
+                        onclick="event.stopPropagation(); switchTab('analysis'); window.openRide(${stringifiedAct});">
+                    Analyse
+                </button>
+            </div>
+        </div>`;
+    }).join('');
+}
+
+window.toggleCSSelection = function(index) {
+    if (csSelectedIndices.has(index)) csSelectedIndices.delete(index);
+    else csSelectedIndices.add(index);
+    
+    // Kleur in de lijst toewijzen of weghalen
+    document.querySelectorAll('.cs-result-item').forEach((el, i) => {
+        if (csSelectedIndices.has(i)) el.classList.add('selected');
+        else el.classList.remove('selected');
+    });
+    
+    renderCSSelectedLines();
+};
+
+function renderCSSelectedLines() {
+    csSelectedPolylines.forEach(p => csMap.removeLayer(p));
+    csSelectedPolylines = [];
+    
+    // Spectrum voor meerdere overlappende ritten
+    const palette = ['#3B82F6', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899', '#14B8A6'];
+    let colorIdx = 0;
+    
+    csSelectedIndices.forEach(idx => {
+        const data = window.csCurrentResults[idx];
+        const color = palette[colorIdx % palette.length];
+        colorIdx++;
+        
+        const fullL = L.polyline(data.fullPath, { color: color, weight: 3, opacity: 0.3 }).addTo(csMap);
+        const traceL = L.polyline(data.trace, { color: color, weight: 6, opacity: 1 }).addTo(csMap);
+        
+        csSelectedPolylines.push(fullL, traceL);
+        traceL.bringToFront();
+    });
+}
+
+function clearCSHoverAndSelected() {
+    if (csHoverLine) csMap.removeLayer(csHoverLine);
+    if (csHoverFullPath) csMap.removeLayer(csHoverFullPath);
+    csSelectedPolylines.forEach(p => csMap.removeLayer(p));
+    csSelectedPolylines = [];
+    csSelectedIndices.clear();
+}
+
+window.showGhostTrace = function(index) {
+    // Check of deze rit niet toevallig al geselecteerd (aangeklikt) is
+    if (csSelectedIndices.has(index)) return; 
+    if (!window.csCurrentResults || !window.csCurrentResults[index]) return;
+    
+    const data = window.csCurrentResults[index];
+    if (csHoverLine) csMap.removeLayer(csHoverLine);
+    if (csHoverFullPath) csMap.removeLayer(csHoverFullPath);
+    
+    csHoverFullPath = L.polyline(data.fullPath, { color: '#9CA3AF', weight: 3, opacity: 0.4, dashArray: '5, 5' }).addTo(csMap);
+    csHoverLine = L.polyline(data.trace, { color: '#9CA3AF', weight: 6, opacity: 0.9 }).addTo(csMap);
+    csHoverLine.bringToFront();
+};
+
+window.hideGhostTrace = function() {
+    if (csHoverLine) csMap.removeLayer(csHoverLine);
+    if (csHoverFullPath) csMap.removeLayer(csHoverFullPath);
+};
+
+window.searchLocationCS = async function() {
+    const query = document.getElementById('cs-location-search').value.trim();
+    if (!query) return;
+
+    // Zoek de specifieke zoek-knop op om 'laden...' te tonen
+    const btn = document.querySelector('button[onclick="searchLocationCS()"]');
+    const oldText = btn.innerText;
+    btn.innerText = "...";
+    btn.disabled = true;
+
+    try {
+        // Gebruik de OpenStreetMap API (gratis, geen API key nodig)
+        const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=1`;
+        const res = await fetch(url);
+        const data = await res.json();
+
+        if (data && data.length > 0) {
+            const lat = parseFloat(data[0].lat);
+            const lon = parseFloat(data[0].lon);
+            
+            // Vlieg soepel naar de nieuwe locatie op zoomniveau 13
+            csMap.flyTo([lat, lon], 13, { animate: true, duration: 1.5 });
+        } else {
+            if (window.showToast) window.showToast("Locatie niet gevonden.", "error");
+            else alert("Locatie niet gevonden.");
+        }
+    } catch (e) {
+        console.error("Fout bij zoeken locatie:", e);
+        if (window.showToast) window.showToast("Netwerkfout bij zoeken.", "error");
+    } finally {
+        btn.innerText = oldText;
+        btn.disabled = false;
+    }
+};
+
+// --- HEATMAP OVERLAY VOOR MIJN SEGMENTEN ---
+let csHeatmapGroup = null;
+
+window.toggleCSHeatmap = async function(show) {
+    if (!csMap) return;
+
+    if (!show) {
+        if (csHeatmapGroup) {
+            csMap.removeLayer(csHeatmapGroup);
+            csHeatmapGroup = null;
+        }
+        return;
+    }
+
+    // Maak laag aan
+    csHeatmapGroup = L.layerGroup().addTo(csMap);
+
+    const user = window.supabaseAuth.getCurrentUser();
+    if (!user) return;
+
+    const cacheKey = `heatmap_data_v2_${user.id}`;
+    let cached = JSON.parse(localStorage.getItem(cacheKey) || "{}");
+
+    // Als de cache leeg is, halen we de ritten op en genereren we de punten direct
+    if (Object.keys(cached).length === 0) {
+        if (window.showToast) window.showToast("Heatmap data inladen...", "success");
+        let acts = allActivitiesCache || await window.supabaseAuth.listActivities();
+        acts = acts.filter(a => a.summary.type !== 'route');
+
+        for (let act of acts) {
+            try {
+                const b = await window.supabaseAuth.getActivityFile(act.id);
+                const t = await b.text();
+                const parsed = window.parseGPXData(t, act.fileName, true);
+                if (parsed && parsed.uiData) {
+                    const pts = [];
+                    const { latlngs, speeds, elevations, distances } = parsed.uiData;
+                    for(let j = 0; j < latlngs.length; j += 5) {
+                        pts.push([latlngs[j][0], latlngs[j][1], speeds[j] || 0, 0]);
+                    }
+                    cached[act.id] = pts;
+                }
+            } catch (e) {}
+        }
+        try { localStorage.setItem(cacheKey, JSON.stringify(cached)); } catch(e) {}
+    }
+
+    // Teken alle lijntjes subtiel in het oranje op de 'Mijn Segmenten' kaart
+    Object.values(cached).forEach(pts => {
+        if (pts && pts.length > 0) {
+            const coords = pts.map(p => [p[0], p[1]]);
+            L.polyline(coords, { 
+                color: '#ff4400', 
+                weight: 3, 
+                opacity: 0.2, // Subtiel zodat je getekende segment goed zichtbaar blijft
+                lineCap: 'round',
+                lineJoin: 'round',
+                interactive: false
+            }).addTo(csHeatmapGroup);
+        }
+    });
+
+    // Zorg dat de getekende lijn altijd boven de heatmap ligt
+    if (csPolyline) csPolyline.bringToFront();
+};

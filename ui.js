@@ -958,7 +958,6 @@ async function initMuniMap() {
     updateMuniMapTheme();
 }
 
-// Nieuwe helper functie om de juiste kaart te laden
 function updateMuniMapTheme() {
     if (!muniMap) return;
     
@@ -967,20 +966,16 @@ function updateMuniMapTheme() {
         ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png' 
         : 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png';
     
-    // Verwijder oude laag als die bestaat
     if (muniBaseLayer) {
         muniMap.removeLayer(muniBaseLayer);
     }
     
-    // Voeg nieuwe correcte laag toe
     muniBaseLayer = L.tileLayer(tileUrl, { 
         attribution: '©OpenStreetMap, ©CartoDB' 
     }).addTo(muniMap);
     
-    // Zorg dat de oranje heatmap lijnen ALTIJD bovenop de base map blijven
-    if (heatmapLayerGroup) {
-        heatmapLayerGroup.bringToFront();
-    }
+    // De fix: druk de kaart naar de achtergrond, in plaats van de heatmap naar voren te trekken
+    muniBaseLayer.setZIndex(0); 
 }
 
 async function loadFeatures() {
@@ -1111,12 +1106,19 @@ window.toggleSelection = (id) => {
 window.deleteSelectedRides = async function() { if(confirm("Verwijderen?")) { await window.supabaseAuth.deleteActivities(Array.from(selectedRides)); selectedRides.clear(); updateDashboard(); } };
 window.triggerUpload = () => document.getElementById('gpxInput').click();
 window.toggleTheme = () => {
-    document.body.classList.toggle('dark-mode');
-    localStorage.setItem('theme', document.body.classList.contains('dark-mode') ? 'dark' : 'light');
+    // Schakel de class op de <html> tag in plaats van <body>
+    document.documentElement.classList.toggle('dark-mode');
     
+    // Sla de keuze op in localStorage
+    const isDark = document.documentElement.classList.contains('dark-mode');
+    localStorage.setItem('theme', isDark ? 'dark' : 'light');
+    
+    // Update de kaarten direct mee
+    if (typeof updateCSMapTheme === 'function') updateCSMapTheme();
+    if (typeof updateMuniMapTheme === 'function') updateMuniMapTheme();
+    
+    // Optioneel: ververs grafieken
     if (window.updateDashboard) window.updateDashboard();
-    // NIEUW: Update de heatmap kaart direct als het thema wijzigt
-    if (typeof updateMuniMapTheme === 'function') updateMuniMapTheme(); 
 };
 
 window.toggleTiles = function() {

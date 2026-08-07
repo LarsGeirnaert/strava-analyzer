@@ -1237,3 +1237,58 @@ html {
 .toast.show { transform: translateX(0); }
 .toast.success { border-left-color: var(--success); }
 .toast.error { border-left-color: var(--danger); }
+
+.cs-result-item {
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--border-color);
+    transition: all 0.2s ease;
+    cursor: pointer;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+.cs-result-item:last-child {
+    border-bottom: none;
+}
+.cs-result-item:hover {
+    background: var(--hover-bg);
+    border-left: 4px solid #3B82F6; /* Blauwe rand bij hover */
+}
+.cs-rank {
+    font-size: 1.2rem;
+    font-weight: 800;
+    width: 35px;
+}
+
+/* Custom Segment Leaderboard & Multi-Select */
+#cs-results-list {
+    max-height: 50vh; /* Zorgt dat de lijst op de helft van het scherm stopt en scrolt */
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding-right: 5px;
+}
+
+.cs-result-item {
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--border-color);
+    transition: background 0.2s ease;
+    cursor: pointer;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.cs-result-item:last-child { border-bottom: none; }
+.cs-result-item:hover { background: var(--hover-bg); }
+
+/* Actieve status voor als een rit is aangeklikt (Multi-Select) */
+.cs-result-item.selected {
+    background: rgba(59, 130, 246, 0.15) !important;
+    border-left: 4px solid #3B82F6 !important;
+}
+
+.cs-rank {
+    font-size: 1.2rem;
+    font-weight: 800;
+    width: 35px;
+}
