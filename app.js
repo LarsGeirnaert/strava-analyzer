@@ -5,6 +5,7 @@ let segmentLayer = null;
 let currentRideData = null;
 let activeSegment = null;
 let hoverMarker = null;
+Chart.defaults.color = '#F9FAFB';
 
 document.addEventListener('DOMContentLoaded', () => {
     initMap();
@@ -88,31 +89,29 @@ window.openRide = async function(activity) {
     }
 };
 
-// Voorbeeld voor handleFileUpload
 async function handleFileUpload(e) {
     const files = e.target.files;
     if (!files || files.length === 0) return;
+    
+    // Ga direct naar de analyse tab
     if(window.switchTab) window.switchTab('analysis');
     
     const file = files[0];
-    const text = await file.text();
     
-    // Initialiseer worker
-    const worker = new Worker('gpxWorker.js');
-    
-    worker.onmessage = function(e) {
-        const parsedData = e.data;
-        if (parsedData) {
-            // Nu pas renderen op de UI
-            currentRideData = parsedData;
-            // Je rendering logica hier...
-            processParsedDataAndRender(parsedData, file.name);
-        }
-        worker.terminate(); // Ruim worker netjes op
-    };
-    
-    // Stuur zware taak naar de achtergrond
-    worker.postMessage({ xmlString: text, fileName: file.name, isExistingRide: false });
+    try {
+        const text = await file.text();
+        
+        // Verwerk de GPX direct, ZONDER worker (isExistingRide = false)
+        processGPXAndRender(text, file.name, false);
+        
+        // Gooi de input leeg, zodat je hetzelfde bestand hierna nog eens kan selecteren
+        e.target.value = '';
+        
+        if (window.showToast) window.showToast("Rit succesvol geüpload!", "success");
+    } catch (error) {
+        console.error("Fout bij het verwerken van de GPX:", error);
+        if (window.showToast) window.showToast("Fout bij het laden van het bestand.", "error");
+    }
 }
 
 async function handleFolderUpload(e) {

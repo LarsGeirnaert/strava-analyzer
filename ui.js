@@ -686,13 +686,17 @@ window.changeActivityPage = function(dir) {
 };
 
 function renderActivityListBasedOnView() {
+    // 1. Haal de lijst op (ZONDER window. ervoor!) en filter de routes eruit
     let list = allActivitiesCache || [];
-    const term = document.getElementById('activity-search').value.toLowerCase();
+    list = list.filter(a => !a.summary || a.summary.type !== 'route');
 
+    // 2. Pas eventueel de zoekterm toe
+    const term = document.getElementById('activity-search').value.toLowerCase();
     if (term) {
         list = list.filter(a => a.fileName.toLowerCase().includes(term));
     }
 
+    // 3. Bereken de paginatie
     const totalPages = Math.ceil(list.length / ACTIVITY_PAGE_SIZE) || 1;
     if (currentActivityPage > totalPages) currentActivityPage = totalPages;
     if (currentActivityPage < 1) currentActivityPage = 1;
@@ -701,6 +705,7 @@ function renderActivityListBasedOnView() {
     const endIndex = startIndex + ACTIVITY_PAGE_SIZE;
     const pageList = list.slice(startIndex, endIndex);
 
+    // 4. Update de UI voor paginatie
     const pageInfo = document.getElementById('page-info');
     const prevBtn = document.getElementById('prev-page-btn');
     const nextBtn = document.getElementById('next-page-btn');
@@ -709,6 +714,7 @@ function renderActivityListBasedOnView() {
     if (prevBtn) prevBtn.disabled = currentActivityPage === 1;
     if (nextBtn) nextBtn.disabled = currentActivityPage === totalPages;
 
+    // 5. Teken de schone lijst op het scherm
     window.renderActivityList(pageList);
 }
 
@@ -1626,6 +1632,12 @@ function renderMonthlyComparisonChart(activities) {
 }
 
 window.loadRankings = async function(distArg) {
+    // 1. Zorg dat we de oude grafiek netjes opruimen VOORDAT we de HTML overschrijven
+    if (activeCharts['segChart']) {
+        activeCharts['segChart'].destroy();
+        delete activeCharts['segChart'];
+    }
+
     const listEl = document.getElementById('ranking-list');
     listEl.innerHTML = `
         <div class="skeleton skeleton-list-item"></div>
@@ -1637,7 +1649,6 @@ window.loadRankings = async function(distArg) {
     const selector = document.getElementById('segmentSelector');
     const selectedDist = parseInt(distArg || (selector ? selector.value : "5"));
     
-    // AANGEPAST: Pakt nu de waarde van de nieuwe Top X filter
     const topFilterElement = document.getElementById('segmentTopFilter');
     const topFilter = topFilterElement ? topFilterElement.value : '10';
     
@@ -1664,15 +1675,13 @@ window.loadRankings = async function(distArg) {
         }
     });
 
-    // 1. Sorteer alles op snelheid (snelste eerst)
+    // Sorteer alles op snelheid (snelste eerst)
     rankingData.sort((a,b) => b.speed - a.speed);
 
-    // 2. Knip de array af op basis van de filter (Top 5, Top 10, etc.)
+    // Knip de array af op basis van de filter
     if (topFilter !== 'all') {
         rankingData = rankingData.slice(0, parseInt(topFilter));
     }
-
-    listEl.innerHTML = '';
 
     if (rankingData.length === 0) {
         listEl.innerHTML = `
@@ -1680,11 +1689,10 @@ window.loadRankings = async function(distArg) {
                 <h3 style="margin-bottom:10px;">Geen data gevonden</h3>
                 <p>Er zijn geen ritten die voldoen aan je ingestelde filters.</p>
             </div>`;
-        document.getElementById('segment-progression-container').style.display = 'none';
         return;
     }
 
-    listEl.innerHTML = rankingData.map((item, i) => {
+    let html = rankingData.map((item, i) => {
         const rankLabel = i === 0 ? '1st' : i === 1 ? '2nd' : i === 2 ? '3rd' : `${i+1}th`;
         const color = i === 0 ? 'var(--medal-gold)' : i === 1 ? 'var(--medal-silver)' : i === 2 ? 'var(--medal-bronze)' : 'var(--text-muted)';
         
@@ -1709,14 +1717,98 @@ window.loadRankings = async function(distArg) {
         </div>`;
     }).join('');
 
-    const chartContainer = document.getElementById('segment-progression-container');
+    // DE FIX: Vaste hoogtes zodat Chart.js de ruimte perfect 'ziet'
     if (rankingData.length > 1) {
-        chartContainer.style.display = 'block';
-        updateTrendChart(rankingData); // Stuur de gefilterde Top X naar de grafiek
-    } else {
-        chartContainer.style.display = 'none';
+        html += `
+        <div class="chart-box margin-top" style="height: 250px; margin-top: 32px; padding: 20px; display: block;">
+            <div class="chart-header" style="margin-bottom: 16px;">
+                <h3 style="font-size: 0.95rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em;">Snelheidsverloop (Chronologisch)</h3>
+            </div>
+            <div class="chart-wrapper" style="position: relative; height: 180px; width: 100%;">
+                <canvas id="segmentProgressionChart"></canvas>
+            </div>
+        </div>`;
+    }
+
+    listEl.innerHTML = html;
+
+    // DE FIX: Geef de browser 50 milliseconden om de HTML te bouwen voor we de grafiek aanroepen
+    if (rankingData.length > 1) {
+        setTimeout(() => {
+            updateTrendChart(rankingData);
+        }, 50);
     }
 };
+
+function updateTrendChart(data) {
+    const canvas = document.getElementById('segmentProgressionChart');
+    if (!canvas) return; 
+    
+    const ctx = canvas.getContext('2d');
+
+    const chronological = [...data].sort((a,b) => a.date - b.date);
+
+    activeCharts['segChart'] = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: chronological.map(d => d.date.toLocaleDateString()),
+            datasets: [{
+                label: 'Snelheid (km/u)',
+                data: chronological.map(d => d.speed),
+                borderColor: '#10B981',
+                backgroundColor: 'rgba(16,185,129,0.1)',
+                tension: 0.3,
+                fill: true
+            }]
+        },
+        options: { 
+            responsive: true, 
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { display: false } 
+            },
+            scales: {
+                y: { title: { display: true, text: 'km/u' } }
+            }
+        }
+    });
+}
+
+function updateTrendChart(data) {
+    const canvas = document.getElementById('segmentProgressionChart');
+    if (!canvas) return; // Extra veiligheidscheck
+    
+    const ctx = canvas.getContext('2d');
+    if(activeCharts['segChart']) activeCharts['segChart'].destroy();
+
+    // Voor de grafiek sorteren we de Top X ritten chronologisch (op datum)
+    const chronological = [...data].sort((a,b) => a.date - b.date);
+
+    activeCharts['segChart'] = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: chronological.map(d => d.date.toLocaleDateString()),
+            datasets: [{
+                label: 'Snelheid (km/u)',
+                data: chronological.map(d => d.speed),
+                borderColor: '#10B981',
+                backgroundColor: 'rgba(16,185,129,0.1)',
+                tension: 0.3,
+                fill: true
+            }]
+        },
+        options: { 
+            responsive: true, 
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { display: false } // Verbergt de overbodige legenda bovenaan
+            },
+            scales: {
+                y: { title: { display: true, text: 'km/u' } }
+            }
+        }
+    });
+}
 
 function updateTrendChart(data) {
     const ctx = document.getElementById('segmentProgressionChart').getContext('2d');
