@@ -1278,7 +1278,7 @@ window.finishCSDrawing = async function() {
     btnFinish.disabled = true;
     csMap.off('click', handleCSDrawClick);
 
-    // --- Bereken de exacte afstand van jouw getekende lijn ---
+    // Bereken de exacte afstand van jouw getekende lijn
     let drawnDist = 0;
     for(let i = 1; i < fullPath.length; i++) {
         drawnDist += csMap.distance(fullPath[i-1], fullPath[i]);
@@ -1325,67 +1325,65 @@ window.finishCSDrawing = async function() {
             const targetStartPt = L.latLng(fullPath[0][0], fullPath[0][1]);
             const targetEndPt = L.latLng(fullPath[fullPath.length - 1][0], fullPath[fullPath.length - 1][1]);
 
-            let searchIndex = 0; // Hiermee "wandelen" we door de rit
+            // --- DE NIEUWE ROBUUSTE LOGICA ---
+            
+            // Hulpfunctie om ALLE passages (doorkomsten) van een bepaald punt te vinden
+            function findPassages(targetPt, latlngsArray) {
+                let passages = [];
+                let inZone = false;
+                let bestIdx = -1;
+                let bestDist = Infinity;
 
-            // Blijf zoeken zolang we niet aan het einde van de rit zijn (voor meerdere laps!)
-            while (searchIndex < latlngs.length) {
-                let startMatchIndex = -1;
-                let endMatchIndex = -1;
-                let bestStartDist = Infinity;
-                let bestEndDist = Infinity;
-
-                // 1. Zoek de eerstvolgende passage van de startlijn
-                let foundStartZone = false;
-                for (let i = searchIndex; i < latlngs.length; i++) {
-                    const d = csMap.distance(latlngs[i], targetStartPt);
-                    if (d < 45) {
-                        foundStartZone = true;
-                        // Zoek het allerbeste punt BINNEN deze specifieke passage
-                        if (d < bestStartDist) {
-                            bestStartDist = d;
-                            startMatchIndex = i;
+                for (let i = 0; i < latlngsArray.length; i++) {
+                    const d = csMap.distance(latlngsArray[i], targetPt);
+                    if (d < 45) { // Binnen 45 meter is een hit
+                        inZone = true;
+                        if (d < bestDist) {
+                            bestDist = d;
+                            bestIdx = i; // Bewaar het aller-dichtste punt van deze doorkomst
                         }
-                    } else if (foundStartZone && d > 100) {
-                        // We zijn weer weg van de startlijn, stop met zoeken voor deze passage
-                        break;
+                    } else if (inZone && d > 100) { 
+                        // Zodra je verder dan 100m weg bent, sluiten we deze doorkomst af
+                        passages.push(bestIdx);
+                        inZone = false;
+                        bestIdx = -1;
+                        bestDist = Infinity;
                     }
                 }
-
-                // 2. Als we een start hebben gevonden, zoek de bijbehorende finish
-                if (startMatchIndex !== -1) {
-                    let foundEndZone = false;
-                    for (let i = startMatchIndex; i < latlngs.length; i++) {
-                        const d = csMap.distance(latlngs[i], targetEndPt);
-                        if (d < 45) {
-                            foundEndZone = true;
-                            if (d < bestEndDist) {
-                                bestEndDist = d;
-                                endMatchIndex = i;
-                            }
-                        } else if (foundEndZone && d > 100) {
-                            // We zijn de finish gepasseerd, stop met zoeken
-                            break;
-                        }
-                    }
+                if (inZone && bestIdx !== -1) {
+                    passages.push(bestIdx);
                 }
+                return passages;
+            }
 
-                // 3. Controleer de rit en sla op
-                if (startMatchIndex !== -1 && endMatchIndex !== -1 && endMatchIndex > startMatchIndex) {
-                    const timeMs = times[endMatchIndex].getTime() - times[startMatchIndex].getTime();
-                    const distKm = distances[endMatchIndex] - distances[startMatchIndex];
-                    const distRatio = distKm / drawnDistKm;
+            // Verzamel alle momenten dat je de start en de finish passeerde
+            const startPassages = findPassages(targetStartPt, latlngs);
+            const endPassages = findPassages(targetEndPt, latlngs);
 
-                    if (timeMs > 0 && distKm > 0.05 && distRatio > 0.75 && distRatio < 1.25) {
-                        const speedKmh = distKm / (timeMs / 3600000);
-                        const trace = latlngs.slice(startMatchIndex, endMatchIndex + 1);
-                        results.push({ act, timeMs, speed: speedKmh, dist: distKm, date: new Date(act.summary.rideDate), trace, fullPath: latlngs });
-                    }
-                    
-                    // 4. DE FIX: Zet de scanner VOORBIJ deze finishlijn om een eventuele 2e (of 3e) poging te vinden!
-                    searchIndex = endMatchIndex + 1;
-                } else {
-                    // Er is geen geldige start of finish meer in de rest van deze rit, stop de while-loop
-                    break; 
+            let usedStarts = new Set();
+
+            // Koppel elke finish aan de juiste start
+            for (let eIdx of endPassages) {
+                // Zoek alle starts die vóór deze specifieke finish plaatsvonden
+                let validStarts = startPassages.filter(s => s < eIdx);
+                if (validStarts.length === 0) continue;
+                
+                // DE FIX: Pak de LAATSTE start vóór de finish (dit negeert je eerdere U-bocht passages!)
+                let sIdx = validStarts[validStarts.length - 1];
+                
+                // Zorg dat we een start niet dubbel gebruiken (bijv. als je na de finish nog eens langs de finish fietst)
+                if (usedStarts.has(sIdx)) continue;
+
+                const timeMs = times[eIdx].getTime() - times[sIdx].getTime();
+                const distKm = distances[eIdx] - distances[sIdx];
+                const distRatio = distKm / drawnDistKm;
+
+                // Strenge controle (25% afwijking toegestaan t.o.v. de getekende lijn)
+                if (timeMs > 0 && distKm > 0.05 && distRatio > 0.75 && distRatio < 1.25) {
+                    const speedKmh = distKm / (timeMs / 3600000);
+                    const trace = latlngs.slice(sIdx, eIdx + 1);
+                    results.push({ act, timeMs, speed: speedKmh, dist: distKm, date: new Date(act.summary.rideDate), trace, fullPath: latlngs });
+                    usedStarts.add(sIdx);
                 }
             }
         } catch (e) {}
