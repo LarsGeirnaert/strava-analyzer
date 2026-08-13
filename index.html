@@ -705,14 +705,12 @@
                             <p class="sub-text">Je volledige fietsgeschiedenis op één kaart</p>
 
                             <div class="heatmap-filters"
-                                style="display: flex; gap: 10px; align-items: center; margin-top: 15px;">
-                                <label class="sub-text font-medium">Kleurcodering:</label>
-                                <select id="heatmap-mode" class="input-select" onchange="changeHeatmapMode()"
-                                    style="width: auto; padding: 6px 12px;">
-                                    <option value="frequency">Frequentie (Vaak = Feller)</option>
-                                    <option value="speed">Snelheid (Groen = Snel, Rood = Traag)</option>
-                                    <option value="gradient">Klim % (Rood = Steil, Blauw = Dalen)</option>
-                                </select>
+                                style="display: flex; flex-direction: column; gap: 10px; margin-top: 15px;">
+                                <label class="sub-text font-medium">Tijdlijn Heatmap: <strong id="heatmap-date-label"
+                                        class="primary-text">Alle Tijd</strong></label>
+                                <input type="range" id="heatmap-time-slider" min="0" max="100" value="100"
+                                    style="width: 100%; max-width: 400px; accent-color: #FC5200; cursor: pointer;"
+                                    oninput="handleHeatmapSlider(this.value)">
                             </div>
                         </div>
                         <div class="world-actions">
@@ -741,9 +739,18 @@
                 <h2>Welkom bij de Community</h2>
             </div>
             <div class="modal-body">
-                <p class="sub-text margin-bottom">Kies een weergavenaam zodat andere fietsers je kunnen vinden.</p>
+                <p class="sub-text margin-bottom">Kies een weergavenaam en stel je gewicht in voor nauwkeurige
+                    vermogensdata.</p>
                 <input type="text" id="profile-name-input" class="input-text margin-bottom"
                     placeholder="Jouw Weergavenaam">
+
+                <div style="display: flex; gap: 10px;" class="margin-bottom">
+                    <input type="number" id="profile-rider-weight" class="input-text" placeholder="Jouw gewicht (kg)"
+                        value="75">
+                    <input type="number" id="profile-bike-weight" class="input-text" placeholder="Fiets gewicht (kg)"
+                        value="9">
+                </div>
+
                 <button class="btn-primary full-width" onclick="saveProfileName()">Opslaan & Verder</button>
             </div>
         </div>

@@ -1211,38 +1211,12 @@ function updateWorldStats(mode, count = 0, total = 0) {
     }
 }
 
-let currentHeatmapMode = 'frequency';
 
-// Nieuwe functie: Luistert naar de dropdown
-window.changeHeatmapMode = function() {
-    const select = document.getElementById('heatmap-mode');
-    if (select) currentHeatmapMode = select.value;
-    
-    // Alleen opnieuw tekenen als er al een kaart open staat
-    if (heatmapLayerGroup && heatmapLayerGroup.getLayers().length > 0) {
-        drawHeatmap();
-    }
-};
+// --- NIEUWE SLIDER LOGICA ---
+let heatmapSliderDate = null;
+let sortedHeatmapActs = [];
+let heatmapLayers = []; // Hierin bewaren we alle getekende lijnen live op de achtergrond
 
-// Helper: Blauwe weergave voor Snelheid (zoals Afb 2)
-function getSpeedColor(speed) {
-    if (speed > 32) return '#ffffff'; // Wit (Sprint / Zeer snel)
-    if (speed > 27) return '#66ccff'; // Helder lichtblauw (Vlot)
-    if (speed > 22) return '#0088ff'; // Blauw (Gemiddeld)
-    if (speed > 16) return '#0033aa'; // Donkerblauw (Rustig)
-    return '#001144';                 // Zeer donkerblauw (Traag)
-}
-
-// Helper: Rode weergave voor Klim% (zoals Afb 3)
-function getGradientColor(grad) {
-    if (grad > 8) return '#ffffff';  // Wit (Muur / Zeer steil)
-    if (grad > 5) return '#ff8888';  // Lichtrood/Roze (Steil)
-    if (grad > 2) return '#ff0000';  // Helder Rood (Bergop)
-    if (grad > -2) return '#880000'; // Donkerrood (Vlak / Vals plat)
-    return '#330000';                // Zeer donkerrood (Dalen)
-}
-
-// De vernieuwde tekenfunctie
 window.drawHeatmap = async function() {
     const loader = document.getElementById('muni-loading');
     if(loader) loader.classList.remove('hidden');
@@ -1251,16 +1225,20 @@ window.drawHeatmap = async function() {
 
     const canvasRenderer = L.canvas({ padding: 0.5 });
     heatmapLayerGroup = L.layerGroup().addTo(muniMap);
+    heatmapLayers = []; // Maak de array leeg voor een verse start
 
     let acts = allActivitiesCache || await window.supabaseAuth.listActivities();
     acts = acts.filter(a => a.summary.type !== 'route' && a.summary.distanceKm > 0);
+    
+    // Sorteer chronologisch
+    sortedHeatmapActs = [...acts].sort((a,b) => new Date(a.summary.rideDate) - new Date(b.summary.rideDate));
 
     const user = window.supabaseAuth.getCurrentUser();
     const cacheKey = `heatmap_data_v2_${user.id}`; 
     let cached = JSON.parse(localStorage.getItem(cacheKey) || "{}");
     let cacheUpdated = false;
 
-    for (let act of acts) {
+    for (let act of sortedHeatmapActs) {
         let pts = cached[act.id];
         
         if (!pts) {
@@ -1271,21 +1249,12 @@ window.drawHeatmap = async function() {
                 
                 if (parsed && parsed.uiData) {
                     pts = [];
-                    const { latlngs, speeds, elevations, distances } = parsed.uiData;
+                    const { latlngs } = parsed.uiData;
                     
                     for(let j = 0; j < latlngs.length; j += 5) {
-                        let grad = 0;
-                        if (j >= 5 && distances[j] > distances[j-5]) {
-                            const distDiff = distances[j] - distances[j-5];
-                            const eleDiff = elevations[j] - elevations[j-5];
-                            grad = (eleDiff / (distDiff * 1000)) * 100; 
-                        }
-                        
                         pts.push([
                             parseFloat(latlngs[j][0].toFixed(5)), 
-                            parseFloat(latlngs[j][1].toFixed(5)), 
-                            parseFloat((speeds[j] || 0).toFixed(1)), 
-                            parseFloat(grad.toFixed(1))           
+                            parseFloat(latlngs[j][1].toFixed(5))
                         ]);
                     }
                     cached[act.id] = pts;
@@ -1295,63 +1264,26 @@ window.drawHeatmap = async function() {
         }
 
         if (pts && pts.length > 0) {
-            if (currentHeatmapMode === 'frequency') {
-                // Modus 1: Frequentie (Afb 1) - Diep oranje met glow
-                const coords = pts.map(p => [p[0], p[1]]);
-                L.polyline(coords, { 
-                    renderer: canvasRenderer,
-                    color: '#ff4400', 
-                    weight: 3, 
-                    opacity: 0.15, // Laag gehouden zodat het overlappend licht opbouwt!
-                    lineCap: 'round',
-                    lineJoin: 'round',
-                    className: 'heatmap-glow',
-                    interactive: false
-                }).addTo(heatmapLayerGroup);
-            } else {
-                // Modus 2 & 3: Snelheid (Afb 2) & Klimmen (Afb 3)
-                let currentBucketCoords = [];
-                let currentColor = null;
+            const coords = pts.map(p => [p[0], p[1]]);
+            const polyline = L.polyline(coords, { 
+                renderer: canvasRenderer,
+                color: '#ff4400', 
+                weight: 3, 
+                opacity: 0.15, 
+                lineCap: 'round',
+                lineJoin: 'round',
+                className: 'heatmap-glow',
+                interactive: false
+            });
 
-                for (let i = 0; i < pts.length; i++) {
-                    const p = pts[i];
-                    const coord = [p[0], p[1]];
-                    const pointColor = currentHeatmapMode === 'speed' ? getSpeedColor(p[2]) : getGradientColor(p[3]);
-
-                    if (currentColor === null) {
-                        currentColor = pointColor;
-                        currentBucketCoords.push(coord);
-                    } else if (currentColor === pointColor) {
-                        currentBucketCoords.push(coord);
-                    } else {
-                        currentBucketCoords.push(coord); 
-                        L.polyline(currentBucketCoords, {
-                            renderer: canvasRenderer, 
-                            color: currentColor, 
-                            weight: 3, 
-                            opacity: 0.5, // Hoger want we willen hier de kleurwaarde goed zien
-                            lineCap: 'round',
-                            lineJoin: 'round',
-                            className: 'heatmap-value-line',
-                            interactive: false
-                        }).addTo(heatmapLayerGroup);
-                        
-                        currentBucketCoords = [coord];
-                        currentColor = pointColor;
-                    }
-                }
-                if (currentBucketCoords.length > 1) {
-                    L.polyline(currentBucketCoords, { 
-                        color: currentColor, 
-                        weight: 3, 
-                        opacity: 0.5,
-                        lineCap: 'round',
-                        lineJoin: 'round',
-                        className: 'heatmap-value-line',
-                        interactive: false
-                    }).addTo(heatmapLayerGroup);
-                }
-            }
+            // Voeg standaard toe aan de kaart
+            polyline.addTo(heatmapLayerGroup);
+            
+            // Sla de referentie op mét de datum, zodat de slider dit razendsnel kan filteren
+            heatmapLayers.push({
+                layer: polyline,
+                timestamp: new Date(act.summary.rideDate).getTime()
+            });
         }
     }
 
@@ -1366,11 +1298,43 @@ window.drawHeatmap = async function() {
 
     if(loader) loader.classList.add('hidden');
     
+    // Zoom naar de heatmap, reset de slider UI
     if (heatmapLayerGroup.getLayers().length > 0) {
         const bounds = L.featureGroup(heatmapLayerGroup.getLayers()).getBounds();
         muniMap.flyToBounds(bounds, { padding: [30, 30] });
     }
+    
+    const slider = document.getElementById('heatmap-time-slider');
+    if(slider) slider.value = 100;
+    document.getElementById('heatmap-date-label').innerText = "Alle Tijd";
 };
+
+// --- NIEUWE SMOOTH SLIDER LOGICA ---
+window.handleHeatmapSlider = function(val) {
+    if (sortedHeatmapActs.length === 0 || heatmapLayers.length === 0) return;
+    const index = Math.floor((val / 100) * (sortedHeatmapActs.length - 1));
+    
+    let cutoffTime;
+
+    if (val == 100 || index >= sortedHeatmapActs.length - 1) {
+        document.getElementById('heatmap-date-label').innerText = "Alle Tijd";
+        cutoffTime = Infinity;
+    } else {
+        const actDate = new Date(sortedHeatmapActs[index].summary.rideDate);
+        document.getElementById('heatmap-date-label').innerText = "Tot " + actDate.toLocaleDateString('nl-NL');
+        cutoffTime = actDate.getTime();
+    }
+
+    // Zet supersnel de lagen aan of uit afhankelijk van de slider datum!
+    heatmapLayers.forEach(item => {
+        if (item.timestamp > cutoffTime) {
+            if (heatmapLayerGroup.hasLayer(item.layer)) heatmapLayerGroup.removeLayer(item.layer);
+        } else {
+            if (!heatmapLayerGroup.hasLayer(item.layer)) heatmapLayerGroup.addLayer(item.layer);
+        }
+    });
+};
+
 
 function updateStats(dist, timeMs, speed, ele, power, maxSpeed) { 
     const d = document.getElementById('statDist');
@@ -1740,75 +1704,6 @@ window.loadRankings = async function(distArg) {
     }
 };
 
-function updateTrendChart(data) {
-    const canvas = document.getElementById('segmentProgressionChart');
-    if (!canvas) return; 
-    
-    const ctx = canvas.getContext('2d');
-
-    const chronological = [...data].sort((a,b) => a.date - b.date);
-
-    activeCharts['segChart'] = new Chart(ctx, {
-        type: 'line',
-        data: {
-            labels: chronological.map(d => d.date.toLocaleDateString()),
-            datasets: [{
-                label: 'Snelheid (km/u)',
-                data: chronological.map(d => d.speed),
-                borderColor: '#10B981',
-                backgroundColor: 'rgba(16,185,129,0.1)',
-                tension: 0.3,
-                fill: true
-            }]
-        },
-        options: { 
-            responsive: true, 
-            maintainAspectRatio: false,
-            plugins: {
-                legend: { display: false } 
-            },
-            scales: {
-                y: { title: { display: true, text: 'km/u' } }
-            }
-        }
-    });
-}
-
-function updateTrendChart(data) {
-    const canvas = document.getElementById('segmentProgressionChart');
-    if (!canvas) return; // Extra veiligheidscheck
-    
-    const ctx = canvas.getContext('2d');
-    if(activeCharts['segChart']) activeCharts['segChart'].destroy();
-
-    // Voor de grafiek sorteren we de Top X ritten chronologisch (op datum)
-    const chronological = [...data].sort((a,b) => a.date - b.date);
-
-    activeCharts['segChart'] = new Chart(ctx, {
-        type: 'line',
-        data: {
-            labels: chronological.map(d => d.date.toLocaleDateString()),
-            datasets: [{
-                label: 'Snelheid (km/u)',
-                data: chronological.map(d => d.speed),
-                borderColor: '#10B981',
-                backgroundColor: 'rgba(16,185,129,0.1)',
-                tension: 0.3,
-                fill: true
-            }]
-        },
-        options: { 
-            responsive: true, 
-            maintainAspectRatio: false,
-            plugins: {
-                legend: { display: false } // Verbergt de overbodige legenda bovenaan
-            },
-            scales: {
-                y: { title: { display: true, text: 'km/u' } }
-            }
-        }
-    });
-}
 
 function updateTrendChart(data) {
     const ctx = document.getElementById('segmentProgressionChart').getContext('2d');
@@ -1946,11 +1841,16 @@ window.checkProfileSetup = async function() {
         document.getElementById('profile-modal').classList.add('show');
     } else {
         window.currentDisplayName = profile.display_name;
+        // Haal lokaal op (of uit je Supabase profiel)
+        window.userWeights = JSON.parse(localStorage.getItem('user_weights') || '{"rider": 75, "bike": 9}');
     }
 };
 
 window.saveProfileName = async function() {
     const name = document.getElementById('profile-name-input').value.trim();
+    const riderW = parseFloat(document.getElementById('profile-rider-weight').value) || 75;
+    const bikeW = parseFloat(document.getElementById('profile-bike-weight').value) || 9;
+
     if (!name) { alert("Vul een naam in!"); return; }
 
     const btn = event.target;
@@ -1959,12 +1859,15 @@ window.saveProfileName = async function() {
 
     try {
         await window.supabaseAuth.updateProfile(name);
+        
+        // Sla gewichten op
+        window.userWeights = { rider: riderW, bike: bikeW };
+        localStorage.setItem('user_weights', JSON.stringify(window.userWeights));
+
         document.getElementById('profile-modal').classList.remove('show');
         window.currentDisplayName = name;
         alert("Profiel succesvol opgeslagen!");
     } catch (e) {
-        console.error(e);
-        alert("Fout bij opslaan profiel: " + e.message);
         btn.innerText = "Opslaan & Verder";
         btn.disabled = false;
     }

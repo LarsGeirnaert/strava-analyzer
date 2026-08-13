@@ -5,7 +5,6 @@ let segmentLayer = null;
 let currentRideData = null;
 let activeSegment = null;
 let hoverMarker = null;
-Chart.defaults.color = '#F9FAFB';
 
 document.addEventListener('DOMContentLoaded', () => {
     initMap();
@@ -297,7 +296,10 @@ function parseGPXData(xmlString, fileName, isExistingRide = false) {
     // NIEUW: Teller voor de tijd dat je écht fietst
     let movingTimeMs = 0; 
 
-    const riderWeight = 75; const bikeWeight = 9; const totalWeight = riderWeight + bikeWeight;
+    // NIEUW:
+    const riderWeight = window.userWeights ? window.userWeights.rider : 75;
+    const bikeWeight = window.userWeights ? window.userWeights.bike : 9;
+    const totalWeight = riderWeight + bikeWeight;
 
     for (let i = 0; i < trkpts.length; i++) {
         let lat = parseFloat(trkpts[i].getAttribute('lat'));
