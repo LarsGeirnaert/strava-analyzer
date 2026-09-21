@@ -1,4 +1,4 @@
-// ui.js - Dashboard, Recap, Rankings, ROUTE PLANNER & Heatmap
+// ui.js - Dashboard, Recap, Rankings, ROUTE PLANNER, Heatmap & Theming
 
 let allActivitiesCache = null;
 let muniMap = null;
@@ -20,12 +20,23 @@ let waypoints = [];
 let routePolyline = null;
 let routeSegments = [];
 
+// Route map variables
+let statsUpdateTimeout = null;
+let currentAbortController = null;
+let lastWindCoord = null;
+
+// Heatmap variables
+let heatmapSliderDate = null;
+let sortedHeatmapActs = [];
+let heatmapLayers = []; 
+
 const REGIONS = [
     { code: 'be', url: 'communes.json', type: 'topojson', nameFields: ['Gemeente', 'name', 'NAME_4', 'Name'] },
     { code: 'nl', url: 'https://cartomap.github.io/nl/wgs84/gemeente_2023.geojson', type: 'geojson', nameFields: ['statnaam'] }
 ];
 
 document.addEventListener('DOMContentLoaded', () => {
+    // Behoud voor backwards compatibiliteit, nieuwe data-theme overschrijft dit
     if (localStorage.getItem('theme') === 'light') {
         document.body.classList.remove('dark-mode');
     }
@@ -38,6 +49,23 @@ document.addEventListener('DOMContentLoaded', () => {
     const ys = document.getElementById('recap-year-select');
     if(ms) ms.value = now.getMonth();
     if(ys) ys.value = now.getFullYear();
+    
+    // Thema initialiseren
+    const savedTheme = localStorage.getItem('theme') || 'classic'; 
+    document.documentElement.setAttribute('data-theme', savedTheme);
+    
+    const themeMap = {
+        'classic': { icon: '☀️', text: 'Classic Light' },
+        'ocean': { icon: '🌊', text: 'Deep Ocean' },
+        'gravel': { icon: '🌲', text: 'Gravel Explorer' },
+        'cyberpunk': { icon: '🌃', text: 'Cyberpunk' },
+        'stealth': { icon: '🦇', text: 'Stealth Mode' }
+    };
+    
+    if (themeMap[savedTheme] && document.getElementById('current-theme-icon')) {
+        document.getElementById('current-theme-icon').innerText = themeMap[savedTheme].icon;
+        document.getElementById('current-theme-text').innerText = themeMap[savedTheme].text;
+    }
 });
 
 function setupNavigation() {
@@ -73,12 +101,10 @@ window.showToast = function(message, type = 'success') {
     toast.innerText = message;
     container.appendChild(toast);
     
-    // Animaties
     requestAnimationFrame(() => {
         setTimeout(() => toast.classList.add('show'), 10);
     });
     
-    // Verwijder na 3.5 seconden
     setTimeout(() => {
         toast.classList.remove('show');
         setTimeout(() => toast.remove(), 300);
@@ -139,12 +165,10 @@ window.switchTab = function(tabName) {
 function initRouteMap() {
     if (routeMap) { 
         routeMap.invalidateSize(); 
-        // Ververs de actuele windgegevens telkens wanneer je de tab opnieuw opent
         if (typeof fetchCurrentWind === 'function') fetchCurrentWind();
         return; 
     }
     
-    // Kaart start gecentreerd op regio Eeklo
     routeMap = L.map('map-routes').setView([51.185, 3.565], 11);
     
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { 
@@ -153,7 +177,6 @@ function initRouteMap() {
     
     routeMap.on('click', handleRouteMapClick);
 
-    // Initialiseer de wind-widget bij de eerste keer laden
     if (typeof fetchCurrentWind === 'function') fetchCurrentWind();
 }
 
@@ -213,10 +236,6 @@ async function recalculateFullRoute() {
     }
     drawFullRoute();
 }
-// Voeg dit bovenaan toe bij je andere variabelen in app.js of ui.js
-let statsUpdateTimeout = null;
-let currentAbortController = null;
-let lastWindCoord = null;
 
 async function drawFullRoute() {
     if (routePolyline) routeMap.removeLayer(routePolyline);
@@ -232,7 +251,6 @@ async function drawFullRoute() {
     
     routePolyline = L.polyline(fullPath, {color: '#FC5200', weight: 5}).addTo(routeMap);
 
-    // 1. Afstand direct berekenen voor snelle feedback
     let totalDist = 0;
     for(let i = 1; i < fullPath.length; i++) {
         totalDist += routeMap.distance(fullPath[i-1], fullPath[i]);
@@ -241,7 +259,6 @@ async function drawFullRoute() {
     document.getElementById('routeDist').innerText = distKm.toFixed(2);
     document.getElementById('routeElev').innerText = "...";
     
-    // 2. Annuleer oude API calls als je snel achter elkaar klikt/sleept (voorkomt 429 errors!)
     clearTimeout(statsUpdateTimeout);
     if (currentAbortController) {
         currentAbortController.abort(); 
@@ -249,21 +266,17 @@ async function drawFullRoute() {
     currentAbortController = new AbortController();
     const signal = currentAbortController.signal;
     
-    // 3. Wacht 1.5 seconden nadat je klaar bent met tekenen of slepen
     statsUpdateTimeout = setTimeout(async () => {
         try {
             const startPoint = fullPath[0];
             fetchRouteWind(startPoint[0], startPoint[1], signal);
 
-            // Haal hoogte op (geforceerd op maximaal 1 API call per 1.5s)
             const elevM = await fetchElevationForRoute(fullPath, distKm, signal);
 
-            // Voorspel de snelheid
             const predictedSpeed = predictAverageSpeed(distKm, elevM);
             const speedSpan = document.getElementById('pred-speed');
             if (speedSpan) speedSpan.innerText = predictedSpeed.toFixed(1);
 
-            // Tijdsduur berekenen
             if (predictedSpeed > 0) {
                 const hours = distKm / predictedSpeed;
                 const h = Math.floor(hours);
@@ -271,7 +284,6 @@ async function drawFullRoute() {
                 document.getElementById('routeTime').innerText = `${h}:${m}`;
             }
         } catch (err) {
-            // Negeer errors die expres door de AbortController worden gegooid als je opnieuw klikt
             if (err.name !== 'AbortError') console.error(err);
         }
     }, 1500); 
@@ -280,7 +292,6 @@ async function drawFullRoute() {
 async function fetchRouteWind(lat, lon, signal) {
     const windEl = document.getElementById('routeWindInfo');
     
-    // Vernieuw de wind pas als je het startpunt minstens een paar kilometer verplaatst
     if (lastWindCoord) {
         const latDiff = Math.abs(lastWindCoord.lat - lat);
         const lonDiff = Math.abs(lastWindCoord.lon - lon);
@@ -311,7 +322,6 @@ async function fetchElevationForRoute(latlngs, distKm, signal) {
     const el = document.getElementById('routeElev');
     if(!latlngs || latlngs.length < 2) return 0;
 
-    // Open-Meteo accepteert maximaal 100 coördinaten per keer in de gratis tier.
     const maxPoints = 100;
     let sampledPoints = [];
     if (latlngs.length <= maxPoints) {
@@ -337,20 +347,15 @@ async function fetchElevationForRoute(latlngs, distKm, signal) {
         let gain = 0;
         const ev = data.elevation;
         
-        // Bereken stijging: tel elke positieve verandering op
         for (let i = 1; i < ev.length; i++) {
             const diff = ev[i] - ev[i-1];
             if (diff > 0) gain += diff;
         }
         
-        // OPLOSSING VOOR DALENDE HOOGTEMETERS:
-        // Omdat we bij langere routes punten "overslaan" (downsampling), missen we de kleinere heuvels.
-        // We compenseren dit wiskundig op basis van hoe ver de meetpunten uit elkaar liggen.
         const metersPerPoint = (distKm * 1000) / sampledPoints.length;
         if (metersPerPoint > 150) {
-            // Voor elke 100m extra afstand tussen meetpunten, schalen we de stijging op
             const scale = 1 + ((metersPerPoint - 150) / 1000); 
-            gain = gain * Math.min(scale, 2.5); // Beperk de vermenigvuldiger tot maximaal x2.5
+            gain = gain * Math.min(scale, 2.5);
         }
 
         const finalGain = Math.round(gain);
@@ -367,15 +372,13 @@ async function fetchElevationForRoute(latlngs, distKm, signal) {
 
 function predictAverageSpeed(distKm, elevM) {
     const routeGradient = distKm > 0 ? (elevM / (distKm * 1000)) * 100 : 0;
-    let predicted = 25.0 - (routeGradient * 1.5); // Terugval formule als er geen rit-historiek is
+    let predicted = 25.0 - (routeGradient * 1.5);
 
-    // Probeer de cache in te laden als die onverhoopt nog leeg is
     if (!window.allActivitiesCache && window.supabaseAuth) {
         window.supabaseAuth.listActivities().then(data => window.allActivitiesCache = data).catch(()=>{});
     }
 
     if (window.allActivitiesCache && window.allActivitiesCache.length > 0) {
-        // Filter op echte ritten die langer zijn dan 5km
         const rides = window.allActivitiesCache.filter(a => a.summary && a.summary.type !== 'route' && parseFloat(a.summary.distanceKm) > 5);
         
         if (rides.length > 0) {
@@ -384,14 +387,12 @@ function predictAverageSpeed(distKm, elevM) {
                 const e = parseFloat(r.summary.elevationGain) || 0;
                 let s = parseFloat(r.summary.avgSpeed);
                 
-                // Veiligheidscheck voor vervuilde data
                 if (isNaN(s) || s < 10) s = 25.0; 
                 
                 const g = (e / (d * 1000)) * 100;
                 return { speed: s, grad: g };
             });
             
-            // Zoek de 3 ritten uit jouw verleden die qua klimpercentage het meest op deze nieuwe route lijken
             ridesWithGrad.sort((a, b) => Math.abs(a.grad - routeGradient) - Math.abs(b.grad - routeGradient));
             const top3 = ridesWithGrad.slice(0, 3);
             
@@ -399,11 +400,9 @@ function predictAverageSpeed(distKm, elevM) {
         }
     }
     
-    // Blokkeer onmogelijke voorspellingen
     return Math.max(15, Math.min(predicted, 40)); 
 }
 
-// Nieuw: Exporteer als native GPX file
 window.downloadRouteGPX = function() {
     if (waypoints.length < 2) { 
         alert("Teken eerst een route voordat je kan downloaden!"); 
@@ -686,17 +685,14 @@ window.changeActivityPage = function(dir) {
 };
 
 function renderActivityListBasedOnView() {
-    // 1. Haal de lijst op (ZONDER window. ervoor!) en filter de routes eruit
     let list = allActivitiesCache || [];
     list = list.filter(a => !a.summary || a.summary.type !== 'route');
 
-    // 2. Pas eventueel de zoekterm toe
     const term = document.getElementById('activity-search').value.toLowerCase();
     if (term) {
         list = list.filter(a => a.fileName.toLowerCase().includes(term));
     }
 
-    // 3. Bereken de paginatie
     const totalPages = Math.ceil(list.length / ACTIVITY_PAGE_SIZE) || 1;
     if (currentActivityPage > totalPages) currentActivityPage = totalPages;
     if (currentActivityPage < 1) currentActivityPage = 1;
@@ -705,7 +701,6 @@ function renderActivityListBasedOnView() {
     const endIndex = startIndex + ACTIVITY_PAGE_SIZE;
     const pageList = list.slice(startIndex, endIndex);
 
-    // 4. Update de UI voor paginatie
     const pageInfo = document.getElementById('page-info');
     const prevBtn = document.getElementById('prev-page-btn');
     const nextBtn = document.getElementById('next-page-btn');
@@ -714,7 +709,6 @@ function renderActivityListBasedOnView() {
     if (prevBtn) prevBtn.disabled = currentActivityPage === 1;
     if (nextBtn) nextBtn.disabled = currentActivityPage === totalPages;
 
-    // 5. Teken de schone lijst op het scherm
     window.renderActivityList(pageList);
 }
 
@@ -964,26 +958,6 @@ async function initMuniMap() {
     updateMuniMapTheme();
 }
 
-function updateMuniMapTheme() {
-    if (!muniMap) return;
-    
-    const isDark = document.body.classList.contains('dark-mode');
-    const tileUrl = isDark 
-        ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png' 
-        : 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png';
-    
-    if (muniBaseLayer) {
-        muniMap.removeLayer(muniBaseLayer);
-    }
-    
-    muniBaseLayer = L.tileLayer(tileUrl, { 
-        attribution: '©OpenStreetMap, ©CartoDB' 
-    }).addTo(muniMap);
-    
-    // De fix: druk de kaart naar de achtergrond, in plaats van de heatmap naar voren te trekken
-    muniBaseLayer.setZIndex(0); 
-}
-
 async function loadFeatures() {
     let allF = [];
     const loading = document.getElementById('muni-loading');
@@ -1095,37 +1069,75 @@ function renderTrendGraph(activities, key, tableId, chartId, filterId, label) {
     }
 }
 
-
 window.toggleSelection = (id) => { 
     if(selectedRides.has(id)) selectedRides.delete(id); 
     else selectedRides.add(id); 
     
-    // Verwijder knop tonen/verbergen
     document.getElementById('delete-btn').classList.toggle('hidden', selectedRides.size === 0); 
     
-    // NIEUW: Vergelijk knop pas tonen als er EXACT 2 ritten geselecteerd zijn
     const compBtn = document.getElementById('compare-btn');
     if(compBtn) {
         compBtn.classList.toggle('hidden', selectedRides.size !== 2);
     }
 };
-window.deleteSelectedRides = async function() { if(confirm("Verwijderen?")) { await window.supabaseAuth.deleteActivities(Array.from(selectedRides)); selectedRides.clear(); updateDashboard(); } };
+
+window.deleteSelectedRides = async function() { 
+    if(confirm("Verwijderen?")) { 
+        await window.supabaseAuth.deleteActivities(Array.from(selectedRides)); 
+        selectedRides.clear(); 
+        updateDashboard(); 
+    } 
+};
+
 window.triggerUpload = () => document.getElementById('gpxInput').click();
-window.toggleTheme = () => {
-    // Schakel de class op de <html> tag in plaats van <body>
-    document.documentElement.classList.toggle('dark-mode');
+
+// --- THEME LOGICA ---
+window.changeTheme = function(themeName) {
+    document.documentElement.setAttribute('data-theme', themeName);
+    localStorage.setItem('theme', themeName);
     
-    // Sla de keuze op in localStorage
-    const isDark = document.documentElement.classList.contains('dark-mode');
-    localStorage.setItem('theme', isDark ? 'dark' : 'light');
-    
-    // Update de kaarten direct mee
     if (typeof updateCSMapTheme === 'function') updateCSMapTheme();
     if (typeof updateMuniMapTheme === 'function') updateMuniMapTheme();
     
-    // Optioneel: ververs grafieken
     if (window.updateDashboard) window.updateDashboard();
 };
+
+function updateMuniMapTheme() {
+    if (!muniMap) return;
+    const theme = document.documentElement.getAttribute('data-theme') || 'classic';
+    const isLight = theme === 'classic'; 
+    
+    const tileUrl = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
+    
+    if (muniBaseLayer) {
+        muniMap.removeLayer(muniBaseLayer);
+    }
+    
+    muniBaseLayer = L.tileLayer(tileUrl, { 
+        attribution: '©OpenStreetMap, ©CartoDB' 
+    }).addTo(muniMap);
+    
+    muniBaseLayer.setZIndex(0); 
+}
+
+// --- CUSTOM THEME SELECTOR LOGICA ---
+window.toggleThemeDropdown = function() {
+    document.getElementById('themeDropdown').classList.toggle('open');
+};
+
+window.selectTheme = function(themeValue, icon, text) {
+    document.getElementById('current-theme-icon').innerText = icon;
+    document.getElementById('current-theme-text').innerText = text;
+    document.getElementById('themeDropdown').classList.remove('open');
+    window.changeTheme(themeValue);
+};
+
+document.addEventListener('click', function(e) {
+    const dropdown = document.getElementById('themeDropdown');
+    if (dropdown && !e.target.closest('.custom-theme-selector')) {
+        dropdown.classList.remove('open');
+    }
+});
 
 window.toggleTiles = function() {
     if (tileLayerGroup) {
@@ -1177,19 +1189,15 @@ function drawTilesOnMap() {
 }
 
 window.setWorldMode = function(mode) {
-    // We negeren de mode parameter omdat we nu alleen heatmap hebben
     currentWorldMode = 'heatmap';
     
-    // UI opschonen
     if(geoJsonLayer) muniMap.removeLayer(geoJsonLayer);
     if(tileLayerGroup) muniMap.removeLayer(tileLayerGroup);
 
-    // Direct heatmap tekenen als we data hebben
     const user = window.supabaseAuth.getCurrentUser();
     if(localStorage.getItem(`heatmap_coords_${user.id}`)) {
         drawHeatmap();
     } else {
-        // Indien geen cache, laat de gebruiker op de knop drukken of trigger automatisch
         drawHeatmap();
     }
 };
@@ -1211,12 +1219,7 @@ function updateWorldStats(mode, count = 0, total = 0) {
     }
 }
 
-
 // --- NIEUWE SLIDER LOGICA ---
-let heatmapSliderDate = null;
-let sortedHeatmapActs = [];
-let heatmapLayers = []; // Hierin bewaren we alle getekende lijnen live op de achtergrond
-
 window.drawHeatmap = async function() {
     const loader = document.getElementById('muni-loading');
     if(loader) loader.classList.remove('hidden');
@@ -1225,12 +1228,11 @@ window.drawHeatmap = async function() {
 
     const canvasRenderer = L.canvas({ padding: 0.5 });
     heatmapLayerGroup = L.layerGroup().addTo(muniMap);
-    heatmapLayers = []; // Maak de array leeg voor een verse start
+    heatmapLayers = []; 
 
     let acts = allActivitiesCache || await window.supabaseAuth.listActivities();
     acts = acts.filter(a => a.summary.type !== 'route' && a.summary.distanceKm > 0);
     
-    // Sorteer chronologisch
     sortedHeatmapActs = [...acts].sort((a,b) => new Date(a.summary.rideDate) - new Date(b.summary.rideDate));
 
     const user = window.supabaseAuth.getCurrentUser();
@@ -1276,10 +1278,8 @@ window.drawHeatmap = async function() {
                 interactive: false
             });
 
-            // Voeg standaard toe aan de kaart
             polyline.addTo(heatmapLayerGroup);
             
-            // Sla de referentie op mét de datum, zodat de slider dit razendsnel kan filteren
             heatmapLayers.push({
                 layer: polyline,
                 timestamp: new Date(act.summary.rideDate).getTime()
@@ -1298,7 +1298,6 @@ window.drawHeatmap = async function() {
 
     if(loader) loader.classList.add('hidden');
     
-    // Zoom naar de heatmap, reset de slider UI
     if (heatmapLayerGroup.getLayers().length > 0) {
         const bounds = L.featureGroup(heatmapLayerGroup.getLayers()).getBounds();
         muniMap.flyToBounds(bounds, { padding: [30, 30] });
@@ -1306,10 +1305,10 @@ window.drawHeatmap = async function() {
     
     const slider = document.getElementById('heatmap-time-slider');
     if(slider) slider.value = 100;
-    document.getElementById('heatmap-date-label').innerText = "Alle Tijd";
+    const dateLabel = document.getElementById('heatmap-date-label');
+    if(dateLabel) dateLabel.innerText = "Alle Tijd";
 };
 
-// --- NIEUWE SMOOTH SLIDER LOGICA ---
 window.handleHeatmapSlider = function(val) {
     if (sortedHeatmapActs.length === 0 || heatmapLayers.length === 0) return;
     const index = Math.floor((val / 100) * (sortedHeatmapActs.length - 1));
@@ -1325,7 +1324,6 @@ window.handleHeatmapSlider = function(val) {
         cutoffTime = actDate.getTime();
     }
 
-    // Zet supersnel de lagen aan of uit afhankelijk van de slider datum!
     heatmapLayers.forEach(item => {
         if (item.timestamp > cutoffTime) {
             if (heatmapLayerGroup.hasLayer(item.layer)) heatmapLayerGroup.removeLayer(item.layer);
@@ -1334,7 +1332,6 @@ window.handleHeatmapSlider = function(val) {
         }
     });
 };
-
 
 function updateStats(dist, timeMs, speed, ele, power, maxSpeed) { 
     const d = document.getElementById('statDist');
@@ -1358,8 +1355,6 @@ function updateStats(dist, timeMs, speed, ele, power, maxSpeed) {
     if(p) p.innerText = power || 0;
 }
 
-
-// NIEUWE HELPER: Zorgt ervoor dat schommelingen de hoogtemeters niet kunstmatig opblazen
 function smoothRouteElevation(data, windowSize) {
     return data.map((val, idx, arr) => {
         let start = Math.max(0, idx - windowSize);
@@ -1458,10 +1453,8 @@ window.populateRideSummary = function(act) {
 
     document.getElementById('sum-dist').innerHTML = `${parseFloat(act.summary.distanceKm).toFixed(1)} <small>km</small>`;
 
-    // WATERDICHTE TIJDSBEREKENING
     let timeStr = "0:00";
     if (act.summary.durationSec) {
-        // durationSec is dankzij de eerdere fix nu gegarandeerd de zuivere beweegtijd
         const h = Math.floor(act.summary.durationSec / 3600);
         const m = Math.floor((act.summary.durationSec % 3600) / 60);
         timeStr = `${h}:${m.toString().padStart(2, '0')}`;
@@ -1481,7 +1474,6 @@ window.populateRideSummary = function(act) {
     act.summary.avgPower = Math.round(powerW);
     document.getElementById('sum-power').innerHTML = `${act.summary.avgPower} <small>W</small>`;
 
-    // --- (De rest van je badges en segmenten code blijft hier ongewijzigd) ---
     const badgesContainer = document.getElementById('sum-badges');
     badgesContainer.innerHTML = '';
     if (allActivitiesCache) {
@@ -1596,7 +1588,6 @@ function renderMonthlyComparisonChart(activities) {
 }
 
 window.loadRankings = async function(distArg) {
-    // 1. Zorg dat we de oude grafiek netjes opruimen VOORDAT we de HTML overschrijven
     if (activeCharts['segChart']) {
         activeCharts['segChart'].destroy();
         delete activeCharts['segChart'];
@@ -1639,10 +1630,8 @@ window.loadRankings = async function(distArg) {
         }
     });
 
-    // Sorteer alles op snelheid (snelste eerst)
     rankingData.sort((a,b) => b.speed - a.speed);
 
-    // Knip de array af op basis van de filter
     if (topFilter !== 'all') {
         rankingData = rankingData.slice(0, parseInt(topFilter));
     }
@@ -1681,7 +1670,6 @@ window.loadRankings = async function(distArg) {
         </div>`;
     }).join('');
 
-    // DE FIX: Vaste hoogtes zodat Chart.js de ruimte perfect 'ziet'
     if (rankingData.length > 1) {
         html += `
         <div class="chart-box margin-top" style="height: 250px; margin-top: 32px; padding: 20px; display: block;">
@@ -1696,7 +1684,6 @@ window.loadRankings = async function(distArg) {
 
     listEl.innerHTML = html;
 
-    // DE FIX: Geef de browser 50 milliseconden om de HTML te bouwen voor we de grafiek aanroepen
     if (rankingData.length > 1) {
         setTimeout(() => {
             updateTrendChart(rankingData);
@@ -1704,12 +1691,13 @@ window.loadRankings = async function(distArg) {
     }
 };
 
-
 function updateTrendChart(data) {
-    const ctx = document.getElementById('segmentProgressionChart').getContext('2d');
+    const canvas = document.getElementById('segmentProgressionChart');
+    if (!canvas) return; 
+    
+    const ctx = canvas.getContext('2d');
     if(activeCharts['segChart']) activeCharts['segChart'].destroy();
 
-    // Voor de grafiek sorteren we de Top X ritten chronologisch (op datum)
     const chronological = [...data].sort((a,b) => a.date - b.date);
 
     activeCharts['segChart'] = new Chart(ctx, {
@@ -1725,7 +1713,16 @@ function updateTrendChart(data) {
                 fill: true
             }]
         },
-        options: { responsive: true, maintainAspectRatio: false }
+        options: { 
+            responsive: true, 
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { display: false } 
+            },
+            scales: {
+                y: { title: { display: true, text: 'km/u' } }
+            }
+        }
     });
 }
 
@@ -1739,7 +1736,7 @@ window.showMapAnalysis = function() {
             if (typeof polyline !== 'undefined' && polyline) {
                 map.fitBounds(polyline.getBounds(), {
                     paddingTopLeft: [20, 20],
-                    paddingBottomRight: [20, 20], // FIX: Padding voor de Analyse tab weergave
+                    paddingBottomRight: [20, 20], 
                     animate: false 
                 });
             }
@@ -1747,9 +1744,7 @@ window.showMapAnalysis = function() {
     }
 };
 
-
 window.backToSummary = function() {
-    // NIEUW: Stop afspelen als je het scherm sluit
     if (window.resetPlayback) window.resetPlayback(); 
     
     document.getElementById('ride-map-view').classList.add('hidden');
@@ -1841,7 +1836,6 @@ window.checkProfileSetup = async function() {
         document.getElementById('profile-modal').classList.add('show');
     } else {
         window.currentDisplayName = profile.display_name;
-        // Haal lokaal op (of uit je Supabase profiel)
         window.userWeights = JSON.parse(localStorage.getItem('user_weights') || '{"rider": 75, "bike": 9}');
     }
 };
@@ -1860,7 +1854,6 @@ window.saveProfileName = async function() {
     try {
         await window.supabaseAuth.updateProfile(name);
         
-        // Sla gewichten op
         window.userWeights = { rider: riderW, bike: bikeW };
         localStorage.setItem('user_weights', JSON.stringify(window.userWeights));
 
@@ -1957,4 +1950,3 @@ window.openPublicProfile = async function(userId, displayName) {
         document.getElementById('public-activities-list').innerHTML = '<p class="error-msg">Kon ritten niet inladen.</p>';
     }
 };
-

@@ -1160,10 +1160,15 @@ function initCSMap() {
 
 function updateCSMapTheme() {
     if (!csMap) return;
-    const isDark = document.body.classList.contains('dark-mode');
-    const tileUrl = isDark ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png' : 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png';
+    
+    // We gebruiken exact dezelfde OpenStreetMap tile als bij de Analyse tab
+    const tileUrl = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
+    
+    // Verwijder oude kaartlagen
     csMap.eachLayer(layer => { if (layer instanceof L.TileLayer) csMap.removeLayer(layer); });
-    L.tileLayer(tileUrl, { attribution: '©OpenStreetMap, ©CartoDB' }).addTo(csMap).setZIndex(0);
+    
+    // Voeg de nieuwe toe
+    L.tileLayer(tileUrl, { attribution: '© OpenStreetMap' }).addTo(csMap).setZIndex(0);
 }
 
 const originalToggleTheme = window.toggleTheme;

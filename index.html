@@ -13,11 +13,8 @@
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <link rel="stylesheet" href="style.css">
     <script>
-        if (localStorage.getItem('theme') === 'light') {
-            document.documentElement.classList.remove('dark-mode');
-        } else {
-            document.documentElement.classList.add('dark-mode');
-        }
+        const savedTheme = localStorage.getItem('theme') || 'classic';
+        document.documentElement.setAttribute('data-theme', savedTheme);
     </script>
 
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -71,7 +68,25 @@
                 <button class="nav-btn" data-target="municipalities">Wereld Jager</button>
             </div>
             <div class="nav-footer">
-                <button id="theme-btn" class="nav-btn" onclick="toggleTheme()">Thema Wisselen</button>
+                <!-- NIEUW: Custom Dropdown Menu -->
+                <div class="custom-theme-selector" id="themeDropdown">
+                    <div class="theme-select-header" onclick="toggleThemeDropdown()">
+                        <span id="current-theme-icon">☀️</span>
+                        <span id="current-theme-text">Classic Light</span>
+                        <svg class="chevron" viewBox="0 0 24 24" width="16" height="16">
+                            <path d="M6 9l6 6 6-6" stroke="currentColor" fill="none" stroke-width="2"
+                                stroke-linecap="round" stroke-linejoin="round"></path>
+                        </svg>
+                    </div>
+                    <ul class="theme-select-options" id="themeOptions">
+                        <li onclick="selectTheme('classic', '☀️', 'Classic Light')"><span>☀️</span> Classic Light</li>
+                        <li onclick="selectTheme('ocean', '🌊', 'Deep Ocean')"><span>🌊</span> Deep Ocean</li>
+                        <li onclick="selectTheme('gravel', '🌲', 'Gravel Explorer')"><span>🌲</span> Gravel Explorer
+                        </li>
+                        <li onclick="selectTheme('cyberpunk', '🌃', 'Cyberpunk')"><span>🌃</span> Cyberpunk</li>
+                        <li onclick="selectTheme('stealth', '🦇', 'Stealth Mode')"><span>🦇</span> Stealth Mode</li>
+                    </ul>
+                </div>
                 <button id="logout-btn" class="nav-btn danger-text">Uitloggen</button>
             </div>
         </nav>
