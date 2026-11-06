@@ -1,4 +1,4 @@
-// ui.js - Dashboard, Recap, Rankings, ROUTE PLANNER, Heatmap & Theming
+// ui.js - Dashboard, Recap, Rankings, ROUTE PLANNER, Heatmap, Squadrats & Theming
 
 let allActivitiesCache = null;
 let muniMap = null;
@@ -14,18 +14,21 @@ let currentWorldMode = 'muni';
 let isShowingAll = false;
 let currentActivityPage = 1;
 const ACTIVITY_PAGE_SIZE = 25;
+
+// Maakt tekst van gebruikers (bestandsnamen, profielnamen) veilig voor gebruik in innerHTML
+function escapeHtml(value) {
+    return String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
 let currentCalDate = new Date();
 
 let waypoints = [];
 let routePolyline = null;
 let routeSegments = [];
 
-// Route map variables
 let statsUpdateTimeout = null;
 let currentAbortController = null;
 let lastWindCoord = null;
 
-// Heatmap variables
 let heatmapSliderDate = null;
 let sortedHeatmapActs = [];
 let heatmapLayers = []; 
@@ -36,7 +39,6 @@ const REGIONS = [
 ];
 
 document.addEventListener('DOMContentLoaded', () => {
-    // Behoud voor backwards compatibiliteit, nieuwe data-theme overschrijft dit
     if (localStorage.getItem('theme') === 'light') {
         document.body.classList.remove('dark-mode');
     }
@@ -50,7 +52,6 @@ document.addEventListener('DOMContentLoaded', () => {
     if(ms) ms.value = now.getMonth();
     if(ys) ys.value = now.getFullYear();
     
-    // Thema initialiseren
     const savedTheme = localStorage.getItem('theme') || 'classic'; 
     document.documentElement.setAttribute('data-theme', savedTheme);
     
@@ -155,6 +156,9 @@ window.switchTab = function(tabName) {
             initMuniMap();
             setWorldMode(currentWorldMode);
         }
+        if(tabName === 'squadrats') {
+            initSquadratMap();
+        }
     }, 150);
 
     if(tabName === 'dashboard') updateDashboard();
@@ -171,9 +175,27 @@ function initRouteMap() {
     
     routeMap = L.map('map-routes').setView([51.185, 3.565], 11);
     
+    // Forceer een schone, heldere weergave zonder donkere filters voor de routeplanner
+    const mapContainer = document.getElementById('map-routes');
+    if(mapContainer) {
+        mapContainer.style.filter = "none";
+        mapContainer.style.webkitFilter = "none";
+    }
+
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { 
-        attribution: '© OpenStreetMap' 
+        attribution: '© OpenStreetMap',
+        className: 'clear-route-tiles' // Zorgt ervoor dat css-filters genegeerd worden
     }).addTo(routeMap);
+    
+    // Voeg een tijdelijke CSS regel toe om Leaflet dark mode inversie te annuleren
+    const style = document.createElement('style');
+    style.innerHTML = `
+        #map-routes .leaflet-layer, #map-routes .clear-route-tiles {
+            filter: none !important;
+            -webkit-filter: none !important;
+        }
+    `;
+    document.head.appendChild(style);
     
     routeMap.on('click', handleRouteMapClick);
 
@@ -181,10 +203,10 @@ function initRouteMap() {
 }
 
 async function handleRouteMapClick(e) {
-    addRouteWaypoint(e.latlng);
+    window.addRouteWaypoint(e.latlng);
 }
 
-async function addRouteWaypoint(latlng) {
+window.addRouteWaypoint = async function(latlng) {
     const marker = L.marker(latlng, {draggable: true}).addTo(routeMap);
     const index = waypoints.length;
 
@@ -199,7 +221,7 @@ async function addRouteWaypoint(latlng) {
         const prev = waypoints[waypoints.length - 2].latlng;
         await calculateRouteSegment(prev, latlng);
     }
-}
+};
 
 async function calculateRouteSegment(start, end) {
     const url = `https://routing.openstreetmap.de/routed-bike/route/v1/driving/${start.lng},${start.lat};${end.lng},${end.lat}?overview=full&geometries=geojson`;
@@ -430,19 +452,6 @@ window.downloadRouteGPX = function() {
     URL.revokeObjectURL(url);
 };
 
-function updateRouteStats(latlngs) {
-    let totalDist = 0;
-    for(let i=1; i<latlngs.length; i++) {
-        totalDist += routeMap.distance(latlngs[i-1], latlngs[i]);
-    }
-    const km = (totalDist/1000).toFixed(2);
-    document.getElementById('routeDist').innerText = km;
-    const hours = (totalDist/1000) / 22;
-    const h = Math.floor(hours);
-    const m = Math.floor((hours%1)*60).toString().padStart(2,'0');
-    document.getElementById('routeTime').innerText = `${h}:${m}`;
-}
-
 window.undoLastRoutePoint = function() {
     if (waypoints.length === 0) return;
     const lastPoint = waypoints.pop();
@@ -460,6 +469,7 @@ window.clearRoute = function() {
     waypoints = [];
     routeSegments = [];
     if(routePolyline) routeMap.removeLayer(routePolyline);
+    
     document.getElementById('routeDist').innerText = "0";
     document.getElementById('routeTime').innerText = "0:00";
     document.getElementById('route-name-input').value = "";
@@ -492,20 +502,24 @@ window.saveCreatedRoute = async function() {
                 type: 'route'
             }
         });
-        alert("Route opgeslagen!");
-        btn.innerText = "Route Opslaan"; btn.disabled = false;
-        clearRoute();
+        window.showToast("Route succesvol opgeslagen in de cloud!", "success");
+        btn.innerHTML = '<i data-lucide="cloud-lightning" style="width:16px;height:16px;margin-right:6px;"></i> Opslaan in Cloud'; 
+        btn.disabled = false;
+        lucide.createIcons();
+        window.clearRoute();
         updateSavedRoutesList();
         if(window.updateDashboard) window.updateDashboard();
     } catch(e) {
         console.error(e);
-        alert("Fout bij opslaan: " + e.message);
-        btn.innerText = "Route Opslaan"; btn.disabled = false;
+        window.showToast("Fout bij opslaan: " + e.message, "error");
+        btn.innerHTML = '<i data-lucide="cloud-lightning" style="width:16px;height:16px;margin-right:6px;"></i> Opslaan in Cloud'; 
+        btn.disabled = false;
+        lucide.createIcons();
     }
 };
 
 window.loadSavedRoute = async function(id) {
-    clearRoute();
+    window.clearRoute();
     try {
         const blob = await window.supabaseAuth.getActivityFile(id);
         const text = await blob.text();
@@ -551,14 +565,13 @@ async function updateDashboard() {
     animateValue("total-elev", 0, e, 1000, "");
     document.getElementById('total-rides').innerText = realRides.length;
 
-    const user = window.supabaseAuth.getCurrentUser();
     const hour = new Date().getHours();
     let greeting = "Goedenacht";
     if (hour >= 6 && hour < 12) greeting = "Goedemorgen";
     else if (hour >= 12 && hour < 18) greeting = "Goedemiddag";
     else if (hour >= 18) greeting = "Goedenavond";
     const userEmail = window.supabaseAuth.getCurrentUser().email.split('@')[0];
-    const name = userEmail.charAt(0).toUpperCase() + userEmail.slice(1);
+    const name = window.currentDisplayName || (userEmail.charAt(0).toUpperCase() + userEmail.slice(1));
     
     document.getElementById('welcome-msg').innerText = `${greeting}, ${name}.`;
 
@@ -629,21 +642,39 @@ async function updateRecapView() {
     renderRecapChart(filtered, selMonth, selYear);
     renderDistributionChart(filtered);
 
+    const list = document.getElementById('recap-best-list');
     const sorted = [...filtered].sort((a,b) => b.summary.distanceKm - a.summary.distanceKm).slice(0, 5);
-    document.getElementById('recap-best-list').innerHTML = sorted.map((act, i) => {
+    
+    if (sorted.length === 0) {
+        list.innerHTML = '<p class="empty-state">Geen ritten gevonden in deze periode.</p>';
+        return;
+    }
+    
+    const fragment = document.createDocumentFragment();
+    sorted.forEach((act, i) => {
         const labelClass = i===0 ? 'primary-text' : '';
-        return `
-        <div class="dash-list-item" onclick="switchTab('analysis'); window.openRide(${JSON.stringify(act).replace(/"/g, '&quot;')})">
+        const div = document.createElement('div');
+        div.className = 'dash-list-item';
+        div.style.cursor = 'pointer';
+        div.innerHTML = `
             <div style="flex:1;">
-                <strong class="${labelClass}">${i+1}. ${act.fileName}</strong><br>
+                <strong class="${labelClass}">${i+1}. ${escapeHtml(act.fileName)}</strong><br>
                 <small class="sub-text">${new Date(act.summary.rideDate).toLocaleDateString()}</small>
             </div>
             <div style="text-align:right;">
                 <span style="display:block; font-weight:600; color:var(--text-main);">${parseFloat(act.summary.distanceKm).toFixed(1)} km</span>
                 <span class="sub-text">${act.summary.elevationGain}m</span>
             </div>
-        </div>`
-    }).join('') || '<p class="empty-state">Geen ritten gevonden in deze periode.</p>';
+        `;
+        div.addEventListener('click', () => {
+            switchTab('analysis');
+            window.openRide(act); 
+        });
+        fragment.appendChild(div);
+    });
+    
+    list.innerHTML = '';
+    list.appendChild(fragment);
 }
 
 
@@ -661,17 +692,32 @@ async function updateSavedRoutesList() {
         return;
     }
 
-    list.innerHTML = routes.map(r => `
-        <div class="dash-list-item" style="flex-direction:column; align-items:flex-start;">
+    const fragment = document.createDocumentFragment();
+    routes.forEach(r => {
+        const div = document.createElement('div');
+        div.className = 'dash-list-item';
+        div.style.flexDirection = 'column';
+        div.style.alignItems = 'flex-start';
+        div.innerHTML = `
             <div style="display:flex; justify-content:space-between; width:100%; align-items:center;">
-                <strong style="font-weight:600;">${r.fileName}</strong>
-                <button class="btn-danger" style="padding:4px 8px; font-size:0.75rem;" onclick="deleteRoute('${r.id}')">Verwijder</button>
+                <strong style="font-weight:600;">${escapeHtml(r.fileName)}</strong>
+                <button class="btn-danger delete-btn" style="padding:4px 8px; font-size:0.75rem;"><i data-lucide="trash-2" style="width:14px;height:14px;"></i></button>
             </div>
             <div style="font-size:0.85rem; color:var(--text-muted); display:flex; justify-content:space-between; width:100%; margin-top:8px;">
                 <span>${parseFloat(r.summary.distanceKm).toFixed(1)} km</span>
-                <span class="primary-text" style="cursor:pointer;" onclick="loadSavedRoute('${r.id}')">Bekijk op kaart</span>
+                <span class="primary-text map-btn" style="cursor:pointer;"><i data-lucide="map-pin" style="width:14px;height:14px;"></i> Bekijk</span>
             </div>
-        </div>`).join('');
+        `;
+        
+        div.querySelector('.delete-btn').addEventListener('click', () => deleteRoute(r.id));
+        div.querySelector('.map-btn').addEventListener('click', () => loadSavedRoute(r.id));
+        
+        fragment.appendChild(div);
+    });
+    
+    list.innerHTML = '';
+    list.appendChild(fragment);
+    lucide.createIcons();
 }
 
 window.filterActivities = function() {
@@ -725,14 +771,23 @@ function renderCalendar(month, year) {
     const months = ['Januari', 'Februari', 'Maart', 'April', 'Mei', 'Juni', 'Juli', 'Augustus', 'September', 'Oktober', 'November', 'December'];
     title.innerText = `${months[month]} ${year}`;
 
-    let html = ['Ma', 'Di', 'Wo', 'Do', 'Vr', 'Za', 'Zo'].map(d => `<div class="calendar-day-name">${d}</div>`).join('');
+    const fragment = document.createDocumentFragment();
+    
+    ['Ma', 'Di', 'Wo', 'Do', 'Vr', 'Za', 'Zo'].forEach(d => {
+        const div = document.createElement('div');
+        div.className = 'calendar-day-name';
+        div.innerText = d;
+        fragment.appendChild(div);
+    });
 
     const firstDay = new Date(year, month, 1).getDay();
     const offset = firstDay === 0 ? 6 : firstDay - 1;
     const daysInMonth = new Date(year, month + 1, 0).getDate();
 
     for (let i = 0; i < offset; i++) {
-        html += `<div class="calendar-day empty"></div>`;
+        const emptyDay = document.createElement('div');
+        emptyDay.className = 'calendar-day empty';
+        fragment.appendChild(emptyDay);
     }
 
     const activeDays = new Map();
@@ -747,15 +802,24 @@ function renderCalendar(month, year) {
     }
 
     for (let day = 1; day <= daysInMonth; day++) {
+        const dayDiv = document.createElement('div');
+        dayDiv.className = 'calendar-day';
+        dayDiv.innerText = day;
+        
         if (activeDays.has(day)) {
             const act = activeDays.get(day);
-            html += `<div class="calendar-day active-day" title="${act.fileName}" onclick='switchTab("analysis"); window.openRide(${JSON.stringify(act).replace(/"/g, '&quot;')})'>${day}</div>`;
-        } else {
-            html += `<div class="calendar-day">${day}</div>`;
+            dayDiv.classList.add('active-day');
+            dayDiv.title = act.fileName;
+            dayDiv.addEventListener('click', () => {
+                switchTab("analysis");
+                window.openRide(act); 
+            });
         }
+        fragment.appendChild(dayDiv);
     }
 
-    grid.innerHTML = html;
+    grid.innerHTML = '';
+    grid.appendChild(fragment);
 }
 
 window.toggleActivityView = function() {
@@ -783,25 +847,40 @@ window.renderActivityList = function(acts) {
         return;
     }
 
-    list.innerHTML = acts.map(act => {
+    const fragment = document.createDocumentFragment();
+
+    acts.forEach(act => {
         const typeLabel = act.summary.type === 'route' ? 'Route' : 'Rit';
         const detail = act.summary.type === 'route'
             ? 'Geplande Route'
             : new Date(act.summary.rideDate).toLocaleDateString();
 
-        return `
-        <div class="dash-list-item">
-            <input type="checkbox" class="list-checkbox" onchange="toggleSelection('${act.id}')" ${selectedRides.has(act.id)?'checked':''}>
-            <div style="flex:1; display:flex; justify-content:space-between; align-items:center; cursor:pointer;"
-                onclick="if(event.target.type !== 'checkbox') { switchTab('analysis'); window.openRide(${JSON.stringify(act).replace(/"/g, '&quot;')}); }">
+        const div = document.createElement('div');
+        div.className = 'dash-list-item';
+        div.innerHTML = `
+            <input type="checkbox" class="list-checkbox" ${selectedRides.has(act.id)?'checked':''}>
+            <div style="flex:1; display:flex; justify-content:space-between; align-items:center; cursor:pointer;" class="clickable-area">
                 <div style="display:flex; flex-direction:column; margin-left:16px;">
-                    <strong style="color:var(--text-main); font-weight:600;">${act.fileName}</strong>
+                    <strong style="color:var(--text-main); font-weight:600;">${escapeHtml(act.fileName)}</strong>
                     <small class="sub-text">${typeLabel} • ${detail}</small>
                 </div>
                 <span class="primary-text">${parseFloat(act.summary.distanceKm).toFixed(1)} km</span>
             </div>
-        </div>`;
-    }).join('');
+        `;
+        
+        div.querySelector('.list-checkbox').addEventListener('change', () => toggleSelection(act.id));
+        div.querySelector('.clickable-area').addEventListener('click', (e) => {
+            if(e.target.type !== 'checkbox') {
+                switchTab('analysis'); 
+                window.openRide(act); 
+            }
+        });
+        
+        fragment.appendChild(div);
+    });
+    
+    list.innerHTML = '';
+    list.appendChild(fragment);
 };
 
 function calculateWeeklyStreak(activities) {
@@ -834,6 +913,93 @@ function animateValue(id, start, end, duration, suffix = "") {
     };
     window.requestAnimationFrame(step);
 }
+
+window.renderYTDChart = function(activities) {
+    const ctx = document.getElementById('ytdProgressChart');
+    if(!ctx) return;
+    if (activeCharts['ytdChart']) activeCharts['ytdChart'].destroy();
+
+    const currentYear = new Date().getFullYear();
+    const yearlyData = {};
+
+    activities.forEach(act => {
+        if (act.summary.type === 'route') return;
+        const year = new Date(act.summary.rideDate).getFullYear();
+        if (!yearlyData[year]) yearlyData[year] = new Array(12).fill(0);
+    });
+    if (!yearlyData[currentYear]) yearlyData[currentYear] = new Array(12).fill(0);
+
+    activities.forEach(act => {
+        if (act.summary.type === 'route') return;
+        const d = new Date(act.summary.rideDate);
+        yearlyData[d.getFullYear()][d.getMonth()] += parseFloat(act.summary.distanceKm) || 0;
+    });
+
+    Object.keys(yearlyData).forEach(year => {
+        for (let i = 1; i < 12; i++) { yearlyData[year][i] += yearlyData[year][i - 1]; }
+    });
+
+    const currentMonth = new Date().getMonth();
+    for (let i = currentMonth + 1; i < 12; i++) { yearlyData[currentYear][i] = null; }
+
+    const sortedYears = Object.keys(yearlyData).sort((a, b) => b - a);
+    const pastColors = ['#888888', '#00acc1', '#10B981', '#F59E0B', '#EF4444'];
+
+    const datasets = sortedYears.map((year, index) => {
+        const isCurrent = parseInt(year) === currentYear;
+        const color = isCurrent ? '#FC5200' : (pastColors[index - 1] || '#555555');
+        return {
+            label: `Jaar ${year}`, data: yearlyData[year], borderColor: color,
+            backgroundColor: isCurrent ? 'rgba(252, 82, 0, 0.1)' : 'transparent',
+            borderWidth: isCurrent ? 3 : 2, borderDash: isCurrent ? [] : [5, 5], fill: isCurrent, tension: 0.3, pointRadius: isCurrent ? 4 : 0, order: isCurrent ? 0 : 1 
+        };
+    });
+
+    activeCharts['ytdChart'] = new Chart(ctx.getContext('2d'), {
+        type: 'line', data: { labels: ['Jan', 'Feb', 'Mrt', 'Apr', 'Mei', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dec'], datasets: datasets },
+        options: { responsive: true, maintainAspectRatio: false }
+    });
+};
+
+window.renderMonthlyComparisonChart = function(activities) {
+    const ctx = document.getElementById('monthlyComparisonChart');
+    if(!ctx) return;
+    if (activeCharts['monthlyCompChart']) activeCharts['monthlyCompChart'].destroy();
+
+    const currentYear = new Date().getFullYear();
+    const yearlyData = {};
+
+    activities.forEach(act => {
+        if (act.summary.type === 'route') return;
+        const y = new Date(act.summary.rideDate).getFullYear();
+        if (!yearlyData[y]) yearlyData[y] = new Array(12).fill(0);
+    });
+    if (!yearlyData[currentYear]) yearlyData[currentYear] = new Array(12).fill(0);
+
+    activities.forEach(act => {
+        if (act.summary.type === 'route') return;
+        const d = new Date(act.summary.rideDate);
+        yearlyData[d.getFullYear()][d.getMonth()] += parseFloat(act.summary.distanceKm) || 0;
+    });
+
+    const sortedYears = Object.keys(yearlyData).sort((a, b) => b - a); 
+    const pastColors = ['#888888', '#00acc1', '#10B981', '#F59E0B', '#EF4444'];
+
+    const datasets = sortedYears.map((year, index) => {
+        const isCurrent = parseInt(year) === currentYear;
+        const color = isCurrent ? '#FC5200' : (pastColors[index - 1] || '#555555');
+        return {
+            label: `Jaar ${year}`, data: yearlyData[year], borderColor: color,
+            backgroundColor: isCurrent ? 'rgba(252, 82, 0, 0.1)' : 'transparent',
+            borderWidth: isCurrent ? 3 : 2, borderDash: isCurrent ? [] : [5, 5], fill: isCurrent, tension: 0.4, pointRadius: isCurrent ? 4 : 0, order: isCurrent ? 0 : 1
+        };
+    });
+
+    activeCharts['monthlyCompChart'] = new Chart(ctx.getContext('2d'), {
+        type: 'line', data: { labels: ['Jan', 'Feb', 'Mrt', 'Apr', 'Mei', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dec'], datasets: datasets },
+        options: { responsive: true, maintainAspectRatio: false }
+    });
+};
 
 function renderRecapChart(activities, monthMode, year) {
     const ctx = document.getElementById('recapComparisonChart').getContext('2d');
@@ -887,6 +1053,10 @@ function renderRecapChart(activities, monthMode, year) {
         });
     }
 
+    let gradient = ctx.createLinearGradient(0, 0, 0, 400);
+    gradient.addColorStop(0, 'rgba(252, 82, 0, 0.5)'); 
+    gradient.addColorStop(1, 'rgba(252, 82, 0, 0.0)'); 
+
     activeCharts['recap'] = new Chart(ctx, {
         type: chartType,
         data: {
@@ -894,11 +1064,11 @@ function renderRecapChart(activities, monthMode, year) {
             datasets: [{
                 label: labelText,
                 data: dataPoints,
-                backgroundColor: 'rgba(252, 82, 0, 0.5)',
+                backgroundColor: gradient,
                 borderColor: '#FC5200',
                 borderWidth: 2,
                 borderRadius: 4,
-                tension: 0.3,
+                tension: 0.4,
                 fill: true
             }]
         },
@@ -1031,12 +1201,16 @@ function renderTrendGraph(activities, key, tableId, chartId, filterId, label) {
     const ctx = document.getElementById(chartId).getContext('2d');
     if(activeCharts[chartId]) activeCharts[chartId].destroy();
 
+    let gradient = ctx.createLinearGradient(0, 0, 0, 400);
+    gradient.addColorStop(0, 'rgba(252, 82, 0, 0.5)');
+    gradient.addColorStop(1, 'rgba(252, 82, 0, 0.0)');
+
     activeCharts[chartId] = new Chart(ctx, {
         type: 'line',
         data: {
             labels: ch.map(a => new Date(a.summary.rideDate).toLocaleDateString()),
             datasets: [
-                { label: label, data: v, borderColor: '#FC5200', fill: true, tension: 0.2, backgroundColor: 'rgba(252,82,0,0.1)' },
+                { label: label, data: v, borderColor: '#FC5200', fill: true, tension: 0.4, backgroundColor: gradient },
                 { label: 'Trend', data: tr, borderColor: '#333', borderDash: [5,5], fill: false, pointRadius:0 }
             ]
         },
@@ -1045,27 +1219,36 @@ function renderTrendGraph(activities, key, tableId, chartId, filterId, label) {
 
     const tb = document.getElementById(tableId);
     if(tb) {
-        tb.innerHTML = `
-        <div class="table-container">
-            <table class="data-table">
-                <thead><tr><th>#</th><th>Naam</th><th>Datum</th><th>${label}</th></tr></thead>
-                <tbody>
-                    ${r.map((act, i) => {
-                        const val = parseFloat(act.summary[key]) || 0;
-                        const color = i===0 ? 'var(--medal-gold)' : i===1 ? 'var(--medal-silver)' : i===2 ? 'var(--medal-bronze)' : 'var(--text-main)';
-                        const weight = i<3 ? '700' : '500';
+        const container = document.createElement('div');
+        container.className = 'table-container';
+        const table = document.createElement('table');
+        table.className = 'data-table';
+        table.innerHTML = `<thead><tr><th>#</th><th>Naam</th><th>Datum</th><th>${label}</th></tr></thead>`;
+        
+        const tbody = document.createElement('tbody');
+        r.forEach((act, i) => {
+            const val = parseFloat(act.summary[key]) || 0;
+            const color = i===0 ? 'var(--medal-gold)' : i===1 ? 'var(--medal-silver)' : i===2 ? 'var(--medal-bronze)' : 'var(--text-main)';
+            const weight = i<3 ? '700' : '500';
 
-                        return `
-                        <tr onclick="switchTab('analysis'); window.openRide(${JSON.stringify(act).replace(/"/g, '&quot;')})">
-                            <td style="color:${color}; font-weight:${weight};">${i+1}</td>
-                            <td>${act.fileName}</td>
-                            <td>${new Date(act.summary.rideDate).toLocaleDateString()}</td>
-                            <td><strong style="color:${color};">${val.toFixed(1)}</strong></td>
-                        </tr>`;
-                    }).join('')}
-                </tbody>
-            </table>
-        </div>`;
+            const trObj = document.createElement('tr');
+            trObj.innerHTML = `
+                <td style="color:${color}; font-weight:${weight};">${i+1}</td>
+                <td>${escapeHtml(act.fileName)}</td>
+                <td>${new Date(act.summary.rideDate).toLocaleDateString()}</td>
+                <td><strong style="color:${color};" class="stat-value">${val.toFixed(1)}</strong></td>
+            `;
+            trObj.addEventListener('click', () => {
+                switchTab('analysis');
+                window.openRide(act); 
+            });
+            tbody.appendChild(trObj);
+        });
+        
+        table.appendChild(tbody);
+        container.appendChild(table);
+        tb.innerHTML = '';
+        tb.appendChild(container);
     }
 }
 
@@ -1091,13 +1274,25 @@ window.deleteSelectedRides = async function() {
 
 window.triggerUpload = () => document.getElementById('gpxInput').click();
 
-// --- THEME LOGICA ---
 window.changeTheme = function(themeName) {
     document.documentElement.setAttribute('data-theme', themeName);
     localStorage.setItem('theme', themeName);
     
+    const metaThemeColor = document.getElementById('theme-color-meta');
+    if (metaThemeColor) {
+        const colors = {
+            'classic': '#FFFFFF',
+            'ocean': '#0F172A',
+            'gravel': '#1C1917',
+            'cyberpunk': '#03040B',
+            'stealth': '#000000'
+        };
+        metaThemeColor.setAttribute('content', colors[themeName] || '#03040B');
+    }
+    
     if (typeof updateCSMapTheme === 'function') updateCSMapTheme();
     if (typeof updateMuniMapTheme === 'function') updateMuniMapTheme();
+    if (typeof updateSquadratMapTheme === 'function') updateSquadratMapTheme();
     
     if (window.updateDashboard) window.updateDashboard();
 };
@@ -1114,13 +1309,12 @@ function updateMuniMapTheme() {
     }
     
     muniBaseLayer = L.tileLayer(tileUrl, { 
-        attribution: '©OpenStreetMap, ©CartoDB' 
+        attribution: '© OpenStreetMap' 
     }).addTo(muniMap);
     
     muniBaseLayer.setZIndex(0); 
 }
 
-// --- CUSTOM THEME SELECTOR LOGICA ---
 window.toggleThemeDropdown = function() {
     document.getElementById('themeDropdown').classList.toggle('open');
 };
@@ -1138,55 +1332,6 @@ document.addEventListener('click', function(e) {
         dropdown.classList.remove('open');
     }
 });
-
-window.toggleTiles = function() {
-    if (tileLayerGroup) {
-        heatmapMap.removeLayer(tileLayerGroup);
-        tileLayerGroup = null;
-        document.getElementById('show-tiles-btn').innerText = "Toon Tegels";
-        return;
-    }
-
-    const btn = document.getElementById('show-tiles-btn');
-    btn.innerText = "Berekenen...";
-
-    setTimeout(() => {
-        drawTilesOnMap();
-        btn.innerText = "Verberg Tegels";
-    }, 50);
-};
-
-function drawTilesOnMap() {
-    const user = window.supabaseAuth.getCurrentUser();
-    const cacheKey = `heatmap_coords_${user.id}`;
-    const heatmapCache = JSON.parse(localStorage.getItem(cacheKey) || "{}");
-
-    const uniqueTiles = new Set();
-    Object.values(heatmapCache).forEach(points => {
-        points.forEach(p => {
-            const latGrid = Math.floor(p[0] * 100) / 100;
-            const lonGrid = Math.floor(p[1] * 100) / 100;
-            uniqueTiles.add(`${latGrid},${lonGrid}`);
-        });
-    });
-
-    tileLayerGroup = L.layerGroup();
-    uniqueTiles.forEach(coordKey => {
-        const [lat, lon] = coordKey.split(',').map(parseFloat);
-        const bounds = [ [lat, lon], [lat + 0.01, lon + 0.01] ];
-        L.rectangle(bounds, { color: "#00acc1", weight: 1, fillColor: "#00acc1", fillOpacity: 0.2 }).addTo(tileLayerGroup);
-    });
-
-    if (heatmapMap) {
-        tileLayerGroup.addTo(heatmapMap);
-        if (uniqueTiles.size > 0) {
-            const group = L.featureGroup(tileLayerGroup.getLayers());
-            heatmapMap.fitBounds(group.getBounds());
-        }
-    } else {
-        alert("Open eerst de Heatmap tab.");
-    }
-}
 
 window.setWorldMode = function(mode) {
     currentWorldMode = 'heatmap';
@@ -1219,7 +1364,6 @@ function updateWorldStats(mode, count = 0, total = 0) {
     }
 }
 
-// --- NIEUWE SLIDER LOGICA ---
 window.drawHeatmap = async function() {
     const loader = document.getElementById('muni-loading');
     if(loader) loader.classList.remove('hidden');
@@ -1332,38 +1476,6 @@ window.handleHeatmapSlider = function(val) {
         }
     });
 };
-
-function updateStats(dist, timeMs, speed, ele, power, maxSpeed) { 
-    const d = document.getElementById('statDist');
-    const t = document.getElementById('statTime');
-    const s = document.getElementById('statSpeed');
-    const e = document.getElementById('statElev');
-    const p = document.getElementById('statPower');
-    const ms = document.getElementById('statMaxSpeed'); 
-
-    if(d) d.innerText = typeof dist === 'string' ? dist : parseFloat(dist).toFixed(2);
-    if(e) e.innerText = Math.round(ele);
-    if(s) s.innerText = typeof speed === 'string' ? speed : parseFloat(speed).toFixed(1);
-    if(ms) ms.innerText = maxSpeed ? parseFloat(maxSpeed).toFixed(1) : "0.0";
-
-    if(t) {
-        const h = Math.floor(timeMs / 3600000);
-        const m = Math.floor((timeMs % 3600000) / 60000);
-        t.innerText = `${h}:${m.toString().padStart(2,'0')}`;
-    }
-
-    if(p) p.innerText = power || 0;
-}
-
-function smoothRouteElevation(data, windowSize) {
-    return data.map((val, idx, arr) => {
-        let start = Math.max(0, idx - windowSize);
-        let end = Math.min(arr.length, idx + windowSize + 1);
-        let sum = 0;
-        for(let k = start; k < end; k++) { sum += arr[k]; }
-        return sum / (end - start);
-    });
-}
 
 function calculateSufferScores() {
     if (!allActivitiesCache) return;
@@ -1554,7 +1666,7 @@ function renderMonthlyComparisonChart(activities) {
             borderWidth: isCurrent ? 3 : 2,
             borderDash: isCurrent ? [] : [5, 5], 
             fill: isCurrent, 
-            tension: 0.3,
+            tension: 0.4,
             pointRadius: isCurrent ? 4 : 0,
             pointBackgroundColor: color,
             order: isCurrent ? 0 : 1
@@ -1645,7 +1757,8 @@ window.loadRankings = async function(distArg) {
         return;
     }
 
-    let html = rankingData.map((item, i) => {
+    const fragment = document.createDocumentFragment();
+    rankingData.forEach((item, i) => {
         const rankLabel = i === 0 ? '1st' : i === 1 ? '2nd' : i === 2 ? '3rd' : `${i+1}th`;
         const color = i === 0 ? 'var(--medal-gold)' : i === 1 ? 'var(--medal-silver)' : i === 2 ? 'var(--medal-bronze)' : 'var(--text-muted)';
         
@@ -1655,39 +1768,38 @@ window.loadRankings = async function(distArg) {
         const s = totSec % 60;
         const timeStr = h > 0 ? `${h}:${m.toString().padStart(2,'0')}:${s.toString().padStart(2,'0')}` : `${m}:${s.toString().padStart(2,'0')}`;
 
-        return `
-        <div class="dash-list-item" onclick="switchTab('analysis'); window.openRide(${JSON.stringify(item.activity).replace(/"/g, '&quot;')})">
+        const div = document.createElement('div');
+        div.className = 'dash-list-item';
+        div.style.cursor = 'pointer';
+        div.innerHTML = `
             <div style="display:flex; align-items:center; gap:16px;">
                 <span style="font-weight:800; color:${color}; width:40px; text-align:center; font-size:1.1rem;">${rankLabel}</span>
                 <div>
-                    <strong style="font-size:1rem; display:block; color:var(--text-main);">${item.activity.fileName}</strong>
+                    <strong style="font-size:1rem; display:block; color:var(--text-main);">${escapeHtml(item.activity.fileName)}</strong>
                     <small class="sub-text">${item.date.toLocaleDateString()} • ${timeStr}</small>
                 </div>
             </div>
             <div style="text-align:right;">
-                <strong style="font-size:1.2rem; color:var(--primary);">${item.speed.toFixed(1)} <small>km/u</small></strong>
+                <strong style="font-size:1.2rem; color:var(--primary);" class="stat-value">${item.speed.toFixed(1)} <small>km/u</small></strong>
             </div>
-        </div>`;
-    }).join('');
+        `;
+        div.addEventListener('click', () => {
+            switchTab('analysis');
+            window.openRide(item.activity);
+        });
+        fragment.appendChild(div);
+    });
+
+    listEl.innerHTML = '';
+    listEl.appendChild(fragment);
 
     if (rankingData.length > 1) {
-        html += `
-        <div class="chart-box margin-top" style="height: 250px; margin-top: 32px; padding: 20px; display: block;">
-            <div class="chart-header" style="margin-bottom: 16px;">
-                <h3 style="font-size: 0.95rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em;">Snelheidsverloop (Chronologisch)</h3>
-            </div>
-            <div class="chart-wrapper" style="position: relative; height: 180px; width: 100%;">
-                <canvas id="segmentProgressionChart"></canvas>
-            </div>
-        </div>`;
-    }
-
-    listEl.innerHTML = html;
-
-    if (rankingData.length > 1) {
+        document.getElementById('segment-progression-container').classList.remove('hidden');
         setTimeout(() => {
             updateTrendChart(rankingData);
         }, 50);
+    } else {
+        document.getElementById('segment-progression-container').classList.add('hidden');
     }
 };
 
@@ -1699,6 +1811,10 @@ function updateTrendChart(data) {
     if(activeCharts['segChart']) activeCharts['segChart'].destroy();
 
     const chronological = [...data].sort((a,b) => a.date - b.date);
+    
+    let gradient = ctx.createLinearGradient(0, 0, 0, 400);
+    gradient.addColorStop(0, 'rgba(16, 185, 129, 0.5)'); 
+    gradient.addColorStop(1, 'rgba(16, 185, 129, 0.0)'); 
 
     activeCharts['segChart'] = new Chart(ctx, {
         type: 'line',
@@ -1708,8 +1824,8 @@ function updateTrendChart(data) {
                 label: 'Snelheid (km/u)',
                 data: chronological.map(d => d.speed),
                 borderColor: '#10B981',
-                backgroundColor: 'rgba(16,185,129,0.1)',
-                tension: 0.3,
+                backgroundColor: gradient,
+                tension: 0.4,
                 fill: true
             }]
         },
@@ -1750,85 +1866,6 @@ window.backToSummary = function() {
     document.getElementById('ride-map-view').classList.add('hidden');
     document.getElementById('ride-summary-dashboard').classList.remove('hidden');
 };
-
-function renderYTDChart(activities) {
-    const ctx = document.getElementById('ytdProgressChart').getContext('2d');
-    if (activeCharts['ytdChart']) activeCharts['ytdChart'].destroy();
-
-    const currentYear = new Date().getFullYear();
-    const yearlyData = {};
-
-    activities.forEach(act => {
-        if (act.summary.type === 'route') return;
-        const d = new Date(act.summary.rideDate);
-        const year = d.getFullYear();
-        if (!yearlyData[year]) { yearlyData[year] = new Array(12).fill(0); }
-    });
-
-    if (!yearlyData[currentYear]) { yearlyData[currentYear] = new Array(12).fill(0); }
-
-    activities.forEach(act => {
-        if (act.summary.type === 'route') return;
-        const d = new Date(act.summary.rideDate);
-        yearlyData[d.getFullYear()][d.getMonth()] += parseFloat(act.summary.distanceKm) || 0;
-    });
-
-    Object.keys(yearlyData).forEach(year => {
-        for (let i = 1; i < 12; i++) { yearlyData[year][i] += yearlyData[year][i - 1]; }
-    });
-
-    const currentMonth = new Date().getMonth();
-    for (let i = currentMonth + 1; i < 12; i++) {
-        yearlyData[currentYear][i] = null;
-    }
-
-    const sortedYears = Object.keys(yearlyData).sort((a, b) => b - a);
-    const pastColors = ['#888888', '#00acc1', '#10B981', '#F59E0B', '#EF4444'];
-
-    const datasets = sortedYears.map((year, index) => {
-        const isCurrent = parseInt(year) === currentYear;
-        const color = isCurrent ? '#FC5200' : (pastColors[index - 1] || '#555555');
-
-        return {
-            label: `Jaar ${year}`,
-            data: yearlyData[year],
-            borderColor: color,
-            backgroundColor: isCurrent ? 'rgba(252, 82, 0, 0.1)' : 'transparent',
-            borderWidth: isCurrent ? 3 : 2,
-            borderDash: isCurrent ? [] : [5, 5], 
-            fill: isCurrent, 
-            tension: 0.3,
-            pointRadius: isCurrent ? 4 : 0, 
-            pointBackgroundColor: color,
-            order: isCurrent ? 0 : 1 
-        };
-    });
-
-    const isDark = document.body.classList.contains('dark-mode');
-    const chartTextColor = isDark ? '#f0f0f0' : '#333333';
-    const chartTextMuted = isDark ? '#aaaaaa' : '#666666';
-    const chartGridColor = isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)';
-
-    activeCharts['ytdChart'] = new Chart(ctx, {
-        type: 'line',
-        data: {
-            labels: ['Jan', 'Feb', 'Mrt', 'Apr', 'Mei', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dec'],
-            datasets: datasets
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: {
-                legend: { position: 'top', labels: { color: chartTextColor, usePointStyle: true, padding: 20 } },
-                tooltip: { mode: 'index', intersect: false, backgroundColor: 'rgba(0, 0, 0, 0.8)', titleColor: '#fff', bodyColor: '#fff' }
-            },
-            scales: {
-                x: { grid: { display: false }, ticks: { color: chartTextMuted } },
-                y: { grid: { color: chartGridColor }, ticks: { color: chartTextMuted } }
-            }
-        }
-    });
-}
 
 window.checkProfileSetup = async function() {
     const profile = await window.supabaseAuth.getProfile();
@@ -1885,14 +1922,24 @@ window.searchCommunity = async function() {
             return;
         }
 
-        resultsContainer.innerHTML = users.map(u => `
-            <div class="dash-list-item" style="align-items:center; cursor:default;">
+        const fragment = document.createDocumentFragment();
+        users.forEach(u => {
+            const div = document.createElement('div');
+            div.className = 'dash-list-item';
+            div.style.alignItems = 'center';
+            div.style.cursor = 'default';
+            div.innerHTML = `
                 <div style="flex:1;">
-                    <strong style="display:block; font-size:1.1rem; color:var(--text-main);">${u.display_name}</strong>
+                    <strong style="display:block; font-size:1.1rem; color:var(--text-main);">${escapeHtml(u.display_name)}</strong>
                 </div>
-                <button class="btn-secondary" onclick="openPublicProfile('${u.id}', '${u.display_name}')">Bekijk Profiel</button>
-            </div>
-        `).join('');
+                <button class="btn-secondary profile-btn">Bekijk Profiel</button>
+            `;
+            div.querySelector('.profile-btn').addEventListener('click', () => openPublicProfile(u.id, u.display_name));
+            fragment.appendChild(div);
+        });
+        
+        resultsContainer.innerHTML = '';
+        resultsContainer.appendChild(fragment);
 
     } catch (e) {
         console.error(e);
@@ -1930,23 +1977,231 @@ window.openPublicProfile = async function(userId, displayName) {
         document.getElementById('public-total-elev').innerHTML = `${Math.round(elev)} <small>m</small>`;
         document.getElementById('public-total-rides').innerHTML = realRides.length;
 
+        const actList = document.getElementById('public-activities-list');
         if (realRides.length === 0) {
-            document.getElementById('public-activities-list').innerHTML = '<p class="empty-state">Nog geen ritten gefietst.</p>';
+            actList.innerHTML = '<p class="empty-state">Nog geen ritten gefietst.</p>';
         } else {
-            document.getElementById('public-activities-list').innerHTML = realRides.map(act => `
-                <div class="dash-list-item" style="cursor: default;">
+            const fragment = document.createDocumentFragment();
+            realRides.forEach(act => {
+                const div = document.createElement('div');
+                div.className = 'dash-list-item';
+                div.style.cursor = 'default';
+                div.innerHTML = `
                     <div style="flex:1; display:flex; justify-content:space-between; align-items:center;">
                         <div style="display:flex; flex-direction:column;">
-                            <strong style="color:var(--text-main); font-weight:600;">${act.file_name}</strong>
+                            <strong style="color:var(--text-main); font-weight:600;">${escapeHtml(act.file_name)}</strong>
                             <small class="sub-text">${new Date(act.ride_date).toLocaleDateString()}</small>
                         </div>
                         <span class="primary-text">${parseFloat(act.summary.distanceKm).toFixed(1)} km</span>
                     </div>
-                </div>
-            `).join('');
+                `;
+                fragment.appendChild(div);
+            });
+            actList.innerHTML = '';
+            actList.appendChild(fragment);
         }
     } catch(e) {
         console.error(e);
         document.getElementById('public-activities-list').innerHTML = '<p class="error-msg">Kon ritten niet inladen.</p>';
+    }
+};
+
+// ============================================================================
+// TERRITORIUM (CONVEX HULL) LOGICA MET TURF.JS
+// ============================================================================
+
+let squadratMap = null;
+let squadratLayerGroup = null;
+
+function initSquadratMap() {
+    if (squadratMap) { 
+        squadratMap.invalidateSize(); 
+        updateSquadratMapTheme(); 
+        return; 
+    }
+    
+    squadratMap = L.map('map-squadrats').setView([51.185, 3.565], 11);
+    updateSquadratMapTheme();
+}
+
+function updateSquadratMapTheme() {
+    if (!squadratMap) return;
+    const tileUrl = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
+    
+    squadratMap.eachLayer(l => {
+        if (l instanceof L.TileLayer) squadratMap.removeLayer(l);
+    });
+    
+    L.tileLayer(tileUrl, { attribution: '© OpenStreetMap' }).addTo(squadratMap).setZIndex(0);
+}
+
+// --- Territorium-hulpfuncties: alleen echte lussen tellen, geen rechte sluitlijnen over tientallen km ---
+function sqDist(a, b) { // a, b = [lng, lat]; resultaat in meter
+    const kx = 111320 * Math.cos(((a[1] + b[1]) / 2) * Math.PI / 180), ky = 110574;
+    return Math.hypot((a[0] - b[0]) * kx, (a[1] - b[1]) * ky);
+}
+function sqCumLen(c) {
+    const cum = [0];
+    for (let i = 1; i < c.length; i++) cum.push(cum[i - 1] + sqDist(c[i - 1], c[i]));
+    return cum;
+}
+// Splits een track bij GPS-sprongen (signaalverlies): anders trekt de rit één rechte lijn over de sprong.
+// Losse foute punten (een "spike" die meteen terugspringt) worden weggelaten zodat de rit heel blijft.
+function sqSplitAtJumps(coords, maxJumpM) {
+    const segs = [];
+    let cur = [coords[0]];
+    for (let i = 1; i < coords.length; i++) {
+        if (sqDist(coords[i - 1], coords[i]) > maxJumpM) { segs.push(cur); cur = []; }
+        cur.push(coords[i]);
+    }
+    segs.push(cur);
+
+    const out = [];
+    for (let k = 0; k < segs.length; k++) {
+        const sg = segs[k];
+        const prev = out.length ? out[out.length - 1] : null;
+        if (sg.length < 4 && prev && k + 1 < segs.length) {
+            // outlier: als het stuk ervoor en erna weer aansluiten, plak ze aan elkaar
+            const next = segs[k + 1];
+            if (sqDist(prev[prev.length - 1], next[0]) <= maxJumpM) {
+                out[out.length - 1] = prev.concat(next);
+                k++;
+                continue;
+            }
+        }
+        if (sg.length >= 4 || !prev) out.push(sg);
+    }
+    return out;
+}
+// Geeft de punten van de lus in deze track terug, of null als er geen lus in zit.
+// Begin en eind moeten dicht bij elkaar liggen (max ~10% van de lengte, tussen 0,5 en 5 km).
+// Zo niet, dan zoeken we het grootste stuk van de rit dat wél terug bij zichzelf uitkomt.
+function sqExtractLoop(c) {
+    const cum = sqCumLen(c);
+    const gapOk = (i, j) => {
+        const L = cum[j] - cum[i];
+        return L > 0 && sqDist(c[i], c[j]) <= Math.min(5000, Math.max(500, L * 0.1));
+    };
+    if (gapOk(0, c.length - 1)) return c;
+
+    const step = Math.max(1, Math.ceil(c.length / 250));
+    let best = null, bestLen = 0;
+    for (let i = 0; i < c.length; i += step) {
+        for (let j = c.length - 1; j > i; j -= step) {
+            const L = cum[j] - cum[i];
+            if (L <= bestLen) break;               // verder naar links kan alleen korter worden
+            if (gapOk(i, j)) { best = [i, j]; bestLen = L; break; }
+        }
+    }
+    return best ? c.slice(best[0], best[1] + 1) : null;
+}
+// Alle gesloten gebieden (turf-polygonen) van één rit
+function sqPolygonsFromTrack(pts) {
+    const coords = [];
+    for (let i = 0; i < pts.length; i += 3) coords.push([pts[i][1], pts[i][0]]);
+    coords.push([pts[pts.length - 1][1], pts[pts.length - 1][0]]);
+
+    const result = [];
+    for (const seg of sqSplitAtJumps(coords, 2000)) {
+        if (seg.length < 10) continue;
+        // ~5 m vereenvoudigen: sneller en minder gekronkel door GPS-ruis
+        let line = turf.simplify(turf.lineString(seg), { tolerance: 0.00005, highQuality: false }).geometry.coordinates;
+        if (line.length < 3) continue;
+        const loop = sqExtractLoop(line);
+        if (!loop || loop.length < 3) continue;
+        // dubbele opeenvolgende punten (pauzes, start == einde) weghalen: turf weigert die
+        const clean = loop.filter((p, i) => i === 0 || p[0] !== loop[i - 1][0] || p[1] !== loop[i - 1][1]);
+        while (clean.length > 1 && clean[clean.length - 1][0] === clean[0][0] && clean[clean.length - 1][1] === clean[0][1]) clean.pop();
+        if (clean.length < 3) continue;
+        const ring = clean.concat([clean[0]]);
+
+        try {
+            // Kruist de track zichzelf (bv. een 8)? Dan splitsen we in aparte lussen en tellen elke lus mee
+            turf.unkinkPolygon(turf.polygon([ring])).features.forEach(p => {
+                const area = turf.area(p);                                  // m²
+                if (area < 100000) return;                                  // < 0,1 km² = heen-en-weer langs dezelfde weg
+                const perim = sqCumLen(p.geometry.coordinates[0]).pop();    // m
+                if (4 * Math.PI * area / (perim * perim) < 0.03) return;    // extreem dunne sliert (heen en terug langs dezelfde weg)
+                result.push(p);
+            });
+        } catch (e) {
+            console.warn("Lus overgeslagen (ongeldige geometrie):", e.message);
+        }
+    }
+    return result;
+}
+
+window.calculateAndDrawSquadrats = async function() {
+    const loader = document.getElementById('squadrat-loading');
+    if(loader) loader.classList.remove('hidden');
+
+    if(squadratLayerGroup) squadratMap.removeLayer(squadratLayerGroup);
+    
+    squadratLayerGroup = L.layerGroup().addTo(squadratMap);
+
+    let acts = allActivitiesCache || await window.supabaseAuth.listActivities();
+    acts = acts.filter(a => a.summary.type !== 'route' && a.summary.distanceKm > 0);
+
+    const user = window.supabaseAuth.getCurrentUser();
+    const cacheKey = `heatmap_data_v2_${user.id}`; 
+    let cached = JSON.parse(localStorage.getItem(cacheKey) || "{}");
+
+    let totalAreaKm2 = 0;
+    let polygonCount = 0;
+
+    document.querySelector('#view-squadrats h2').innerText = "Mijn Territorium";
+    document.querySelector('#view-squadrats .sub-text').innerText = "Elke rit heeft een eigen kleur. Waar ritten overlappen ligt de nieuwste bovenop.";
+    document.querySelectorAll('#view-squadrats .stat-label')[0].innerText = "Veroverde Gebieden";
+
+    // Territorium = alles BINNEN de lussen van je ritten (alleen als begin en eind dicht bij elkaar liggen)
+    // Oudste rit eerst: later getekende lagen liggen bovenop, dus de nieuwste rit blijft altijd zichtbaar
+    acts = [...acts].sort((a, b) => new Date(a.summary.rideDate) - new Date(b.summary.rideDate));
+
+    const rides = [];    // { act, polys } per rit, in volgorde oud -> nieuw
+    const pieces = [];   // alle polygonen, alleen voor de totale oppervlakte
+    let n = 0;
+    for (let act of acts) {
+        const pts = cached[act.id];
+        if (!pts || pts.length <= 10) continue;
+        if (++n % 5 === 0) await new Promise(r => setTimeout(r)); // UI niet laten bevriezen
+
+        try {
+            const polys = sqPolygonsFromTrack(pts);
+            if (polys.length) { rides.push({ act, polys }); pieces.push(...polys); }
+        } catch (e) {
+            console.warn("Kon gebied niet berekenen voor rit:", act.fileName, e);
+        }
+    }
+
+    // Elke rit een eigen kleur (gouden hoek: opeenvolgende ritten krijgen sterk verschillende tinten)
+    rides.forEach((r, i) => {
+        const color = `hsl(${Math.round((i * 137.508) % 360)}, 80%, 48%)`;
+        const label = `${new Date(r.act.summary.rideDate).toLocaleDateString()} • ${Number(r.act.summary.distanceKm).toFixed(1)} km`;
+        L.geoJSON(turf.featureCollection(r.polys), {
+            style: { color, weight: 2, fillColor: color, fillOpacity: 0.55, lineJoin: 'round' },
+            onEachFeature: (f, l) => l.bindTooltip(label, { sticky: true })
+        }).addTo(squadratLayerGroup);
+    });
+
+    // Totale oppervlakte: overlappende gebieden tellen maar één keer
+    let territory = null;
+    for (const p of pieces) {
+        try { territory = territory ? turf.union(territory, p) : p; }
+        catch (e) { console.warn("Samenvoegen mislukt voor een gebied", e); }
+    }
+
+    if (territory) {
+        totalAreaKm2 = turf.area(territory) / 1000000;
+        polygonCount = territory.geometry.type === 'MultiPolygon' ? territory.geometry.coordinates.length : 1;
+    }
+
+    document.getElementById('squadrat-count').innerText = polygonCount;
+    document.getElementById('squadrat-area').innerText = totalAreaKm2.toFixed(1);
+
+    if(loader) loader.classList.add('hidden');
+
+    if (squadratLayerGroup.getLayers().length > 0) {
+        const bounds = L.featureGroup(squadratLayerGroup.getLayers()).getBounds();
+        squadratMap.flyToBounds(bounds, { padding: [40, 40] });
     }
 };

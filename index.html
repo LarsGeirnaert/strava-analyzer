@@ -4,17 +4,35 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <!-- PWA & Theme Configuratie -->
     <title>Strava 3.0 - Dashboard</title>
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#03040B" id="theme-color-meta">
+    <link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/3163/3163198.png">
 
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <!-- Inter voor tekst, Space Grotesk voor cijfers via CSS import -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <link rel="stylesheet" href="style.css">
+
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+
     <script>
+        // Laad het thema voordat de pagina rendert (voorkomt witte flits)
         const savedTheme = localStorage.getItem('theme') || 'classic';
         document.documentElement.setAttribute('data-theme', savedTheme);
+
+        const themeColors = {
+            'classic': '#FFFFFF', 'ocean': '#0F172A', 'gravel': '#1C1917',
+            'cyberpunk': '#03040B', 'stealth': '#000000'
+        };
+        const metaColor = document.getElementById('theme-color-meta');
+        if (metaColor) metaColor.setAttribute('content', themeColors[savedTheme] || '#03040B');
     </script>
 
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -33,12 +51,12 @@
 
             <div class="input-group">
                 <input type="email" id="email" placeholder="Email adres" class="input-text">
-                <span class="input-icon">✉</span>
+                <span class="input-icon"><i data-lucide="mail" style="width:18px; height:18px;"></i></span>
             </div>
 
             <div class="input-group">
                 <input type="password" id="password" placeholder="Wachtwoord" class="input-text">
-                <span class="input-icon">🔒</span>
+                <span class="input-icon"><i data-lucide="lock" style="width:18px; height:18px;"></i></span>
             </div>
 
             <button id="auth-action-btn" class="btn-primary full-width shadow-orange">Inloggen</button>
@@ -58,25 +76,31 @@
         <nav class="main-nav">
             <div class="nav-logo">Strava 3.0</div>
             <div class="nav-items">
-                <button class="nav-btn active" data-target="dashboard">Dashboard</button>
-                <button class="nav-btn" data-target="recap">Mijn Recap</button>
-                <button class="nav-btn" data-target="routes">Route Planner</button>
-                <button class="nav-btn" data-target="analysis">Analyse</button>
-                <button class="nav-btn" data-target="segment-builder">Mijn Segmenten</button>
-                <button class="nav-btn" data-target="rankings">Ranglijsten</button>
-                <button class="nav-btn" data-target="community">Community</button>
-                <button class="nav-btn" data-target="municipalities">Wereld Jager</button>
+                <button class="nav-btn active" data-target="dashboard"><i data-lucide="layout-dashboard"></i><span
+                        class="text">Dashboard</span></button>
+                <button class="nav-btn" data-target="recap"><i data-lucide="bar-chart-2"></i><span class="text">Mijn
+                        Recap</span></button>
+                <button class="nav-btn" data-target="routes"><i data-lucide="map"></i><span class="text">Route
+                        Planner</span></button>
+                <button class="nav-btn" data-target="analysis"><i data-lucide="activity"></i><span
+                        class="text">Analyse</span></button>
+                <button class="nav-btn" data-target="segment-builder"><i data-lucide="route"></i><span class="text">Mijn
+                        Segmenten</span></button>
+                <button class="nav-btn" data-target="rankings"><i data-lucide="medal"></i><span
+                        class="text">Ranglijsten</span></button>
+                <button class="nav-btn" data-target="community"><i data-lucide="users"></i><span
+                        class="text">Community</span></button>
+                <button class="nav-btn" data-target="municipalities"><i data-lucide="globe"></i><span
+                        class="text">Wereld Jager</span></button>
+                <button class="nav-btn" data-target="squadrats"><i data-lucide="grid"></i><span
+                        class="text">Squadrats</span></button>
             </div>
             <div class="nav-footer">
-                <!-- NIEUW: Custom Dropdown Menu -->
                 <div class="custom-theme-selector" id="themeDropdown">
                     <div class="theme-select-header" onclick="toggleThemeDropdown()">
                         <span id="current-theme-icon">☀️</span>
-                        <span id="current-theme-text">Classic Light</span>
-                        <svg class="chevron" viewBox="0 0 24 24" width="16" height="16">
-                            <path d="M6 9l6 6 6-6" stroke="currentColor" fill="none" stroke-width="2"
-                                stroke-linecap="round" stroke-linejoin="round"></path>
-                        </svg>
+                        <span id="current-theme-text" class="text">Classic Light</span>
+                        <i data-lucide="chevron-up" class="chevron text"></i>
                     </div>
                     <ul class="theme-select-options" id="themeOptions">
                         <li onclick="selectTheme('classic', '☀️', 'Classic Light')"><span>☀️</span> Classic Light</li>
@@ -87,7 +111,8 @@
                         <li onclick="selectTheme('stealth', '🦇', 'Stealth Mode')"><span>🦇</span> Stealth Mode</li>
                     </ul>
                 </div>
-                <button id="logout-btn" class="nav-btn danger-text">Uitloggen</button>
+                <button id="logout-btn" class="nav-btn danger-text"><i data-lucide="log-out"></i><span
+                        class="text">Uitloggen</span></button>
             </div>
         </nav>
 
@@ -101,8 +126,8 @@
                     </div>
                     <div class="streak-box">
                         <div class="streak-info">
-                            <strong id="streak-count" class="primary-text"><span class="skeleton skeleton-val"
-                                    style="width: 30px;"></span></strong>
+                            <strong id="streak-count" class="primary-text stat-value"><span
+                                    class="skeleton skeleton-val" style="width: 30px;"></span></strong>
                             <small class="sub-text">Weken Streak</small>
                         </div>
                     </div>
@@ -118,26 +143,28 @@
                             onclick="switchTab('rankings'); switchRankingTab('distance');">
                             <div class="dash-info">
                                 <h3>Totaal Afstand</h3>
-                                <p id="total-dist"><span class="skeleton skeleton-val"></span></p>
+                                <p id="total-dist" class="stat-value"><span class="skeleton skeleton-val"></span></p>
                             </div>
                         </div>
                         <div class="dash-card stat-total pop-in" style="animation-delay: 0.2s;"
                             onclick="switchTab('rankings'); switchRankingTab('elevation');">
                             <div class="dash-info">
                                 <h3>Totaal Hoogte</h3>
-                                <p id="total-elev"><span class="skeleton skeleton-val"></span></p>
+                                <p id="total-elev" class="stat-value"><span class="skeleton skeleton-val"></span></p>
                             </div>
                         </div>
                         <div class="dash-card stat-total pop-in" style="animation-delay: 0.3s;"
                             onclick="switchTab('analysis')">
                             <div class="dash-info">
                                 <h3>Ritten</h3>
-                                <p id="total-rides"><span class="skeleton skeleton-val"></span></p>
+                                <p id="total-rides" class="stat-value"><span class="skeleton skeleton-val"></span></p>
                             </div>
                         </div>
                         <div class="dash-card action-card pop-in" style="animation-delay: 0.4s;"
                             onclick="triggerUpload()">
-                            <h3>+ Uploaden</h3>
+                            <i data-lucide="upload-cloud"
+                                style="width:32px; height:32px; margin: 0 auto 10px auto; color:var(--primary);"></i>
+                            <h3>Uploaden</h3>
                             <small class="sub-text">Sleep of klik hier</small>
                         </div>
                     </div>
@@ -164,11 +191,11 @@
                         <div class="calendar-header">
                             <h3>Fietskalender</h3>
                             <div class="calendar-controls">
-                                <button class="btn-secondary btn-small"
-                                    onclick="changeCalendarMonth(-1)">Vorige</button>
+                                <button class="btn-secondary btn-small" onclick="changeCalendarMonth(-1)"><i
+                                        data-lucide="chevron-left" style="width:16px;height:16px;"></i></button>
                                 <strong id="calendar-month-year">Maand Jaar</strong>
-                                <button class="btn-secondary btn-small"
-                                    onclick="changeCalendarMonth(1)">Volgende</button>
+                                <button class="btn-secondary btn-small" onclick="changeCalendarMonth(1)"><i
+                                        data-lucide="chevron-right" style="width:16px;height:16px;"></i></button>
                             </div>
                         </div>
                         <div id="calendar-grid" class="calendar-grid"></div>
@@ -178,14 +205,19 @@
                         <div class="flex-header margin-bottom">
                             <h3>Activiteiten</h3>
                             <div style="display: flex; gap: 10px;">
-                                <button id="compare-btn" class="btn-primary hidden"
-                                    onclick="compareSelectedRides()">Vergelijk (2)</button>
-                                <button id="delete-btn" class="btn-danger hidden"
-                                    onclick="deleteSelectedRides()">Selectie Verwijderen</button>
+                                <button id="compare-btn" class="btn-primary hidden" onclick="compareSelectedRides()"><i
+                                        data-lucide="git-compare" style="width:16px;height:16px;"></i> Vergelijk
+                                    (2)</button>
+                                <button id="delete-btn" class="btn-danger hidden" onclick="deleteSelectedRides()"><i
+                                        data-lucide="trash-2" style="width:16px;height:16px;"></i> Selectie
+                                    Verwijderen</button>
                             </div>
                         </div>
-                        <input type="text" id="activity-search" class="search-bar margin-bottom"
-                            placeholder="Zoek op naam..." onkeyup="filterActivities()">
+                        <div class="input-group margin-bottom">
+                            <input type="text" id="activity-search" class="search-bar" placeholder="Zoek op naam..."
+                                onkeyup="filterActivities()">
+                            <i data-lucide="search" class="input-icon" style="top:12px;"></i>
+                        </div>
                         <div id="dashboard-list" class="dashboard-list margin-bottom">
                             <div class="skeleton skeleton-list-item"></div>
                             <div class="skeleton skeleton-list-item"></div>
@@ -201,40 +233,44 @@
                 </div>
             </div>
 
+            <!-- Overige weergaven (Compare, Community, Public Profile) -->
             <div id="view-compare" class="view-section hidden">
                 <div class="pad-view limit-width-large">
-                    <button class="btn-secondary margin-bottom" onclick="switchTab('dashboard')">Terug naar
+                    <button class="btn-secondary margin-bottom" onclick="switchTab('dashboard')"><i
+                            data-lucide="arrow-left" style="width:16px;height:16px;margin-right:6px;"></i> Terug naar
                         Dashboard</button>
                     <header class="view-header margin-bottom">
                         <h2>Ritten Vergelijken</h2>
                     </header>
 
                     <div class="dashboard-grid margin-bottom">
-                        <!-- Rit 1 -->
                         <div class="dash-card" style="border-top: 4px solid #FC5200;">
                             <h3 id="comp-name-1">Rit 1</h3>
                             <p class="sub-text margin-bottom" id="comp-date-1">Datum</p>
-                            <div class="stat-row"><span>Afstand:</span> <strong id="comp-dist-1" class="primary-text">0
-                                    km</strong></div>
-                            <div class="stat-row"><span>Tijd:</span> <strong id="comp-time-1">0:00</strong></div>
-                            <div class="stat-row"><span>Gem. Snelheid:</span> <strong id="comp-avg-1">0 km/u</strong>
-                            </div>
-                            <div class="stat-row"><span>Max Snelheid:</span> <strong id="comp-max-1">0 km/u</strong>
-                            </div>
-                            <div class="stat-row"><span>Hoogte:</span> <strong id="comp-elev-1">0 m</strong></div>
+                            <div class="stat-row"><span>Afstand:</span> <strong id="comp-dist-1"
+                                    class="primary-text stat-value">0 km</strong></div>
+                            <div class="stat-row"><span>Tijd:</span> <strong id="comp-time-1"
+                                    class="stat-value">0:00</strong></div>
+                            <div class="stat-row"><span>Gem. Snelheid:</span> <strong id="comp-avg-1"
+                                    class="stat-value">0 km/u</strong></div>
+                            <div class="stat-row"><span>Max Snelheid:</span> <strong id="comp-max-1"
+                                    class="stat-value">0 km/u</strong></div>
+                            <div class="stat-row"><span>Hoogte:</span> <strong id="comp-elev-1" class="stat-value">0
+                                    m</strong></div>
                         </div>
-                        <!-- Rit 2 -->
                         <div class="dash-card" style="border-top: 4px solid #3B82F6;">
                             <h3 id="comp-name-2">Rit 2</h3>
                             <p class="sub-text margin-bottom" id="comp-date-2">Datum</p>
-                            <div class="stat-row"><span>Afstand:</span> <strong id="comp-dist-2"
-                                    style="color: #3B82F6;">0 km</strong></div>
-                            <div class="stat-row"><span>Tijd:</span> <strong id="comp-time-2">0:00</strong></div>
-                            <div class="stat-row"><span>Gem. Snelheid:</span> <strong id="comp-avg-2">0 km/u</strong>
-                            </div>
-                            <div class="stat-row"><span>Max Snelheid:</span> <strong id="comp-max-2">0 km/u</strong>
-                            </div>
-                            <div class="stat-row"><span>Hoogte:</span> <strong id="comp-elev-2">0 m</strong></div>
+                            <div class="stat-row"><span>Afstand:</span> <strong id="comp-dist-2" style="color: #3B82F6;"
+                                    class="stat-value">0 km</strong></div>
+                            <div class="stat-row"><span>Tijd:</span> <strong id="comp-time-2"
+                                    class="stat-value">0:00</strong></div>
+                            <div class="stat-row"><span>Gem. Snelheid:</span> <strong id="comp-avg-2"
+                                    class="stat-value">0 km/u</strong></div>
+                            <div class="stat-row"><span>Max Snelheid:</span> <strong id="comp-max-2"
+                                    class="stat-value">0 km/u</strong></div>
+                            <div class="stat-row"><span>Hoogte:</span> <strong id="comp-elev-2" class="stat-value">0
+                                    m</strong></div>
                         </div>
                     </div>
 
@@ -254,11 +290,12 @@
                         <h2>Community</h2>
                         <p class="sub-text">Zoek andere fietsers en vergelijk statistieken.</p>
                     </header>
-                    <div class="search-row margin-bottom">
+                    <div class="search-row margin-bottom" style="display:flex; gap:10px;">
                         <input type="text" id="community-search" class="search-bar"
                             placeholder="Zoek een fietser op naam..."
                             onkeyup="if(event.key === 'Enter') searchCommunity()">
-                        <button class="btn-primary" onclick="searchCommunity()">Zoeken</button>
+                        <button class="btn-primary" onclick="searchCommunity()"><i data-lucide="search"
+                                style="width:16px;height:16px;"></i></button>
                     </div>
                     <div id="community-results" class="dashboard-list">
                         <div class="empty-state">Typ een naam en druk op zoeken.</div>
@@ -268,7 +305,8 @@
 
             <div id="view-public-profile" class="view-section hidden">
                 <div class="pad-view limit-width">
-                    <button class="btn-secondary margin-bottom" onclick="switchTab('community')">Terug naar
+                    <button class="btn-secondary margin-bottom" onclick="switchTab('community')"><i
+                            data-lucide="arrow-left" style="width:16px;height:16px;margin-right:6px;"></i> Terug naar
                         Zoeken</button>
                     <header class="view-header margin-bottom">
                         <h2 id="public-profile-name">Profiel</h2>
@@ -277,19 +315,22 @@
                         <div class="dash-card stat-total">
                             <div class="dash-info">
                                 <h3>Totaal Afstand</h3>
-                                <p id="public-total-dist"><span class="skeleton skeleton-val"></span></p>
+                                <p id="public-total-dist" class="stat-value"><span class="skeleton skeleton-val"></span>
+                                </p>
                             </div>
                         </div>
                         <div class="dash-card stat-total">
                             <div class="dash-info">
                                 <h3>Totaal Hoogte</h3>
-                                <p id="public-total-elev"><span class="skeleton skeleton-val"></span></p>
+                                <p id="public-total-elev" class="stat-value"><span class="skeleton skeleton-val"></span>
+                                </p>
                             </div>
                         </div>
                         <div class="dash-card stat-total">
                             <div class="dash-info">
                                 <h3>Aantal Ritten</h3>
-                                <p id="public-total-rides"><span class="skeleton skeleton-val"></span></p>
+                                <p id="public-total-rides" class="stat-value"><span
+                                        class="skeleton skeleton-val"></span></p>
                             </div>
                         </div>
                     </div>
@@ -306,7 +347,7 @@
                 <div class="pad-view limit-width-large">
                     <header class="flex-header margin-bottom">
                         <h2>Uitgebreid Overzicht</h2>
-                        <div class="filter-group">
+                        <div class="filter-group" style="display:flex; gap:10px;">
                             <select id="recap-month-select" class="input-select" onchange="updateRecapView()">
                                 <option value="all">Hele Jaar</option>
                                 <option value="0">Januari</option>
@@ -334,33 +375,33 @@
                     <div class="recap-highlight-grid section-spacing">
                         <div class="dash-card highlight-card primary-bg">
                             <h4 id="recap-period-title">Overzicht</h4>
-                            <h1 id="recap-dist">0 km</h1>
+                            <h1 id="recap-dist" class="stat-value">0 km</h1>
                             <div class="highlight-stats">
-                                <span><span id="recap-elev">0</span> m Hoogte</span>
-                                <span><span id="recap-count">0</span> Ritten</span>
+                                <span><span id="recap-elev" class="stat-value">0</span> m Hoogte</span>
+                                <span><span id="recap-count" class="stat-value">0</span> Ritten</span>
                             </div>
                         </div>
                         <div class="dash-card highlight-card">
                             <h4 class="margin-bottom">Hoogtepunten</h4>
                             <div class="stat-list">
                                 <div class="stat-row"><span class="sub-text">Langste Rit:</span> <strong
-                                        id="recap-longest">0 km</strong></div>
+                                        id="recap-longest" class="stat-value">0 km</strong></div>
                                 <div class="stat-row"><span class="sub-text">Hoogste Rit:</span> <strong
-                                        id="recap-highest">0 m</strong></div>
+                                        id="recap-highest" class="stat-value">0 m</strong></div>
                                 <div class="stat-row"><span class="sub-text">Snelste Rit:</span> <strong
-                                        id="recap-fastest">0 km/u</strong></div>
+                                        id="recap-fastest" class="stat-value">0 km/u</strong></div>
                             </div>
                         </div>
                         <div class="dash-card highlight-card">
                             <div class="stat-row margin-bottom">
                                 <strong id="recap-goal-label">Doel Progressie</strong>
-                                <span id="recap-goal-percent" class="primary-text">0%</span>
+                                <span id="recap-goal-percent" class="primary-text stat-value">0%</span>
                             </div>
                             <div class="progress-bar-bg margin-bottom">
                                 <div id="recap-goal-fill" class="progress-bar-fill"></div>
                             </div>
                             <div class="goal-edit sub-text text-right">
-                                Doel: <span id="recap-goal-val" class="font-bold">--</span> km
+                                Doel: <span id="recap-goal-val" class="font-bold stat-value">--</span> km
                             </div>
                         </div>
                     </div>
@@ -389,8 +430,7 @@
                 <div class="analysis-layout">
                     <aside class="inner-sidebar">
                         <h2>Route Planner</h2>
-                        <p class="sub-text margin-bottom">Klik op de kaart om te tekenen. Sleep punten om aan te passen.
-                        </p>
+                        <p class="sub-text margin-bottom">Klik op de kaart om een route te tekenen.</p>
 
                         <div class="stats-grid margin-bottom">
                             <div class="stat-widget">
@@ -409,15 +449,19 @@
 
                         <div class="stat-widget margin-bottom"
                             style="background: rgba(59, 130, 246, 0.1); border-color: #3B82F6;">
-                            <span class="stat-label" id="routeWindLabel" style="color: #3B82F6;">Actuele Wind</span>
+                            <span class="stat-label" id="routeWindLabel" style="color: #3B82F6;"><i data-lucide="wind"
+                                    style="width:14px;height:14px;"></i> Actuele Wind</span>
                             <span class="stat-value" id="routeWindInfo" style="font-size: 1rem;">Teken route voor
                                 weer</span>
                         </div>
 
                         <div class="btn-group margin-bottom">
-                            <button class="btn-secondary" style="flex:1;" onclick="undoLastRoutePoint()">Stap
+                            <button class="btn-secondary" style="flex:1;" onclick="undoLastRoutePoint()"><i
+                                    data-lucide="undo" style="width:16px;height:16px;margin-right:6px;"></i> Stap
                                 Terug</button>
-                            <button class="btn-secondary" style="flex:1;" onclick="clearRoute()">Wis Alles</button>
+                            <button class="btn-secondary" style="flex:1;" onclick="clearRoute()"><i
+                                    data-lucide="trash-2" style="width:16px;height:16px;margin-right:6px;"></i> Wis
+                                Alles</button>
                         </div>
 
                         <input type="text" id="route-name-input" placeholder="Naam van je route..."
@@ -425,8 +469,11 @@
 
                         <div class="btn-group margin-bottom" style="gap: 10px; background: transparent; border: none;">
                             <button id="save-route-btn" class="btn-success" style="flex:2;"
-                                onclick="saveCreatedRoute()">Opslaan in Cloud</button>
-                            <button class="btn-primary" style="flex:1;" onclick="downloadRouteGPX()">GPX</button>
+                                onclick="saveCreatedRoute()"><i data-lucide="cloud-lightning"
+                                    style="width:16px;height:16px;margin-right:6px;"></i> Opslaan in Cloud</button>
+                            <button class="btn-primary" style="flex:1;" onclick="downloadRouteGPX()"><i
+                                    data-lucide="download" style="width:16px;height:16px;margin-right:6px;"></i>
+                                GPX</button>
                         </div>
 
                         <div class="sidebar-divider"></div>
@@ -444,7 +491,6 @@
 
             <div id="view-segment-builder" class="view-section hidden">
                 <div class="analysis-layout">
-
                     <aside class="inner-sidebar">
                         <div class="flex-header margin-bottom">
                             <h2>Mijn Segmenten</h2>
@@ -458,12 +504,11 @@
                                     placeholder="Zoek locatie (bijv. Koppenberg)"
                                     style="padding: 8px 12px; font-size: 0.85rem;"
                                     onkeyup="if(event.key === 'Enter') searchLocationCS()">
-                                <button class="btn-secondary" onclick="searchLocationCS()"
-                                    style="padding: 8px 12px;">🔍</button>
+                                <button class="btn-secondary" onclick="searchLocationCS()" style="padding: 8px 12px;"><i
+                                        data-lucide="search" style="width:16px;height:16px;"></i></button>
                             </div>
                             <label
                                 style="display: flex; align-items: center; gap: 8px; font-size: 0.85rem; cursor: pointer; color: var(--text-muted);">
-                                <!-- FIX: accent-color in plaats van accent-var -->
                                 <input type="checkbox" id="cs-heatmap-toggle" onchange="toggleCSHeatmap(this.checked)"
                                     style="accent-color: var(--primary); cursor: pointer; width: 16px; height: 16px;">
                                 Toon gereden wegen (Heatmap)
@@ -473,15 +518,18 @@
                         <p class="sub-text margin-bottom" id="cs-instruction">1. Klik op de weg om de route te traceren.
                         </p>
 
-                        <!-- Knoppen (met iconen voor ruimte) -->
+                        <!-- Knoppen -->
                         <div class="btn-group margin-bottom"
                             style="display: flex; gap: 6px; background: transparent; border: none;">
                             <button id="btn-draw-cs" class="btn-primary" style="flex:1; padding: 10px 5px;"
-                                onclick="toggleCSDrawing()">✏️ Teken</button>
+                                onclick="toggleCSDrawing()"><i data-lucide="pen-tool"
+                                    style="width:16px;height:16px;margin-right:6px;"></i> Teken</button>
                             <button id="btn-undo-cs" class="btn-secondary hidden" style="flex:1; padding: 10px 5px;"
-                                onclick="undoLastCSPoint()">↺ Terug</button>
+                                onclick="undoLastCSPoint()"><i data-lucide="undo"
+                                    style="width:16px;height:16px;margin-right:6px;"></i> Terug</button>
                             <button id="btn-finish-cs" class="btn-success hidden" style="flex:1; padding: 10px 5px;"
-                                onclick="finishCSDrawing()">🚀 Zoek</button>
+                                onclick="finishCSDrawing()"><i data-lucide="rocket"
+                                    style="width:16px;height:16px;margin-right:6px;"></i> Zoek</button>
                         </div>
 
                         <!-- Compacte Stats -->
@@ -509,18 +557,13 @@
                             <div class="empty-state">Teken eerst een segment.</div>
                         </div>
                     </aside>
-
-
-                    <!-- HET GROTE SCHERM MET DE KAART (RECHTS) -->
                     <main class="inner-main">
                         <div id="map-custom-segments" class="map-container"></div>
                     </main>
-
                 </div>
             </div>
 
             <div id="view-analysis" class="view-section hidden">
-
                 <div id="ride-summary-dashboard" class="ride-summary-container hidden">
                     <div class="summary-header">
                         <h1 id="sum-title">Rit Naam</h1>
@@ -528,17 +571,17 @@
                     </div>
 
                     <div class="summary-stats-grid">
-                        <div class="summary-stat-box"><span class="label">Afstand</span><span class="value"
+                        <div class="summary-stat-box"><span class="label">Afstand</span><span class="value stat-value"
                                 id="sum-dist">0 <small>km</small></span></div>
-                        <div class="summary-stat-box"><span class="label">Tijd</span><span class="value"
+                        <div class="summary-stat-box"><span class="label">Tijd</span><span class="value stat-value"
                                 id="sum-time">0:00</span></div>
-                        <div class="summary-stat-box"><span class="label">Gem. Snelheid</span><span class="value"
-                                id="sum-avg">0 <small>km/u</small></span></div>
-                        <div class="summary-stat-box"><span class="label">Max Snelheid</span><span class="value"
-                                id="sum-max">0 <small>km/u</small></span></div>
-                        <div class="summary-stat-box"><span class="label">Hoogte</span><span class="value"
+                        <div class="summary-stat-box"><span class="label">Gem. Snelheid</span><span
+                                class="value stat-value" id="sum-avg">0 <small>km/u</small></span></div>
+                        <div class="summary-stat-box"><span class="label">Max Snelheid</span><span
+                                class="value stat-value" id="sum-max">0 <small>km/u</small></span></div>
+                        <div class="summary-stat-box"><span class="label">Hoogte</span><span class="value stat-value"
                                 id="sum-elev">0 <small>m</small></span></div>
-                        <div class="summary-stat-box"><span class="label">Vermogen</span><span class="value"
+                        <div class="summary-stat-box"><span class="label">Vermogen</span><span class="value stat-value"
                                 id="sum-power">0 <small>W</small></span></div>
                     </div>
 
@@ -548,19 +591,23 @@
                     <h3 class="summary-section-title">Beste Segmenten</h3>
                     <div id="sum-segments" class="segments-preview-container margin-bottom"></div>
 
-                    <button class="btn-primary btn-large margin-top" onclick="showMapAnalysis()">Open Interactieve Kaart
-                        & Grafieken</button>
+                    <button class="btn-primary btn-large margin-top" onclick="showMapAnalysis()"><i data-lucide="map"
+                            style="width:20px;height:20px;margin-right:8px;"></i> Open Interactieve Kaart &
+                        Grafieken</button>
                 </div>
 
                 <div id="ride-map-view" class="analysis-layout hidden">
                     <aside class="inner-sidebar">
-                        <button class="btn-secondary full-width margin-bottom" onclick="backToSummary()">Terug naar
-                            Overzicht</button>
+                        <button class="btn-secondary full-width margin-bottom" onclick="backToSummary()"><i
+                                data-lucide="arrow-left" style="width:16px;height:16px;margin-right:6px;"></i> Terug
+                            naar Overzicht</button>
 
                         <div class="margin-bottom" style="display: flex; gap: 10px; align-items: center;">
-                            <button id="playback-btn" class="btn-primary" style="flex: 1;" onclick="togglePlayback()">▶
-                                Speel Af</button>
-                            <button class="btn-secondary" style="padding: 0 15px;" onclick="resetPlayback()">⏹</button>
+                            <button id="playback-btn" class="btn-primary" style="flex: 1;" onclick="togglePlayback()"><i
+                                    data-lucide="play" style="width:16px;height:16px;margin-right:6px;"></i> Speel
+                                Af</button>
+                            <button class="btn-secondary" style="padding: 0 15px;" onclick="resetPlayback()"><i
+                                    data-lucide="square" style="width:16px;height:16px;"></i></button>
 
                             <select id="playback-speed" class="input-select" style="width: auto; padding: 6px 10px;"
                                 onchange="changePlaybackSpeed()">
@@ -574,9 +621,12 @@
 
                         <div class="upload-section hidden" id="manual-upload-section">
                             <input type="file" id="gpxInput" multiple class="hidden-input">
-                            <label for="gpxInput" class="btn-secondary full-width margin-bottom">Kies Bestanden</label>
+                            <label for="gpxInput" class="btn-secondary full-width margin-bottom"><i
+                                    data-lucide="file-plus" style="width:16px;height:16px;margin-right:6px;"></i> Kies
+                                Bestanden</label>
                             <input type="file" id="folderInput" webkitdirectory directory multiple class="hidden-input">
-                            <label for="folderInput" class="btn-primary full-width">Map Uploaden</label>
+                            <label for="folderInput" class="btn-primary full-width"><i data-lucide="folder-plus"
+                                    style="width:16px;height:16px;margin-right:6px;"></i> Map Uploaden</label>
                         </div>
 
                         <div class="stats-grid margin-bottom" id="statsPanel">
@@ -595,7 +645,8 @@
                         </div>
 
                         <div id="save-section" class="hidden margin-bottom">
-                            <button id="save-cloud-btn" class="btn-success full-width">Rit Opslaan</button>
+                            <button id="save-cloud-btn" class="btn-success full-width"><i data-lucide="cloud-lightning"
+                                    style="width:16px;height:16px;margin-right:6px;"></i> Rit Opslaan</button>
                         </div>
 
                         <div id="current-segments-section" class="hidden">
@@ -620,7 +671,8 @@
                 <div class="pad-view limit-width-large">
                     <header class="flex-header margin-bottom">
                         <h2>Ranglijsten</h2>
-                        <button id="fix-data-btn" class="btn-secondary" onclick="fixMaxSpeeds()">Fix Data</button>
+                        <button id="fix-data-btn" class="btn-secondary" onclick="fixMaxSpeeds()"><i data-lucide="wrench"
+                                style="width:16px;height:16px;margin-right:6px;"></i> Fix Data</button>
                     </header>
 
                     <div class="sub-nav-container">
@@ -632,7 +684,7 @@
                     </div>
 
                     <div id="rank-tab-segments" class="rank-tab-content">
-                        <div class="filter-controls margin-bottom">
+                        <div class="filter-controls margin-bottom" style="display:flex; gap:10px;">
                             <select id="segmentSelector" class="input-select" onchange="loadRankings()"></select>
 
                             <select id="segmentTopFilter" class="input-select" onchange="loadRankings()">
@@ -730,7 +782,8 @@
                         </div>
                         <div class="world-actions">
                             <button id="world-action-btn" class="btn-primary" onclick="drawHeatmap()">
-                                <span class="icon">🔄</span> Bereken Heatmap
+                                <i data-lucide="refresh-cw" style="width:16px;height:16px;margin-right:6px;"></i>
+                                Bereken Heatmap
                             </button>
                         </div>
                     </header>
@@ -740,6 +793,44 @@
                         <div id="muni-loading" class="map-overlay-loader hidden">
                             <div class="spinner"></div>
                             <p>Data ophalen uit de cloud...</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="view-squadrats" class="view-section hidden">
+                <div class="muni-container">
+                    <header class="pad-view flex-header">
+                        <div>
+                            <h2>Mijn Territorium</h2>
+                            <p class="sub-text">Vloeiende gebieden gebaseerd op je afgesloten ritten.</p>
+                        </div>
+                        <div class="world-actions">
+                            <button id="calc-squadrats-btn" class="btn-primary" onclick="calculateAndDrawSquadrats()">
+                                <i data-lucide="grid" style="width:16px;height:16px;margin-right:6px;"></i> Bereken
+                                Territorium
+                            </button>
+                        </div>
+                    </header>
+
+                    <div class="stats-grid pad-view margin-bottom" style="padding-top: 0; padding-bottom: 0;">
+                        <div class="stat-widget"
+                            style="background: rgba(0, 240, 255, 0.05); border-color: var(--primary);">
+                            <span class="stat-label" style="color: var(--primary);">Veroverde Gebieden</span>
+                            <span class="stat-value" id="squadrat-count">0</span>
+                        </div>
+                        <div class="stat-widget">
+                            <span class="stat-label">Totale Oppervlakte</span>
+                            <span class="stat-value"><span id="squadrat-area">0</span> <small>km²</small></span>
+                        </div>
+                    </div>
+
+                    <div class="map-wrapper" style="flex: 1; min-height: 500px; position: relative; margin-top: 20px;">
+                        <div id="map-squadrats" style="position: absolute; top:0; left:0; width:100%; height:100%;">
+                        </div>
+                        <div id="squadrat-loading" class="map-overlay-loader hidden">
+                            <div class="spinner"></div>
+                            <p>Jouw gebieden berekenen...</p>
                         </div>
                     </div>
                 </div>
@@ -766,7 +857,8 @@
                         value="9">
                 </div>
 
-                <button class="btn-primary full-width" onclick="saveProfileName()">Opslaan & Verder</button>
+                <button class="btn-primary full-width" onclick="saveProfileName()"><i data-lucide="save"
+                        style="width:16px;height:16px;margin-right:6px;"></i> Opslaan & Verder</button>
             </div>
         </div>
     </div>
@@ -776,6 +868,22 @@
     <script src="auth.js"></script>
     <script src="ui.js"></script>
     <script src="app.js"></script>
+
+    <!-- Render Lucide Icons -->
+    <script>
+        lucide.createIcons();
+    </script>
+
+    <!-- PWA Service Worker Registratie -->
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('sw.js')
+                    .then(reg => console.log('Strava 3.0: Service Worker klaar voor gebruik.', reg.scope))
+                    .catch(err => console.warn('Strava 3.0: Service Worker registratie mislukt.', err));
+            });
+        }
+    </script>
 </body>
 
 </html>

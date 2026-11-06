@@ -1,0 +1,17 @@
+{
+  "name": "Strava 3.0",
+  "short_name": "Strava3",
+  "description": "Jouw geavanceerde dashboard en routeplanner voor wielrennen.",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#03040B",
+  "theme_color": "#00F0FF",
+  "icons": [
+    {
+      "src": "https://cdn-icons-png.flaticon.com/512/3163/3163198.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
